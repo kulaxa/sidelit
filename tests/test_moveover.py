@@ -101,7 +101,14 @@ class OldInstall(unittest.TestCase):
         write(root / "proc/4343/cmdline", "python3\0-m\0sidelit\0daemon\0")
         write(root / "proc/self/cmdline", "x\0")
         self.sys = FakeSystem(root / "proc")
+        self.claude_calls, self.claude_fails = [], False
+
+        def claude(*args):  # Claude Code's plugin commands
+            self.claude_calls.append(args)
+            return (1, {"outcome": "failed", "message": "network down"}, "") if self.claude_fails \
+                else (0, {"outcome": "ok"}, "")
         patches = [mock.patch.object(hooks, "SETTINGS", self.settings),
+                   mock.patch.object(hooks, "run_claude", claude),
                    mock.patch.object(hooks, "hook_command", lambda: "/usr/bin/sidelit-hook"),
                    mock.patch.object(chrome, "host_command", lambda: "/usr/bin/sidelit-chrome-host"),
                    mock.patch.object(moveover, "opener_command", lambda: "/usr/bin/sidelit-open")]
@@ -211,16 +218,26 @@ class OldInstall(unittest.TestCase):
         m = self.move()
         self.assertFalse(any("old checkout" in line for line in m.left))
 
-    def test_the_hook_is_swapped_and_yours_stay(self):
+    def test_the_hook_gives_way_to_the_plugin_and_yours_stay(self):
         before = self.settings.read_text()
         self.move()
+        self.assertEqual([c[:2] for c in self.claude_calls], [("marketplace", "add"), ("install", "sidelit@sidelit")])
         data = json.loads(self.settings.read_text())
-        self.assertEqual(data["model"], "opus")
-        self.assertEqual(data["hooks"]["Stop"][0]["hooks"], [THEIRS])
-        self.assertNotIn(OLD, self.settings.read_text())
-        self.assertIn({"hooks": [MINE]}, data["hooks"]["SessionEnd"])
-        self.assertEqual(sorted(hooks.installed()), sorted(hooks.EVENTS))
+        self.assertEqual(data, {"model": "opus", "hooks": {"Stop": [{"hooks": [THEIRS]}],
+                                                           "SessionEnd": [{"hooks": [MINE]}]}})
         self.assertEqual(self.settings.with_name(hooks.BACKUP).read_text(), before)
+
+    def test_the_old_hook_stays_until_the_plugin_is_in(self):
+        before = self.settings.read_text()
+        self.claude_fails = True
+        m = self.move()
+        self.assertFalse(self.ok)  # tried again at the next start
+        self.assertTrue(any("network down" in line for line in m.failed), m.failed)
+        self.assertEqual(self.settings.read_text(), before)
+        self.claude_fails = False
+        self.move()
+        self.assertTrue(self.ok)
+        self.assertNotIn(OLD, self.settings.read_text())
 
     def test_a_settings_file_in_your_dotfiles_stays_a_link_and_private(self):
         real = write(Path(self.tmp.name) / "dotfiles/claude-settings.json", self.settings.read_text())
@@ -233,25 +250,26 @@ class OldInstall(unittest.TestCase):
         self.assertNotIn(OLD, real.read_text())
         self.assertEqual(real.stat().st_mode & 0o777, 0o600)
 
-    def test_a_settings_file_in_a_shape_it_does_not_expect_is_left_alone(self):
-        odd = json.dumps({"hooks": {"Stop": [{"hooks": 5}], "SessionEnd": None,
-                                    "PreToolUse": [{"hooks": [{"command": f"/x/{OLD}-hook"}]}]}})
-        self.settings.write_text(odd)
+    def test_a_settings_file_in_a_shape_it_does_not_expect_keeps_its_shape(self):
+        self.settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": 5}], "SessionEnd": None,
+                                                       "PreToolUse": [{"hooks": [{"command": f"/x/{OLD}-hook"}]}]}}))
         m = MoveOver(self.places, systemctl=self.sys.systemctl, kill=self.sys.kill)
         self.assertTrue(m.traces())
-        self.assertFalse(m.run())  # tried again at the next start
-        self.assertTrue(any("not a list" in line for line in m.failed), m.failed)
-        self.assertEqual(self.settings.read_text(), odd)
+        self.assertTrue(m.run(), m.failed)
+        self.assertEqual(json.loads(self.settings.read_text()), {"hooks": {"Stop": [{"hooks": 5}], "SessionEnd": None}})
+
+    def test_a_settings_file_that_is_not_an_object_is_left_alone(self):
+        self.settings.write_text("[]")
+        m = self.move()
+        self.assertEqual(self.settings.read_text(), "[]")
         self.assertTrue((self.places.new_config / "layout.json").exists())  # the rest went on
 
     def test_a_retry_still_says_what_the_failed_try_left_for_you(self):
-        good = self.settings.read_text()
-        self.settings.write_text(json.dumps({"hooks": {"SessionEnd": None, "Stop": [
-            {"hooks": [{"command": f"/x/{OLD}-hook"}]}]}}))
+        self.claude_fails = True
         first = self.move()
         self.assertFalse(self.ok)
         self.assertTrue(any("chrome://extensions" in line for line in first.left))
-        self.settings.write_text(good)  # you fixed it
+        self.claude_fails = False  # (Claude Code could be reached again)
         second = self.move()
         self.assertTrue(self.ok)
         record = MoveOver(self.places).done_before()

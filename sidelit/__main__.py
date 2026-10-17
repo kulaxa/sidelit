@@ -18,7 +18,7 @@ USAGE = """usage: sidelit <command>
   restore                  start what is missing from the layout now (runs by itself after a login)
   reapply                  put every window back on its workspace and screen
   reload                   re-read config.json
-  hooks install|uninstall|status   the Claude Code hook that reports each session's status
+  hooks install|uninstall|status   Sidelit's Claude Code plugin, which reports each session's status
   chrome install|uninstall|status  the bridge to the Chrome extension (windows and their tabs)
   ws ...                   talk to the compositor directly (list, toplevels, activate N, ...)
   open [--app] URL         open a link on the workspace you are looking at
@@ -29,8 +29,8 @@ USAGE = """usage: sidelit <command>
 def _scrub_claude_env():
     """Drop inherited Claude Code markers. Started from inside a Claude session, they
     would make every claude launched from our terminals think it is a nested child and
-    stop saving transcripts."""
-    for name in [k for k in os.environ if k.startswith("CLAUDE")]:
+    stop saving transcripts. CLAUDE_CONFIG_DIR is yours, not a session's: it stays."""
+    for name in [k for k in os.environ if k.startswith("CLAUDE") and k != "CLAUDE_CONFIG_DIR"]:
         del os.environ[name]
     os.environ.pop("AI_AGENT", None)
 

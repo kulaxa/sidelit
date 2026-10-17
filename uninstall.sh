@@ -2,7 +2,7 @@
 # Remove what install.sh created. ~/.config/sidelit (layout, config) is left alone.
 set -euo pipefail
 "$HOME/.local/bin/sidelit" stop 2>/dev/null || true
-"$HOME/.local/bin/sidelit" hooks uninstall 2>/dev/null || true
+"$HOME/.local/bin/sidelit" hooks uninstall 2>/dev/null || true  # (the Claude Code plugin)
 "$HOME/.local/bin/sidelit" chrome uninstall 2>/dev/null || true
 for name in sidelit sidelit-open sidelit-hook sidelit-chrome-host; do
     rm -f "$HOME/.local/bin/$name"

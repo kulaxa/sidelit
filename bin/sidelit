@@ -11,7 +11,7 @@
 #   sidelit restore          start what is missing from the layout now (runs by itself after a login)
 #   sidelit reapply          put every window back on its workspace and screen
 #   sidelit state|layout     what the daemon sees / keeps, as JSON
-#   sidelit hooks install|uninstall|status   the Claude Code hook (status of every session)
+#   sidelit hooks install|uninstall|status   Sidelit's Claude Code plugin (status of every session)
 #   sidelit chrome install|uninstall|status  the bridge to the Chrome extension
 #   sidelit daemon|sidebar   run one in the foreground (the units do this)
 #   sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N
@@ -58,7 +58,10 @@ export PYTHONPATH
 cd "$root"
 
 # Never pass a Claude Code session environment on (see __main__._scrub_claude_env)
-for v in $(env | sed -n 's/^\(CLAUDE[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+# (CLAUDE_CONFIG_DIR is yours, not a session's: where Claude Code keeps its settings and plugins)
+for v in $(env | sed -n 's/^\(CLAUDE[A-Z0-9_]*\)=.*/\1/p'); do
+    [ "$v" = CLAUDE_CONFIG_DIR ] || unset "$v"
+done
 unset AI_AGENT
 
 rundir="${XDG_RUNTIME_DIR:-/tmp}/sidelit"
@@ -81,7 +84,7 @@ write_session_env() {
              XDG_SEAT XDG_VTNR SSH_AUTH_SOCK GTK_IM_MODULE QT_IM_MODULE XMODIFIERS CLUTTER_IM_MODULE \
              QT_QPA_PLATFORM QT_QPA_PLATFORMTHEME QT_AUTO_SCREEN_SCALE_FACTOR QT_ENABLE_HIGHDPI_SCALING \
              GDK_BACKEND MOZ_ENABLE_WAYLAND _JAVA_AWT_WM_NONREPARENTING XCURSOR_THEME XCURSOR_SIZE \
-             SIDELIT_BACKEND; do
+             SIDELIT_BACKEND CLAUDE_CONFIG_DIR; do
         eval "val=\${$v-}"
         [ -n "$val" ] || continue
         printf '%s="%s"\n' "$v" "$(printf '%s' "$val" | sed 's/\\/\\\\/g; s/"/\\"/g')" >> "$tmp"
@@ -90,10 +93,13 @@ write_session_env() {
 }
 
 # The first start on a machine with this project's old install takes over from it, once
-# (sidelit/moveover.py). Never for a test instance, and never in the way of starting.
+# (sidelit/moveover.py); one where Sidelit 0.5 wrote its hook into Claude Code's settings gets
+# the plugin in its place (sidelit/hooks.py). Never for a test instance, and never in the way of
+# starting.
 move_over() {
     [ -z "${SIDELIT_HOME-}" ] || return 0
     python3 -m sidelit moveover --if-needed || true
+    python3 -m sidelit hooks upgrade || true
 }
 
 # SIDELIT_DRY_RUN and SIDELIT_HOME do not reach the systemd units: started, they would run as

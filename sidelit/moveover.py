@@ -12,8 +12,9 @@ The first `sidelit start` on a machine that ran Claude Workspace takes over from
   has: config (the layout, config.json, other sources, the usage cache), state (the journal)
   and runtime (the hook's session records, the turn checks);
 - `claude-workspace open` in config.json and in the other sources' files becomes `sidelit open`;
-- the old Claude Code hook's entries in ~/.claude/settings.json are swapped for Sidelit's (the
-  file as it was before Sidelit first changed it is kept as settings.json.before-sidelit);
+- Sidelit's Claude Code plugin is installed (hooks.py), and once it is in, the old hook's entries
+  in ~/.claude/settings.json go (the file as it was before Sidelit first changed it is kept as
+  settings.json.before-sidelit);
 - the old Chrome native host is replaced by Sidelit's.
 Then it says what is left for you: files that still name the old command (a shell rc's
 $BROWSER, Terminator's URL handler, the default browser), the old checkout, the extension.
@@ -451,27 +452,30 @@ class MoveOver:
                          lambda f=path, t=new: _write(f, t))
 
     def _swap_hook(self):
+        """The old hook's entries give way to Sidelit's Claude Code plugin; they stay until it is
+        in (a failure here is tried again at the next start)."""
         p = self.places
         if not hooks.present(OLD_HOOK):
             return
         settings = hooks.SETTINGS
         if self.dry:
-            self.did.append(f"{p.show(settings)}: swapped the old hook for Sidelit's")
+            self.did.append(f"installed Sidelit's Claude Code plugin; {p.show(settings)}: removed the old hook")
             return
         try:
-            removed, command = hooks.swap(OLD_HOOK)  # (the first save backs the file up: hooks.BACKUP)
+            hooks.install_plugin()
+        except (ValueError, RuntimeError, OSError) as e:
+            self.failed.append(f"Sidelit's Claude Code plugin: {e}")
+            return
+        self.did.append("installed Sidelit's Claude Code plugin")
+        try:
+            hooks.retire(OLD_HOOK)  # (the first save backs the file up: hooks.BACKUP)
         except (ValueError, RuntimeError) as e:
             self.failed.append(f"{p.show(settings)}: {e}")
             return
-        if command:
-            self.did.append(f"{p.show(settings)}: swapped the old hook for {command} "
-                            f"(the file as it was: {hooks.BACKUP})")
-        else:
-            self.did.append(f"{p.show(settings)}: removed the old hook (the file as it was: {hooks.BACKUP})")
-            self.left.append("Sidelit's hook is not installed: run `sidelit hooks install`")
-        if not self.bridge:  # (the old hook was not a link of ours to point at Sidelit's: a package's)
-            self.left.append("Claude Code sessions that are already running still call the old hook, which is "
-                             "gone: restart them (until then their tabs follow their terminal titles)")
+        self.did.append(f"{p.show(settings)}: removed the old hook (the file as it was: {hooks.BACKUP})")
+        self.left.append("Claude Code sessions that were already running get Sidelit's plugin when you type "
+                         "/reload-plugins in them, or restart them (until then their tabs may follow only "
+                         "their terminal titles)")
 
     def _swap_chrome_host(self):
         p = self.places

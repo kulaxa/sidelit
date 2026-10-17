@@ -18,10 +18,14 @@ that were open come back resumed. You look after agents, not windows.
 
 Other desktops are planned.
 
-**Works with Claude Code.** Sidelit reads what Claude Code already writes (its sessions, their
-titles, their status line) and adds a hook so every session reports what it is doing as it
-happens. Sidelit is an independent project, not made by or affiliated with Anthropic; Claude
-and Claude Code are Anthropic's trademarks.
+**Works with Claude Code.** Sidelit plugs into Claude Code as a plugin, installed with Claude
+Code's own plugin commands: every session reports what it is doing as it happens, and Claude
+Code's own measure of your plan's usage limits comes along for the bars. Beyond that it only
+reads what Claude Code offers for it (its list of running sessions, the titles in its
+transcripts), touches Claude's settings itself only once, to take out the hook Sidelit 0.5 had
+put there, and never touches your login. Sidelit is an
+independent project, not made by or affiliated with Anthropic; Claude and Claude Code are
+Anthropic's trademarks.
 
 ## Install
 
@@ -44,8 +48,8 @@ curl -LO https://github.com/kulaxa/sidelit/releases/latest/download/sidelit-late
 sudo pacman -U ./sidelit-latest-any.pkg.tar.zst
 ```
 
-Then, once, as yourself: `sidelit hooks install` (the Claude Code hook, see below) and, if you
-use Chrome, `sidelit chrome install`. Start it with `sidelit start`; after that it starts at
+Then, once, as yourself: `sidelit hooks install` (Sidelit's Claude Code plugin, see below)
+and, if you use Chrome, `sidelit chrome install`. Start it with `sidelit start`; after that it starts at
 every login.
 
 **From a checkout** (no sudo; the update button pulls it):
@@ -57,7 +61,8 @@ sidelit start
 ```
 
 `install.sh` links `sidelit` into `~/.local/bin`, adds a desktop entry, an autostart entry and
-two systemd user units (the daemon and the sidebar), and installs the hook and the Chrome bridge.
+two systemd user units (the daemon and the sidebar), and installs Sidelit's Claude Code plugin
+and the Chrome bridge.
 `uninstall.sh` takes all of that away again and leaves your layout alone.
 
 Or build the packages yourself: `./package.sh deb` or `./package.sh arch` (into `dist/`).
@@ -99,6 +104,43 @@ once in each Chrome profile:
 profile that had windows, and its first blank window is filled with the first remembered
 window's tabs. Incognito windows are never reported. Chromium, Brave and Edge work the same way.
 
+### The Claude Code plugin
+
+Sidelit's side of Claude Code is an ordinary Claude Code plugin, `sidelit`, in the `plugin`
+folder of the checkout (`/usr/share/sidelit/plugin` for a package); the folder above it is its
+marketplace. `sidelit hooks install` installs it with Claude Code's own commands, for your user:
+
+```bash
+claude plugin marketplace add ~/.local/share/sidelit    # or /usr/share/sidelit
+claude plugin install sidelit@sidelit --scope user
+```
+
+Claude Code keeps track of it from then on (`/plugin` lists it; you can disable it there) and
+loads it in place, so updating Sidelit updates the plugin. Sessions started from then on report
+to Sidelit; one already running does after `/reload-plugins`. `sidelit hooks status` says
+whether it is in, and `sidelit hooks uninstall` takes it out again (and the marketplace).
+
+It carries two things:
+
+- **A hook** (`plugin/hooks/hook.py`, standard library only) for the session's events: start,
+  prompt, tool use (async, so Claude never waits for it), permission requests, notifications,
+  the end of a turn (and a turn that failed), subagents, the session's end. It writes the
+  session's state to `$XDG_RUNTIME_DIR/sidelit/claude/` and nudges the daemon.
+- **A mod** (`plugin/hooks/usage.js`) that writes your plan's usage limits, as Claude Code
+  measures them after each turn, to `$XDG_RUNTIME_DIR/sidelit/usage.json`: for each window how
+  much is used and when it resets, nothing else. Mods need Claude Code 2.1.287 or later;
+  `plugin/tests` has its tests (`claude plugin test plugin`).
+
+Sidelit 0.5 wrote its hook into `~/.claude/settings.json` instead. The first `sidelit start`
+after updating installs the plugin, and once it is in takes those entries out (and only them:
+your own hooks stay, and the file as it was is kept as `settings.json.before-sidelit`).
+
+Removing Sidelit, or going back to 0.5: run `sidelit hooks uninstall` first (`uninstall.sh`
+does it for a checkout), so Claude Code does not keep a plugin whose folder is gone. If the
+package is already removed, the same by hand: `claude plugin uninstall sidelit@sidelit`, then
+`claude plugin marketplace remove sidelit`. Sidelit 0.5's `sidelit hooks install` puts its old
+hook back.
+
 ## How to run
 
 ```bash
@@ -110,7 +152,7 @@ sidelit reapply        # put every window back on its workspace and screen
 sidelit state|layout   # what the daemon sees / keeps, as JSON
 sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N [OUTPUT]
 sidelit open URL       # open a link on the current workspace (see below)
-sidelit hooks install|uninstall|status   # the Claude Code hook
+sidelit hooks install|uninstall|status   # Sidelit's Claude Code plugin
 sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which profiles are connected
 ```
 
@@ -135,16 +177,15 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
 - **Drag** a tab onto another to reorder the workspaces themselves (COSMIC; KWin cannot reorder
   its desktops). **Double-click** (or right-click → Rename) to name a plain workspace; a
   session's title always wins.
-- **Status, straight from the agent.** The Claude Code hook (`sidelit hooks install|uninstall|status`;
-  your other hooks and settings are left alone, and the first install backs
-  `~/.claude/settings.json` up) makes every session report what it is doing as it happens:
-  working, waiting for a permission or an answer, done. That is its main thread; the subagents
-  it runs are counted next to the model (`2 subagents`), and so is a session it started itself,
-  which never takes its tab. It also says which terminal it lives in: by process ancestry for a
-  session the daemon started, else by which window had the keyboard when you submitted a prompt.
-  Only without the hook (or before a session's first event) is the terminal title matched
-  against the running sessions, which cannot tell two sessions with the same title apart. The
-  two tool-call events run async, so the agent never waits for the hook.
+- **Status, straight from the agent.** The hook in Sidelit's Claude Code plugin (above) makes
+  every session report what it is doing as it happens: working, waiting for a permission or an
+  answer, done. That is its main thread; the subagents it runs are counted next to the model
+  (`2 subagents`), and so is a session it started itself, which never takes its tab. It also
+  says which terminal it lives in: by process ancestry for a session the daemon started, else by
+  which window had the keyboard when you submitted a prompt. Only without the plugin (or before a
+  session's first event) is the terminal title matched against Claude Code's list of running
+  sessions (`claude agents --json`, asked every few seconds), which cannot tell two sessions with
+  the same title apart. The two tool-call events run async, so the agent never waits for the hook.
 - **Yellow means the agent needs you.** A tab goes yellow and bold when its session hands back to
   you while you are on another workspace, until you look at it. A finished turn is checked first:
   a model (Sonnet by default) reads its end (what you asked, the last tool calls, what the agent said) and says
@@ -216,8 +257,10 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   search box on top matches titles, windows and directories (Enter opens the first match). Pick
   one and it comes back on a new workspace: its name and directory, its session resumed, its
   terminals, folders and web apps reopened one at a time. The last 100 are kept.
-- **Usage.** Your Claude 5-hour, weekly and per-model limits sit at the bottom, refreshed every
-  five minutes.
+- **Usage.** Your plan's 5-hour and weekly limits sit at the bottom (on a Pro or Max plan), as
+  Claude Code measured them after the last turn of any session, through the plugin's mod. They
+  appear after the first turn, the last ones seen stay through a login, and a window whose reset
+  has passed goes. Sidelit never reads your Claude login for them.
 - **Links open where you are.** `sidelit open URL` looks at the active workspace: a browser
   window there gets focused and receives the tab; if there is none, a new browser window opens
   on this workspace instead of a tab landing in whichever window the browser last used somewhere
@@ -386,9 +429,12 @@ so they never take the daemon's. `backend.py` picks the client for the desktop
 interface (`model.py` has the shapes), and what one cannot do is left out of its `caps`, so the
 sidebar hides those controls.
 
-Session state comes from what Claude Code already writes: `~/.claude/sessions/`,
-`~/.claude/statusline-state/`, the `ai-title` records in transcripts, and the OAuth usage
-endpoint, plus the hook's reports.
+Session state comes from Sidelit's Claude Code plugin (each session's events, and the usage
+limits), from `claude agents --json` (Claude Code's list of running sessions, which its docs
+call the supported way to read session state from outside it) and from the transcripts in
+`~/.claude/projects/` (the session's title and model). Nothing else of Claude Code's is read,
+and nothing of it is written but through its own `claude plugin` commands (apart from taking
+out, once, the hook Sidelit 0.5 had written into `~/.claude/settings.json`).
 
 COSMIC notes: only pinned workspaces have a stable id, workspace `rename` is ignored on COSMIC
 1.0 (names live in the layout), and toplevel → workspace mapping arrives on the compositor's next
@@ -420,8 +466,9 @@ Sidelit is Claude Workspace under a new name. To move over:
      `~/.config/claude-workspace` and `~/.local/state/claude-workspace` into Sidelit's folders,
      never over anything Sidelit already has;
    - changes `claude-workspace open` to `sidelit open` in your config and your sources' files;
-   - swaps Claude Workspace's Claude Code hook in `~/.claude/settings.json` for Sidelit's (the
-     file as it was is kept next to it as `settings.json.before-sidelit`);
+   - installs Sidelit's Claude Code plugin, then takes Claude Workspace's hook out of
+     `~/.claude/settings.json` (the file as it was is kept next to it as
+     `settings.json.before-sidelit`);
    - replaces Claude Workspace's Chrome bridge with Sidelit's.
 
    It ends with a list of what is left for you, and `sidelit why moved_over` shows it again
@@ -435,10 +482,10 @@ Sidelit is Claude Workspace under a new name. To move over:
    - Links: wherever you set `claude-workspace-open` (`$BROWSER` in your shell rc, Terminator's
      `custom_url_handler`, your default browser), put `sidelit-open` instead. Then delete
      `~/.local/bin/claude-workspace-open`.
-   - Claude Code sessions that were already running keep calling the old hook until they end.
-     From a checkout, its link in `~/.local/bin` points at Sidelit's hook until your next login,
-     so they keep reporting. From the old package, its hook is gone: restart them (until then
-     their tabs follow their terminal titles).
+   - Claude Code sessions that were already running get Sidelit's plugin when you type
+     `/reload-plugins` in them, or restart them (until then their tabs may follow only their
+     terminal titles). From a checkout, the old hook's link in `~/.local/bin` points at Sidelit's hook
+     until your next login, for whatever still calls it.
    - Settings in your environment: `CLAUDE_WORKSPACE_*` are now `SIDELIT_*`.
    - The old checkout (`~/.local/share/claude-workspace`) is not used any more: delete it when
      you like. If the old package is still installed, remove it (`sudo apt remove

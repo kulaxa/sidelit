@@ -908,8 +908,8 @@ class Daemon:
         """Like /fork: the conversation so far in a new session, on a workspace of its own."""
         session = params["session"]
         lw, _ = self._lw_for(params)
-        cwd = (lw.cwd if lw else "") or next((s.get("cwd") for s in claude.claude_sessions(claude.proc_table())
-                                              if s.get("sessionId") == session), str(Path.home()))
+        cwd = (lw.cwd if lw else "") or (self.detector.hooked.get(session) or {}).get("cwd") \
+            or next((s.get("cwd") for s in self.detector.sessions if s.get("sessionId") == session), str(Path.home()))
         return self.cmd_new({"cwd": cwd, "after": lw.id if lw else None,
                              "command": claude.shell_command(f"claude --resume {session} --fork-session")})
 

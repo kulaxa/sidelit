@@ -1,6 +1,8 @@
 #!/bin/sh
-# Claude Code hook for Sidelit (see sidelit/hook.py). Standard library only,
-# isolated from PYTHONPATH and the current directory; never fails and never prints.
+# The hook of Sidelit's Claude Code plugin (plugin/hooks/hook.py), for what still calls it by
+# this name: hook entries an older Sidelit wrote into ~/.claude/settings.json, until the
+# move-over takes them out (`sidelit hooks install`). Standard library only, isolated from
+# PYTHONPATH and the current directory; never fails and never prints.
 self=$0
 while [ -L "$self" ]; do
     link=$(readlink "$self")
@@ -8,8 +10,8 @@ while [ -L "$self" ]; do
 done
 prefix=$(cd "$(dirname "$self")/.." && pwd)
 for root in "$prefix" "$prefix/share/sidelit"; do
-    if [ -f "$root/sidelit/hook.py" ]; then
-        exec python3 -I "$root/sidelit/hook.py"
+    if [ -f "$root/plugin/hooks/hook.py" ]; then
+        exec python3 -I "$root/plugin/hooks/hook.py"
     fi
 done
 exit 0

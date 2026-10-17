@@ -22,6 +22,8 @@ optdepends=('claude-code: session titles, status, model line and usage'
 conflicts=('claude-workspace')
 replaces=('claude-workspace')
 source=()
+# after a removal: how to take the Claude Code plugin out of Claude Code
+install=sidelit.install
 
 package() {
     # package.sh owns the installed layout, shared with the debian package

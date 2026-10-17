@@ -1,0 +1,17 @@
+{
+  "name": "sidelit",
+  "owner": {
+    "name": "Mario Jalšovec",
+    "url": "https://github.com/kulaxa"
+  },
+  "metadata": {
+    "description": "Sidelit's Claude Code plugin: each session tells the Sidelit sidebar what it is doing"
+  },
+  "plugins": [
+    {
+      "name": "sidelit",
+      "source": "./plugin",
+      "description": "Tells the Sidelit sidebar what each Claude Code session is doing, and the plan's usage limits"
+    }
+  ]
+}

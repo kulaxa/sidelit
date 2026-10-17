@@ -20,11 +20,12 @@ import os
 import queue
 import re
 import select
-import shutil
 import subprocess
 import threading
 import time
 from pathlib import Path
+
+from sidelit.claude import claude_binary
 
 MODEL = "claude-sonnet-5-5"
 CHECK_TIMEOUT = 45.0  # a check that has to start claude first waits for that too
@@ -227,8 +228,9 @@ class Turns:
             pass
 
     def state(self, sid: str, rec: dict | None, state: str, active: bool, now: float) -> tuple[str, str]:
-        """(state, what it waits on) for a Claude's tab; `state` is what the hook and the
-        session file say, `active` whether you are looking at its workspace."""
+        """(state, what it waits on) for a Claude's tab; `state` is what the hook and Claude
+        Code's list of sessions say (claude.Detector), `active` whether you are looking at its
+        workspace."""
         if state == "busy":
             self.checker.warm()
         turn = float((rec or {}).get("turn_end") or 0)
@@ -307,11 +309,6 @@ class Turns:
 
 
 # ---- the model ----------------------------------------------------------------------------------
-def claude_binary() -> str | None:
-    return shutil.which("claude") or next((str(p) for p in (Path.home() / ".local/bin/claude",
-                                                            Path.home() / ".claude/local/claude") if p.exists()), None)
-
-
 class Checker:
     """Checks turns, each on a thread of its own with a claude of its own, up to PARALLEL at
     once: when several Claudes stop together, the ones after the first do not wait in line

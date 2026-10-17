@@ -24,12 +24,15 @@ from pathlib import Path
 from gi.repository import GLib
 
 from sidelit import config, sources, version as local_version
-from sidelit.claude import CLAUDE_DIR, load_json, login_shell
+from sidelit.claude import load_json, login_shell
 from sidelit.tabstate import Attention, note
 
-CREDENTIALS = CLAUDE_DIR / ".credentials.json"
-USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+# The plan's usage limits as Claude Code measures them after each turn, written by Sidelit's
+# Claude Code plugin (plugin/hooks/usage.js); the last ones seen are kept for after a login
+USAGE_FILE = config.RUNTIME_DIR / "usage.json"
 USAGE_CACHE = config.CONFIG_DIR / "usage-cache.json"
+USAGE_EVERY_S = 15
+USAGE_NAMES = {"five_hour": "Session", "seven_day": "Week", "spend_limit": "Spend limit"}
 # Where releases are published (GitHub releases, see .github/workflows/ci.yml). The version file says what the latest
 # one is, so an update is only ever offered when there is one.
 RELEASES_URL = "https://github.com/kulaxa/sidelit/releases/latest/download"
@@ -64,23 +67,25 @@ def save_json(path: Path, data):
     tmp.replace(path)
 
 
-# ---- usage limits (Claude Code's own usage endpoint) ------------------------
-def usage_rows(data: dict) -> list[tuple[str, float, str | None]]:
-    session, weekly, scoped = [], [], []
-    for limit in data.get("limits", []):
-        percent = limit.get("percent")
-        if percent is None:
+# ---- usage limits (what Claude Code measured, through Sidelit's plugin) ------------------------
+def usage_rows(data, now: datetime | None = None) -> list[tuple[str, float, str | None]]:
+    """(label, percent used, when it resets) for each window in what the plugin wrote: the
+    session's five hours, the week, a gateway's spend limit. A window whose reset has passed is
+    left out (Claude Code drops it too); nothing known, no rows."""
+    now = now or datetime.now(timezone.utc)
+    rows = []
+    limits = data.get("limits") if isinstance(data, dict) else None
+    for limit in limits if isinstance(limits, list) else []:
+        if not isinstance(limit, dict) or not isinstance(limit.get("percentUsed"), (int, float)):
             continue
-        resets = limit.get("resets_at")
-        if limit.get("group") == "session":
-            session.append(("Session", percent, resets))
-        elif limit.get("kind") == "weekly_all":
-            weekly.append(("Week", percent, resets))
-        elif limit.get("group") == "weekly":
-            scope = limit.get("scope") or {}
-            name = (scope.get("model") or {}).get("display_name") or "Scoped"
-            scoped.append((name, percent, resets))
-    return session + weekly + scoped
+        kind, resets = str(limit.get("kind") or ""), limit.get("resetsAt")
+        moment = _parse_stamp(resets)
+        if moment is not None and moment <= now:
+            continue
+        rows.append((USAGE_NAMES.get(kind) or kind.replace("_", " ").capitalize() or "Limit",
+                     float(limit["percentUsed"]), resets if moment is not None else None))
+    order = list(USAGE_NAMES.values())
+    return sorted(rows, key=lambda r: order.index(r[0]) if r[0] in order else len(order))
 
 
 def usage_level(percent: float) -> str | None:
@@ -89,10 +94,10 @@ def usage_level(percent: float) -> str | None:
 
 
 def _parse_stamp(stamp):
-    if not stamp:
+    if not stamp or not isinstance(stamp, str):
         return None
-    try:
-        return datetime.fromisoformat(stamp).astimezone()
+    try:  # (a "Z" for UTC is new to Python 3.11)
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone()
     except ValueError:
         return None
 
@@ -114,14 +119,6 @@ def countdown(stamp) -> str | None:
     if minutes:
         return "%dm %ds" % (minutes, seconds)
     return "%ds" % seconds
-
-
-def fetch_usage() -> list | None:
-    token = json.loads(CREDENTIALS.read_text())["claudeAiOauth"]["accessToken"]
-    request = urllib.request.Request(USAGE_URL, headers={"Authorization": "Bearer " + token,
-                                                         "anthropic-beta": "oauth-2025-04-20"})
-    data = json.loads(urllib.request.urlopen(request, timeout=15).read())
-    return usage_rows(data)
 
 
 def version_tuple(text: str | None):
@@ -306,6 +303,8 @@ class SidebarLogic:
         self._snapshot = None
         self._attention = Attention()
         self._countdowns: list = []  # (label, reset stamp)
+        self._usage_at = None        # when the plugin measured the figures the bars show
+        self._usage_rows = None
         self._footer_until = 0.0
         self._restart_pending = False
         self._restore_hide_at = 0.0
@@ -319,7 +318,7 @@ class SidebarLogic:
     def _start_timers(self):
         GLib.timeout_add_seconds(10, self._tick_countdowns)
         GLib.timeout_add_seconds(3, self._refresh_usage_once)
-        GLib.timeout_add_seconds(300, self._refresh_usage)
+        GLib.timeout_add_seconds(USAGE_EVERY_S, self._refresh_usage)
         GLib.timeout_add_seconds(15, lambda: (self._check_update(), False)[1])
         GLib.timeout_add_seconds(3600, lambda: (self._check_update(), True)[1])
         GLib.timeout_add(1000, self._tick_footer)
@@ -428,24 +427,22 @@ class SidebarLogic:
         return False
 
     def _refresh_usage(self):
-        # the usage endpoint rate-limits; reuse a recent result (e.g. across sidebar restarts)
-        cached = load_json(USAGE_CACHE, None)
-        if isinstance(cached, dict) and datetime.now().timestamp() - cached.get("at", 0) < 240 and cached.get("rows"):
-            GLib.idle_add(self._render_usage, [tuple(r) for r in cached["rows"]])
-            return True
-
-        def worker():
-            try:
-                rows = fetch_usage()
-            except Exception as e:
-                print("usage fetch failed:", e, file=sys.stderr)
-                if isinstance(cached, dict) and cached.get("rows"):
-                    GLib.idle_add(self._render_usage, [tuple(r) for r in cached["rows"]])
-                return
-            if rows:
-                save_json(USAGE_CACHE, {"at": datetime.now().timestamp(), "rows": rows})
-                GLib.idle_add(self._render_usage, rows)
-        threading.Thread(target=worker, daemon=True).start()
+        """The bars from the figures the plugin wrote after the last turn of any session; until
+        one has since a login, the last ones seen (USAGE_CACHE). Bars only for what is known."""
+        data = load_json(USAGE_FILE, None)  # (None too while the plugin is half way through writing it)
+        if isinstance(data, dict) and data.get("limits"):
+            if data.get("at") != self._usage_at:
+                self._usage_at = data.get("at")
+                try:
+                    save_json(USAGE_CACHE, data)
+                except OSError:
+                    pass
+        else:
+            data = load_json(USAGE_CACHE, None)
+        rows = usage_rows(data)
+        if rows != self._usage_rows:
+            self._usage_rows = rows
+            self._render_usage(rows)
         return True
 
     def _tick_countdowns(self):

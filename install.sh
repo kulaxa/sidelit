@@ -45,9 +45,12 @@ for unit in "$repo"/data/systemd/*.service; do
 done
 systemctl --user daemon-reload 2>/dev/null || echo "! systemctl --user is not available; the launcher falls back to background processes"
 
-# every Claude Code session reports its status and window through a hook
-if command -v claude &>/dev/null || [ -d "$HOME/.claude" ]; then
-    "$bindir/sidelit" hooks install | sed 's/^/  /' || echo "  ! the Claude Code hook is not installed (see above); the rest is"
+# every Claude Code session reports its status and window through Sidelit's Claude Code plugin,
+# installed with Claude Code's own `claude plugin` commands
+if command -v claude &>/dev/null; then
+    "$bindir/sidelit" hooks install | sed 's/^/  /' || echo "  ! Sidelit's Claude Code plugin is not installed (see above); the rest is"
+else
+    echo "  once Claude Code is installed: sidelit hooks install (Sidelit's Claude Code plugin)"
 fi
 # Chrome windows and their tabs, through the companion extension
 "$bindir/sidelit" chrome install 2>/dev/null | sed 's/^/  /' || true

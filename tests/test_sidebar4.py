@@ -1,5 +1,6 @@
 """Which sidebar runs (GTK 4 or the GTK 3 fallback), and the shared helpers both draw from.
 Neither needs a display: sidebar4 and sidebar_common import no GTK."""
+import json
 import os
 import sys
 import tempfile
@@ -70,6 +71,50 @@ class CommonTest(unittest.TestCase):
     def test_usage_levels(self):
         self.assertEqual([sidebar_common.usage_level(p) for p in (0, 69, 70, 89, 90, 100)],
                          [None, None, "warn", "warn", "high", "high"])
+
+    def test_usage_bars_are_what_the_plugin_wrote(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
+        data = {"at": 1, "limits": [
+            {"kind": "seven_day", "percentUsed": 41.2, "resetsAt": "2026-10-21T09:00:00Z"},
+            {"kind": "five_hour", "percentUsed": 23.5, "resetsAt": "2026-10-17T15:00:00+00:00"},
+            {"kind": "weekly_opus", "percentUsed": 7},                                         # (one we do not know)
+            {"kind": "spend_limit", "percentUsed": 63, "resetsAt": "2026-10-17T11:00:00Z"},     # its reset has passed
+            {"kind": "five_hour", "percentUsed": "a lot"}, "junk"]}
+        self.assertEqual(sidebar_common.usage_rows(data, now), [
+            ("Session", 23.5, "2026-10-17T15:00:00+00:00"), ("Week", 41.2, "2026-10-21T09:00:00Z"), ("Weekly opus", 7.0, None)])
+        for nothing in (None, {}, {"limits": None}, {"at": 5, "rows": [["Session", 50, None]]}):  # (the old cache)
+            self.assertEqual(sidebar_common.usage_rows(nothing, now), [])
+        self.assertTrue(sidebar_common.countdown("2999-01-01T00:00:00Z"))
+
+    def test_usage_bars_follow_the_file_and_outlast_a_login(self):
+        class Bars(sidebar_common.SidebarLogic):
+            def __init__(self):
+                self._usage_at = self._usage_rows = None
+                self.drawn = []
+
+            def _render_usage(self, rows):
+                self.drawn.append(rows)
+        later = "2999-01-01T00:00:00Z"
+        with tempfile.TemporaryDirectory() as tmp:
+            live, cache = Path(tmp) / "run/usage.json", Path(tmp) / "config/usage-cache.json"
+            with mock.patch.object(sidebar_common, "USAGE_FILE", live), \
+                    mock.patch.object(sidebar_common, "USAGE_CACHE", cache):
+                bars = Bars()
+                bars._refresh_usage()
+                self.assertEqual(bars.drawn, [[]])  # nothing known: no bars
+                live.parent.mkdir()
+                live.write_text(json.dumps({"at": 1, "limits": [{"kind": "five_hour", "percentUsed": 10, "resetsAt": later}]}))
+                bars._refresh_usage()
+                bars._refresh_usage()  # (the same figures: not drawn again)
+                self.assertEqual(bars.drawn[1:], [[("Session", 10.0, later)]])
+                live.write_text('{"at": 2, "limits": [{"kin')  # the plugin half way through writing it
+                bars._refresh_usage()
+                self.assertEqual(len(bars.drawn), 2)
+                live.unlink()  # a new login: no session has measured anything yet
+                fresh = Bars()
+                fresh._refresh_usage()
+                self.assertEqual(fresh.drawn, [[("Session", 10.0, later)]])
 
     def test_closing_asks_only_when_there_are_windows(self):
         self.assertIsNone(sidebar_common.close_question({"windows": []}))

@@ -1,8 +1,9 @@
-"""What Claude Code tells us about its sessions, from the files it already writes.
+"""What Claude Code tells us about its sessions, the ways it offers.
 
-~/.claude/sessions/<pid>.json (live sessions: pid, cwd, sessionId, name, status),
-~/.claude/statusline-state/<sid>.json (recent status-line snapshots: model, cwd), and the
-transcripts under ~/.claude/projects/ (the title Claude shows). Pure file reading.
+Its own list of running sessions, `claude agents --json` (pid, cwd, sessionId, name, status),
+which its docs call the supported way to read session state from outside Claude Code; and the
+transcripts under ~/.claude/projects/, a documented location (the title Claude shows, the
+model). The events of each session come from Sidelit's Claude Code plugin (plugin/hooks/hook.py).
 """
 from __future__ import annotations
 
@@ -10,21 +11,22 @@ import glob
 import json
 import os
 import re
+import shutil
+import subprocess
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
 from sidelit.core.titles import bare_title, looks_like_claude, title_state
 
-CLAUDE_DIR = Path.home() / ".claude"
-SESSIONS = CLAUDE_DIR / "sessions"
+CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 PROJECTS = CLAUDE_DIR / "projects"
-STATUSLINE_STATE = CLAUDE_DIR / "statusline-state"
-SNAPSHOT_MAX_AGE_S = 12 * 3600
+AGENTS_EVERY_S = 10.0  # how often Claude Code is asked for its sessions (it starts a process)
 
-# ~/.claude/sessions/<pid>.json status -> tab state. Claude Code writes busy | shell | idle |
-# waiting; "shell" is what its own UI shows as "1 shell still running" (the turn is over, a
-# background shell is not), "waiting" a permission prompt or question. Everything else is done.
-SESSION_STATE = {"busy": "busy", "shell": "shell", "waiting": "waiting"}
+# `claude agents --json` status -> tab state: "waiting" is a permission prompt or a question,
+# "idle" the turn is over. Everything else is done.
+LIVE_STATE = {"busy": "busy", "waiting": "waiting"}
 
 
 def load_json(path: Path, default):
@@ -87,40 +89,81 @@ def outer_claude(pid: int, table: dict[int, tuple[int, str]]) -> int:
     return 0
 
 
-def claude_sessions(table: dict[int, tuple[int, str]]) -> list[dict]:
-    """Claude sessions that may be on screen: ~/.claude/sessions/<pid>.json for live pids,
-    plus recent status-line snapshots (Claude Code does not always write a sessions file,
-    the status line always runs)."""
-    out: dict[str, dict] = {}
-    if SESSIONS.is_dir():
-        for f in SESSIONS.glob("*.json"):
-            d = load_json(f, None)
-            if not isinstance(d, dict) or not d.get("pid") or not d.get("sessionId"):
-                continue
-            ppid, comm = table.get(int(d["pid"]), (0, ""))
-            if comm != "claude":
-                continue  # stale file
-            if ppid == os.getpid():
-                continue  # our own `claude -p` (turncheck.py), not a session on screen
-            out[d["sessionId"]] = d
-    if STATUSLINE_STATE.is_dir():
-        now_ms = datetime.now().timestamp() * 1000
-        for f in STATUSLINE_STATE.glob("*.json"):
-            d = load_json(f, None)
-            if not isinstance(d, dict) or now_ms - d.get("written_at_ms", 0) > SNAPSHOT_MAX_AGE_S * 1000:
-                continue
-            p = d.get("payload") or {}
-            sid = p.get("session_id")
-            if not sid or sid in out:
-                continue
-            out[sid] = {"sessionId": sid, "cwd": p.get("cwd") or (p.get("workspace") or {}).get("current_dir", ""),
-                        "pid": 0, "name": None, "status": None, "snapshot": True}
-    return list(out.values())
+def claude_binary() -> str | None:
+    return shutil.which("claude") or next((str(p) for p in (Path.home() / ".local/bin/claude", CLAUDE_DIR / "local/claude",
+                                                            Path.home() / ".claude/local/claude") if p.exists()), None)
+
+
+def agents_json() -> list[dict] | None:
+    """Claude Code's list of its running sessions, `claude agents --json`: each with `sessionId`,
+    `pid`, `cwd`, `name`, `kind` (interactive | background) and `status` (busy | waiting | idle).
+    None when it cannot be asked (no claude; one too old to have it)."""
+    binary = claude_binary()
+    if binary is None:
+        return None
+    try:
+        out = subprocess.run([binary, "agents", "--json"], capture_output=True, text=True, timeout=20,
+                             stdin=subprocess.DEVNULL).stdout
+        data = json.loads(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return [d for d in data if isinstance(d, dict)] if isinstance(data, list) else None
+
+
+class AgentsPoller:
+    """Asks `claude agents --json` at most every AGENTS_EVERY_S, on a thread of its own so a
+    daemon step never waits for a process to start; only the first time it waits for the answer
+    (a daemon that just started would otherwise take every session for gone). poll() hands back
+    the latest answer and when it was asked."""
+
+    def __init__(self, fetch=agents_json, every: float = AGENTS_EVERY_S):
+        self.fetch, self.every = fetch, every
+        self.latest: tuple[list[dict], float] = ([], 0.0)
+        self._asked = 0.0
+        self._running = False
+        self._first = True
+
+    def poll(self, now: float) -> tuple[list[dict], float]:
+        if not self._running and now - self._asked >= self.every:
+            self._asked, self._running = now, True
+            if self._first:
+                self._first = False
+                self._ask()
+            else:
+                threading.Thread(target=self._ask, daemon=True).start()
+        return self.latest
+
+    def _ask(self):
+        try:
+            at = time.time()
+            entries = self.fetch()
+            if entries is not None:
+                self.latest = (entries, at)
+        finally:
+            self._running = False
+
+
+def live_sessions(entries: list[dict], table: dict[int, tuple[int, str]]) -> list[dict]:
+    """The sessions of `claude agents --json` that may be on screen: a claude process still runs
+    them, and it is not our own `claude -p` (turncheck.py)."""
+    out = []
+    for d in entries:
+        try:
+            pid = int(d.get("pid") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not pid or not d.get("sessionId"):
+            continue
+        ppid, comm = table.get(pid, (0, ""))
+        if comm != "claude" or ppid == os.getpid():
+            continue  # (gone since it was asked; the turn checker's)
+        out.append(d)
+    return out
 
 
 def live_session_ids(table=None) -> set[str]:
     """Sessions with a running claude process."""
-    return {s["sessionId"] for s in claude_sessions(table or proc_table()) if s.get("pid")}
+    return {s["sessionId"] for s in live_sessions(agents_json() or [], table or proc_table())}
 
 
 _TITLE_CACHE: dict[str, tuple[float, int, str | None, float]] = {}
@@ -221,16 +264,9 @@ def pretty_model(model_id: str) -> str:
 
 
 def session_model(session_id: str | None) -> str | None:
-    """Model a session is on: the status-line snapshot first, else the transcript tail."""
+    """Model a session is on: the last one its transcript names."""
     if not session_id:
         return None
-    snap = load_json(STATUSLINE_STATE / f"{session_id}.json", None)
-    try:
-        name = snap["payload"]["model"]["display_name"]
-        if name:
-            return name
-    except (KeyError, TypeError):
-        pass
     for path in glob.glob(str(PROJECTS / "*" / f"{session_id}.jsonl")):
         try:
             size = os.path.getsize(path)
@@ -280,31 +316,38 @@ BY_PID = 3      # ...or the window's own pid (compositors that report it)
 BY_FOCUS = 2    # you submitted a prompt while that terminal had the keyboard
 BY_TITLE = 1    # the terminal's title is the session's title
 FOCUS_LAG_S = 0.6  # a focus change reaches us a little after it happens
-WOKEN_MAX_S = 300  # Claude's session file alone says it works again for at most this long
+WOKEN_MAX_S = 300  # Claude Code's list alone says it works again for at most this long
 AGENT_QUIET_S = 1800  # a subagent not heard from for this long is taken for gone (its stop lost)
 
 
 class Detector:
     """Which Claude each window shows, and what it is doing.
 
-    Two sources. The Claude Code hook (hook.py, `sidelit hooks install`) reports
-    every session's events as they happen, with the process ancestry the hook ran in:
-    status straight from the events, and the window from launch ancestry or from which
-    window had the keyboard when you submitted a prompt. Without hooks (or for a session
-    started before they were installed), the title Claude puts on its terminal is matched
-    against the live sessions in ~/.claude/sessions and the status read from there.
+    Two sources. The hook of Sidelit's Claude Code plugin (plugin/hooks/hook.py, `sidelit hooks
+    install`) reports every session's events as they happen, with the process ancestry the hook
+    ran in: status straight from the events, and the window from launch ancestry or from which
+    window had the keyboard when you submitted a prompt. Without the plugin (or for a session
+    started before it was installed), the title Claude puts on its terminal is matched against
+    Claude Code's own list of running sessions (`claude agents --json`) and the status read
+    from there.
 
     A tab shows its main thread: subagents, and Claudes another Claude started (its own
     `claude -p`, a test harness), are only counted while they work, and never take its window.
-    Nor does a Claude with no terminal (an app driving it), whose prompts are no one typing."""
+    Nor does a Claude with no terminal (an app driving it), whose prompts are no one typing.
 
-    def __init__(self, hook_dir: Path | None = None, ttl: float = 1.0):
+    `agents(now)` hands back Claude Code's list and when it was asked (AgentsPoller.poll)."""
+
+    def __init__(self, hook_dir: Path | None = None, ttl: float = 1.0, agents=None):
         from sidelit import config
         self.hook_dir = Path(hook_dir) if hook_dir else config.RUNTIME_DIR / "claude"
         self.ttl = ttl
+        self.agents_source = agents or AgentsPoller().poll
         self._at = 0.0
+        self._live_at = 0.0                            # when Claude Code's list was asked
+        self._quiet_at: dict[str, float] = {}          # session -> when the list last said it did not work
+        self._busy_since: dict[str, float] = {}        # session -> since when the list says it works
         self.table: dict = {}
-        self.sessions: list[dict] = []
+        self.sessions: list[dict] = []                 # Claude Code's list: the live ones
         self.index: dict = {}
         self.hooked: dict[str, dict] = {}              # live sessions the hook reports
         self.inner: dict[int, int] = {}                # claude pid -> Claudes it started, working now
@@ -339,9 +382,32 @@ class Detector:
             return
         self._at = now
         self.table = table if table is not None else proc_table()
-        self.sessions = claude_sessions(self.table)
-        self.index = session_title_index(self.sessions)
         self.hooked = self._read_hooks(now)
+        # Claude Code is asked only while a Claude runs (other than the turn checker's)
+        ours = os.getpid()
+        if any(comm == "claude" and ppid != ours for ppid, comm in self.table.values()):
+            entries, at = self.agents_source(now)
+        else:
+            entries, at = [], self._live_at
+        self.sessions = live_sessions(entries, self.table)
+        self.index = session_title_index(self.sessions)
+        if at != self._live_at:
+            self._live_at = at
+            self._note_busy(at)
+
+    def _note_busy(self, at: float):
+        """When Claude Code's list last said each session did not work, and since when it says
+        it works."""
+        listed = {s["sessionId"]: str(s.get("status") or "").lower() == "busy" for s in self.sessions}
+        for seen in (self._quiet_at, self._busy_since):
+            for sid in [s for s in seen if s not in listed]:
+                del seen[sid]
+        for sid, busy in listed.items():
+            if not busy:
+                self._quiet_at[sid] = at
+                self._busy_since.pop(sid, None)
+            else:
+                self._busy_since.setdefault(sid, at)
 
     def _read_hooks(self, now: float) -> dict[str, dict]:
         out: dict[str, dict] = {}
@@ -489,22 +555,24 @@ class Detector:
 
     def _status(self, sid: str) -> str:
         rec = self.hooked.get(sid)
-        sess = next((s for s in self.sessions if s.get("sessionId") == sid and s.get("pid")), None)
-        file_state = SESSION_STATE.get(str(sess.get("status", "")).lower(), "done") if sess else None
+        sess = next((s for s in self.sessions if s.get("sessionId") == sid), None)
+        live_state = LIVE_STATE.get(str(sess.get("status") or "").lower(), "done") if sess else None
         if rec is not None:
             state = rec.get("state") or "done"
-            # the hook cannot see background shells; Claude's own session file can
-            if state == "done" and file_state == "shell":
-                return "shell"
-            # nor a background task waking Claude up again (no prompt, and no event until it
-            # uses a tool or stops): the session file says busy after the hook's last word.
-            # A Claude that works sends events, so after WOKEN_MAX_S without one the file is stale.
-            woke = float(sess.get("statusUpdatedAt") or 0) / 1000 if sess else 0.0
-            if state == "done" and file_state == "busy" and woke > float(rec.get("t") or 0) \
+            # the hook cannot see a background task waking Claude up again (no prompt, and no
+            # event until it uses a tool or stops): Claude Code's list says it did not work after
+            # the hook's last word, and then that it works. (Busy all along is the turn that ended,
+            # still winding down: its other Stop hooks, say.) A Claude that works sends events,
+            # so after WOKEN_MAX_S without one the list's word alone is taken for stale.
+            heard, quiet = float(rec.get("t") or 0), self._quiet_at.get(sid, 0.0)
+            woke = self._busy_since.get(sid, 0.0)
+            if state == "done" and live_state == "busy" and quiet > heard and woke > quiet \
                     and self._at - woke < WOKEN_MAX_S:
                 return "busy"
+            if state == "done" and rec.get("shells"):
+                return "shell"  # (the turn is over; a shell it started is not)
             return state if state in ("busy", "waiting", "done") else "done"
-        return file_state or "done"
+        return live_state or "done"
 
     def agents(self, sid: str) -> int:
         """Subagents of this session working now, and Claudes it started that work."""

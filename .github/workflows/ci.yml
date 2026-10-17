@@ -11,15 +11,29 @@ jobs:
     container: python:3.12-slim
     steps:
       - uses: actions/checkout@v4
-      - run: python -m py_compile sidelit/*.py sidelit/core/*.py
+      - run: python -m py_compile sidelit/*.py sidelit/core/*.py plugin/hooks/*.py
       # the engine against a fake desktop: logout cascades, unplugged screens, login restores
       - run: python -m unittest discover -s tests -v
-      - run: sh -n bin/sidelit bin/sidelit-open bin/sidelit-hook bin/sidelit-chrome-host
+      - run: sh -n bin/sidelit bin/sidelit-open bin/sidelit-hook bin/sidelit-chrome-host debian/sidelit.postrm
       - run: python -m json.tool chrome-extension/manifest.json > /dev/null
-      - run: bash -n install.sh uninstall.sh package.sh PKGBUILD
+      - run: bash -n install.sh uninstall.sh package.sh PKGBUILD sidelit.install
       - run: test "$(cat VERSION)" = "$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md)"
       - run: test "$(cat VERSION)" = "$(sed -n 's/^pkgver=//p' PKGBUILD)"
       - run: test "$(cat VERSION)" = "$(python -c 'import json; print(json.load(open("chrome-extension/manifest.json"))["version"])')"
+      - run: test "$(cat VERSION)" = "$(python -c 'import json; print(json.load(open("plugin/.claude-plugin/plugin.json"))["version"])')"
+
+  plugin:
+    name: Check the Claude Code plugin
+    runs-on: ubuntu-latest
+    container: node:22-slim
+    steps:
+      - uses: actions/checkout@v4
+      # Claude Code's own checks of the marketplace, the plugin and its hooks module, and the
+      # usage mod's tests (plugin/tests); none of them needs a login
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: claude plugin validate .
+      - run: claude plugin validate plugin
+      - run: claude plugin test plugin
 
   # the slim image has no PyGObject: the tests that need GLib and a bus run here, among them the
   # KDE backend against a fake KWin on a private session bus

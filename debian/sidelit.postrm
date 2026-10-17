@@ -1,0 +1,15 @@
+#!/bin/sh
+# Sidelit's Claude Code plugin is registered in each user's Claude Code, from
+# /usr/share/sidelit: a package removal cannot take it out for them, so say how.
+# (package.sh builds the .deb with this file too, less the debhelper line)
+set -e
+case "$1" in
+    remove|purge)
+        echo "Sidelit is removed. Its Claude Code plugin is still listed in Claude Code for each user"
+        echo "who installed it; as that user: claude plugin uninstall sidelit@sidelit; claude plugin marketplace remove sidelit"
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

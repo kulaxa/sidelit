@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Claude Code hook: tells Sidelit what a session is doing, as it happens.
 
-Installed by `sidelit hooks install` for SessionStart, UserPromptSubmit,
-PreToolUse, PostToolUse (these two async: they fire on every tool call), PermissionRequest,
-Notification, Stop, SubagentStart, SubagentStop and SessionEnd. Claude runs it with the
-event as JSON on stdin; it writes the session's state to
-$XDG_RUNTIME_DIR/sidelit/claude/<session>.json (so a daemon restart loses
+Sidelit's Claude Code plugin runs it (hooks.json beside it; `sidelit hooks install` installs
+the plugin) for SessionStart, UserPromptSubmit, PreToolUse, PostToolUse (these two async: they
+fire on every tool call), PermissionRequest, Notification, Stop, StopFailure, SubagentStart,
+SubagentStop and SessionEnd. Claude runs it with the event as JSON on stdin; it writes the
+session's state to $XDG_RUNTIME_DIR/sidelit/claude/<session>.json (so a daemon restart loses
 nothing) and nudges the daemon over its socket.
 
 The state is the main thread's: a subagent's events (they carry its agent_id) only keep
 the list of subagents running, with when each was last heard from, except a permission it asks
-for, which waits for you all the same.
+for, which waits for you all the same. A turn that ends with background shells still running
+is done, and keeps how many (`shells`) until the next event: the daemon shows it as "shell".
 
 It must never slow Claude down or get in its way: standard library only, no output,
 always exit 0, and the nudge gives up after a fraction of a second.
@@ -118,17 +119,21 @@ def main() -> int:
         rec["started"] = now
         rec["source"] = event.get("reason") or event.get("source") or ""
         agents = {}
+    shells = 0
     if name == "Stop" and isinstance(event.get("background_tasks"), list):
         # what Claude says still runs: corrects a SubagentStop we missed (an interrupted agent)
-        running = {str(b.get("id")) for b in event["background_tasks"]
-                   if isinstance(b, dict) and b.get("type") == "subagent" and b.get("status") == "running"}
+        tasks = [b for b in event["background_tasks"] if isinstance(b, dict) and b.get("status") == "running"]
+        running = {str(b.get("id")) for b in tasks if b.get("type") == "subagent"}
+        shells = sum(1 for b in tasks if b.get("type") == "shell")
         agents = {a: t for a, t in agents.items() if a in running}
         for a in running - set(agents):
             agents[a] = now
     rec["agents"] = agents
     # the turn Claude just ended, which the daemon may ask a model about (turncheck.py); any
     # event but the idle reminder means that turn is not what the tab shows any more
-    # With it, Claude's last words: the transcript may not have them yet when the daemon asks
+    # With it, Claude's last words: the transcript may not have them yet when the daemon asks,
+    # and the background shells it left running ("1 shell still running"): one that ends wakes
+    # Claude up again, and that is an event too
     if name == "Stop":
         rec["turn_end"] = now
         said = event.get("last_assistant_message")
@@ -136,9 +141,14 @@ def main() -> int:
             rec["said"] = said[-SAID_MAX:]
         else:
             rec.pop("said", None)
+        if shells:
+            rec["shells"] = shells
+        else:
+            rec.pop("shells", None)
     elif name != "Notification":
         rec.pop("turn_end", None)
         rec.pop("said", None)
+        rec.pop("shells", None)
     if name == "UserPromptSubmit" and not str(event.get("prompt") or "").lstrip().startswith(NOT_TYPED):
         # you just typed into this session's terminal (kept apart: an async tool event
         # writing the record at the same moment must not lose it)
