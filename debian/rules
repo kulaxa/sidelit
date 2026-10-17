@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+# Build with: ./package.sh debian-files && dpkg-buildpackage -us -uc
+# (debian/changelog is generated from VERSION and CHANGELOG.md.)
+
+%:
+	dh $@
+
+# pure python: nothing to compile and no test suite to run here
+override_dh_auto_build:
+override_dh_auto_test:
+
+# package.sh owns the installed layout, so this route and a hand-built .deb
+# cannot drift apart. Docs are left to debhelper.
+override_dh_auto_install:
+	./package.sh stage debian/sidelit --no-docs
+
+override_dh_installchangelogs:
+	dh_installchangelogs CHANGELOG.md

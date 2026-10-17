@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+
+# packaging artifacts, and the packaging files generated from VERSION
+dist/
+debian/changelog
+debian/files
+debian/substvars
+debian/*.substvars
+debian/.debhelper/
+debian/sidelit/
+debian/debhelper-build-stamp
+*.deb
+*.pkg.tar.zst

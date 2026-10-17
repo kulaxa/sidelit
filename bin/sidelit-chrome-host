@@ -1,0 +1,16 @@
+#!/bin/sh
+# Native messaging host for the Sidelit Chrome extension (see
+# sidelit/chromehost.py; registered by `sidelit chrome install`).
+# Standard library only, isolated from PYTHONPATH and the current directory.
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+prefix=$(cd "$(dirname "$self")/.." && pwd)
+for root in "$prefix" "$prefix/share/sidelit"; do
+    if [ -f "$root/sidelit/chromehost.py" ]; then
+        exec python3 -I "$root/sidelit/chromehost.py" "$@"
+    fi
+done
+exit 1

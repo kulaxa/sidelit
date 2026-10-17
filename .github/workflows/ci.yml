@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Check syntax and versions
+    runs-on: ubuntu-latest
+    container: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m py_compile sidelit/*.py sidelit/core/*.py
+      # the engine against a fake desktop: logout cascades, unplugged screens, login restores
+      - run: python -m unittest discover -s tests -v
+      - run: sh -n bin/sidelit bin/sidelit-open bin/sidelit-hook bin/sidelit-chrome-host
+      - run: python -m json.tool chrome-extension/manifest.json > /dev/null
+      - run: bash -n install.sh uninstall.sh package.sh PKGBUILD
+      - run: test "$(cat VERSION)" = "$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md)"
+      - run: test "$(cat VERSION)" = "$(sed -n 's/^pkgver=//p' PKGBUILD)"
+      - run: test "$(cat VERSION)" = "$(python -c 'import json; print(json.load(open("chrome-extension/manifest.json"))["version"])')"
+
+  # the slim image has no PyGObject: the tests that need GLib and a bus run here, among them the
+  # KDE backend against a fake KWin on a private session bus
+  test-glib:
+    name: Tests with GLib and D-Bus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-gi dbus-daemon
+      - run: python3 -m unittest discover -s tests -v
+
+  package:
+    name: Build the .deb
+    runs-on: ubuntu-latest
+    container: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v4
+      # the image is debian, so this exercises the dpkg-deb path of package.sh
+      - run: ./package.sh deb
+      - run: dpkg-deb --info dist/*.deb && dpkg-deb --contents dist/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
+
+  arch:
+    name: Build the Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      # makepkg checks that the dependencies exist and are installed, and will not run as root
+      - run: pacman -Syu --noconfirm --needed base-devel python python-gobject gtk3 gtk-layer-shell systemd
+      - run: |
+          useradd -m builder
+          chown -R builder .
+          su builder -c './package.sh arch'
+      - run: pacman -Qip dist/*.pkg.tar.zst && pacman -Qlp dist/*.pkg.tar.zst
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: dist/*.pkg.tar.zst
+
+  # Bumping VERSION on main is what publishes: reuses the packages built above and cuts the
+  # matching v<version> release. Does nothing when that version is already released.
+  release:
+    name: Publish release
+    needs: [test, test-glib, package, arch]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(cat VERSION)
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version is already released"; exit 0
+          fi
+          # release notes: the top CHANGELOG.md entry, without its heading
+          awk '/^## /{n++} n==1 && !/^## /' CHANGELOG.md > notes.md
+          # fixed names for the README's install lines and the update button
+          cp dist/*.deb dist/sidelit_latest_all.deb
+          cp dist/*.pkg.tar.zst dist/sidelit-latest-any.pkg.tar.zst
+          echo "$version" > dist/sidelit_latest_version.txt
+          gh release create "v$version" --target "$GITHUB_SHA" --title "v$version" --notes-file notes.md --latest \
+            dist/*.deb dist/*.pkg.tar.zst dist/sidelit_latest_version.txt

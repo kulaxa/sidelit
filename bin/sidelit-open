@@ -1,0 +1,5 @@
+#!/bin/sh
+# `sidelit open URL` as a single executable: Terminator's custom_url_handler and
+# $BROWSER both run `<handler> <url>` and leave no room for a subcommand.
+# Resolves its own symlink so the sibling launcher is found in a checkout and in /usr/bin.
+exec "$(dirname "$(readlink -f "$0")")/sidelit" open "$@"

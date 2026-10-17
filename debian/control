@@ -1,0 +1,38 @@
+Source: sidelit
+Section: utils
+Priority: optional
+Maintainer: Mario Jalšovec <78656906+kulaxa@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: sidelit
+Architecture: all
+Homepage: https://github.com/kulaxa/sidelit
+Depends: python3 (>= 3.10),
+ python3-gi,
+ gir1.2-gtk-3.0,
+ gir1.2-gtklayershell-0.1
+Recommends: terminator
+Suggests: cosmic-comp, kwin-wayland, gir1.2-gtk-4.0, gir1.2-gtk4layershell-1.0
+Conflicts: claude-workspace
+Replaces: claude-workspace
+Description: workspace sidebar for COSMIC and KDE Plasma, one tab per workspace
+ Sidelit puts every workspace on the desktop in a sidebar on the left, one tab
+ each, and finds the coding agent session working on it (Claude Code today). An
+ agent's tab shows the session's title, model and directory, turns yellow when
+ the agent needs you, and has a fork button; a plain workspace's tab lists what
+ is open there. Clicking a tab switches to it with the keyboard in the agent's
+ terminal; '+' opens a new workspace with a terminal and 'x' closes everything on
+ one. The bottom of the sidebar shows the usage limits.
+ .
+ A daemon (a systemd user service) keeps the layout: which windows belong on
+ which workspace and screen. Windows you move or close are remembered; windows
+ moved by a screen change, a suspend or a login are put back, and after a login
+ the sessions and windows that were open are started again.
+ .
+ On COSMIC it uses the ext-workspace and cosmic toplevel protocols, through a
+ pure-Python Wayland client in the package; on KDE Plasma 6, KWin's D-Bus
+ interface and a KWin script. Nothing is compiled. The session features need
+ the claude CLI. This package replaces claude-workspace, the project's earlier
+ name.

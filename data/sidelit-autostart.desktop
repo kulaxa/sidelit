@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sidelit
+Comment=A workspace sidebar for COSMIC and KDE Plasma: one tab per workspace, with its agent's status
+Exec=sidelit start
+Terminal=false
+NoDisplay=true
+OnlyShowIn=KDE;COSMIC;
+X-GNOME-Autostart-enabled=true

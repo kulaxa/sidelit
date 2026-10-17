@@ -1,0 +1,23 @@
+[Unit]
+Description=Sidelit: keeps the workspace layout and puts windows back
+Documentation=https://github.com/kulaxa/sidelit
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=120
+StartLimitBurst=10
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/sidelit daemon
+# the few session variables systemd does not have (input method, Qt/GDK settings), written
+# by `sidelit start`, so apps the daemon launches get them too
+EnvironmentFile=-%t/sidelit/session.env
+Restart=always
+# only our own process: what the daemon starts runs in scopes of its own (launch.py), and
+# nothing it ever reopened may die with it
+KillMode=process
+RestartSec=2
+# logs: journalctl --user -u sidelit-daemon
+
+[Install]
+WantedBy=graphical-session.target
