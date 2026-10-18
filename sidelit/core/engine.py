@@ -351,6 +351,10 @@ class Engine:
             self.outputs_changed_at = now
             self.journal("screens", frm=sorted(prev.outputs), to=sorted(obs.outputs))
             self.disturb(OUTPUTS_S, f"screens {sorted(prev.outputs)} -> {sorted(obs.outputs)}", now)
+        if obs.blind:
+            # no screen on: nothing is where it seems, so the layout stays and nothing is started
+            # again (it would open on no screen) until one is back
+            self.disturb(OUTPUTS_S, "no screen on", now)
         if prev is not None:
             for inst in prev.browser_reported.keys() - obs.browser_reported.keys():
                 self._browser_went(inst, now)

@@ -38,7 +38,7 @@ class Act:
                                          focused=tl.focused, space_ids=self.ws.copy_ids_of(tl))
             self._tl[tl.identifier] = tl
         return Obs(spaces=[self._as_space(w) for w in self.ws.list()], windows=windows,
-                   outputs=frozenset(self.ws.output_names()))
+                   outputs=frozenset(self.ws.output_names()), blind=bool(getattr(self.ws, "blind", False)))
 
     def _space(self, index):
         return next((w for w in self.ws.list() if w.index == index), None)

@@ -65,6 +65,9 @@ class Obs:
     # window id -> when it last got the keyboard, as the compositor said so (also for windows that
     # just closed: clicking a close button focuses the window a moment before it goes)
     focused_at: dict[str, float] = field(default_factory=dict)
+    # the compositor shows no screen at all and says nothing of what is where (sway with a
+    # laptop's lid closed and no other screen): what is here is from before, if anything
+    blind: bool = False
 
     def space(self, index: int | None) -> Space | None:
         return next((s for s in self.spaces if s.index == index), None) if index is not None else None

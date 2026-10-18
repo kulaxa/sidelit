@@ -66,8 +66,8 @@ check_x11_desktop() {
     esac
 }
 
-# Sets `desktop` (cosmic, kde, gnome, hyprland, niri, x11), `desktop_name` and `session_name`,
-# or stops with what is wrong.
+# Sets `desktop` (cosmic, kde, gnome, hyprland, niri, sway, x11), `desktop_name` and
+# `session_name`, or stops with what is wrong.
 check_desktop() {
     local current=${XDG_CURRENT_DESKTOP:-}
     if x11_session; then
@@ -78,6 +78,7 @@ check_desktop() {
     # a compositor started by hand may not name itself: its socket variable does
     [ -n "$current" ] || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || current=Hyprland
     [ -n "$current" ] || [ -z "${NIRI_SOCKET:-}" ] || current=niri
+    [ -n "$current" ] || [ -z "${SWAYSOCK:-}" ] || current=sway
     case ":${current^^}:" in
         # Cinnamon's Wayland session has no way yet for an app to see or move other windows
         *:X-CINNAMON:*)
@@ -90,13 +91,14 @@ check_desktop() {
             ;;
         # (these name GNOME too, but run a shell of their own: sidelit/backend.py, NOT_GNOME_SHELL)
         *:BUDGIE:* | *:GNOME-FLASHBACK:* | *:UNITY:* | *:PANTHEON:*)
-            fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME, Hyprland and niri, not on $current." ;;
+            fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME, Hyprland, niri and sway, not on $current." ;;
         # on GNOME, GTK 4 is a required package, and a first install ends with logging out and in
         *:GNOME:*) desktop=gnome desktop_name=GNOME ;;
         *:HYPRLAND:*) desktop=hyprland desktop_name=Hyprland ;;
         *:NIRI:*) desktop=niri desktop_name=niri ;;
-        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME, Hyprland or niri, or Cinnamon, Xfce or MATE on X11)." ;;
-        *) fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME, Hyprland and niri, and on X11 desktops (Cinnamon, Xfce, MATE), not on $current." ;;
+        *:SWAY:*) desktop=sway desktop_name=sway ;;
+        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME, Hyprland, niri or sway, or Cinnamon, Xfce or MATE on X11)." ;;
+        *) fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME, Hyprland, niri and sway, and on X11 desktops (Cinnamon, Xfce, MATE), not on $current." ;;
     esac
     [ "${XDG_SESSION_TYPE:-}" = wayland ] || [ -n "${WAYLAND_DISPLAY:-}" ] ||
         fail "Sidelit needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}: pick the Wayland session at the login screen."
@@ -201,7 +203,7 @@ install_packages() {
         installed "$pkg" || missing+=("$pkg")
     done
     # the terminal Sidelit opens by default, when none it knows is installed (KDE has Konsole,
-    # Hyprland and niri users kitty, foot or Alacritty, Mint, Xfce and MATE their own;
+    # Hyprland, niri and sway users kitty, foot or Alacritty, Mint, Xfce and MATE their own;
     # sidelit/config.py, TERMINALS)
     local term found_term=''
     for term in terminator konsole kgx xterm foot kitty alacritty gnome-terminal xfce4-terminal mate-terminal; do
@@ -335,10 +337,14 @@ main() {
     "$bindir/sidelit" "$action" </dev/null 2>&1 | tee -a "$log" | sed 's/^/  /'
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "Sidelit is installed, but did not start: 'sidelit log' says why."
 
-    local version login=1 hypr=${XDG_CONFIG_HOME:-$HOME/.config}/hypr niri_conf
+    local version login=1 hypr=${XDG_CONFIG_HOME:-$HOME/.config}/hypr niri_conf sway_conf=''
     niri_conf=${NIRI_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl}
+    # (sway reads ~/.sway/config, ~/.config/sway/config, i3's, then /etc/sway/config: it says which)
+    [ "$desktop" != sway ] || sway_conf=$(swaymsg -t get_version 2>/dev/null |
+        python3 -c 'import json, sys; print(json.load(sys.stdin).get("loaded_config_file_name") or "")' 2>/dev/null) || true
+    sway_conf=${sway_conf:-${XDG_CONFIG_HOME:-$HOME/.config}/sway/config}
     version=$(cat "$dir/VERSION")
-    # Hyprland and niri themselves run no autostart entries; a session that runs them (uwsm, or
+    # Hyprland, niri and sway themselves run no autostart entries; a session that runs them (uwsm,
     # niri's own session, start systemd's xdg-desktop-autostart.target) starts Sidelit, else it
     # takes a line in the compositor's config, unless that is there already
     if [ "$desktop" = hyprland ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null &&
@@ -347,6 +353,10 @@ main() {
     fi
     if [ "$desktop" = niri ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null &&
         ! starts_sidelit "$(dirname "$niri_conf")"; then
+        login=''
+    fi
+    if [ "$desktop" = sway ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null &&
+        ! starts_sidelit "$(dirname "$sway_conf")"; then
         login=''
     fi
     if [ -z "$before" ] && [ -z "$login" ]; then
@@ -363,6 +373,13 @@ main() {
     if [ -z "$login" ] && [ "$desktop" = niri ]; then
         echo "  Next: to start Sidelit at every login, add this line to $(tilde "$niri_conf"):"
         echo "    spawn-at-startup \"sidelit\" \"start\""
+    elif [ -z "$login" ] && [ "$desktop" = sway ] && [ "${sway_conf#/etc/}" != "$sway_conf" ]; then
+        echo "  Next: to start Sidelit at every login, copy $sway_conf to ~/.config/sway/config (sway reads"
+        echo "  that one instead from then on) and add this line to it:"
+        echo "    exec sidelit start"
+    elif [ -z "$login" ] && [ "$desktop" = sway ]; then
+        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$sway_conf"):"
+        echo "    exec sidelit start"
     elif [ -z "$login" ] && [ -f "$hypr/hyprland.lua" ]; then
         echo "  Next: to start Sidelit at every login, add this line to $(tilde "$hypr")/hyprland.lua:"
         echo "    hl.on(\"hyprland.start\", function () hl.exec_cmd(\"sidelit start\") end)"

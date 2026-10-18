@@ -1,6 +1,6 @@
 # Sidelit
 
-A sidebar for COSMIC, KDE Plasma, GNOME, Hyprland, niri, Cinnamon, Xfce and MATE where every workspace is a tab, and the coding agent working
+A sidebar for COSMIC, KDE Plasma, GNOME, Hyprland, niri, sway, Cinnamon, Xfce and MATE where every workspace is a tab, and the coding agent working
 on it shows its status there: working, waiting for you, done. Each agent keeps its terminal,
 its browser and whatever else it needs on a workspace of its own, and Sidelit keeps that layout:
 windows go back where they belong after a screen change, a crash or a login, and the sessions
@@ -33,6 +33,14 @@ that were open come back resumed. You look after agents, not windows.
   another screen too. The shortcut on each tab is Mod+1…9 (Super out of the box), shown on the
   tabs of the screen you are on: niri's number keys go to the workspaces of that screen. niri
   runs autostart entries only in its own session: see [On niri](#on-niri).
+- **sway** (checked with 1.12): the tabs are sway's own workspaces, by their numbers (named ones
+  after them). sway drops a workspace once it is empty and you leave it, and has no way to keep
+  one, so Sidelit keeps the ones you work on itself: such a workspace stays a tab while it is
+  empty, and going there, or a window being put there, makes sway create it again under its
+  number. After a login they come back under the same numbers, so Super+3 still takes you to
+  the same one. sway orders workspaces by number, so tabs cannot be dragged. The shortcut on
+  each tab is the key your sway config binds to that workspace (Super+1… out of the box). sway
+  runs no autostart entries by itself: see [On sway](#on-sway) for the one line to add.
 
 And on X11:
 
@@ -69,25 +77,25 @@ or, with wget:
 wget -qO- https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash
 ```
 
-Run it in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME, Hyprland or niri on Wayland;
-Cinnamon, Xfce or MATE on X11). It installs
+Run it in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME, Hyprland, niri or sway on
+Wayland; Cinnamon, Xfce or MATE on X11). It installs
 the few packages Sidelit needs (asking for your password once), puts Sidelit in
 `~/.local/share/sidelit` and starts it; from then on it starts at every login. Run the same line
 again to update. It knows Ubuntu, Linux Mint, Pop!_OS, Debian, Fedora, Arch (and EndeavourOS,
 CachyOS, Manjaro) and openSUSE; what it did is in `~/.cache/sidelit-install.log`, and
 `~/.local/share/sidelit/uninstall.sh` takes it out again. On GNOME, see [On GNOME](#on-gnome)
-for the one thing left after it, on Hyprland, [On Hyprland](#on-hyprland), and on niri,
-[On niri](#on-niri).
+for the one thing left after it, on Hyprland, [On Hyprland](#on-hyprland), on niri,
+[On niri](#on-niri), and on sway, [On sway](#on-sway).
 
 ### Other ways to install
 
-Sidelit needs COSMIC, KDE Plasma 6, GNOME 46 or later, Hyprland or niri, on Wayland, or an X11
+Sidelit needs COSMIC, KDE Plasma 6, GNOME 46 or later, Hyprland, niri or sway, on Wayland, or an X11
 desktop whose window manager keeps the EWMH hints (Cinnamon, Xfce, MATE), Python 3.10 or later
 with GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the layer
 shell; on X11, python-xlib), and the `claude` or `codex` CLI for the session features. Nothing is
 compiled: the Wayland client is pure Python, in the tree, on KDE it talks to KWin over D-Bus, on
 GNOME to its own GNOME Shell extension, which is JavaScript, on Hyprland to Hyprland's own
-sockets, on niri to niri's, and on X11 to the window manager through python-xlib.
+sockets, on niri and sway to theirs, and on X11 to the window manager through python-xlib.
 
 **Ubuntu, Linux Mint, Pop!_OS, Debian:** the .deb from the latest release:
 
@@ -157,6 +165,17 @@ needed):
 
 ```kdl
 spawn-at-startup "sidelit" "start"
+```
+
+### On sway
+
+sway itself runs no autostart entries, so Sidelit starts by itself only when your session runs
+them (some distributions' sway sessions do). Otherwise add one line to your sway config,
+`~/.config/sway/config` (the install line says so when it is needed; with no config of your own
+yet, copy `/etc/sway/config` there first):
+
+```
+exec sidelit start
 ```
 
 ### The GTK 4 sidebar (optional)
@@ -306,9 +325,10 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   from outside, so there its window comes forward. Each tab shows its switch shortcut (COSMIC's
   default Super+1…9, Super+0 for the last; on KDE, the key bound to "Switch to Desktop N"; on
   GNOME, the key bound to "Switch to workspace N"; on Hyprland, the key that goes to that
-  workspace's number; on niri, Mod+1…9 on the tabs of the screen you are on).
-- **`+`** pins a fresh workspace (on KDE, adds a desktop; on Hyprland, the next number; on niri,
-  the empty one at the end of the screen you are on, named) and opens a terminal in your home
+  workspace's number; on niri, Mod+1…9 on the tabs of the screen you are on; on sway, the key
+  your config binds to that workspace).
+- **`+`** pins a fresh workspace (on KDE, adds a desktop; on Hyprland and sway, the next number;
+  on niri, the empty one at the end of the screen you are on, named) and opens a terminal in your home
   directory, or whatever the template you pick says. Start `claude` or `codex` there as usual
   and the tab picks up its title within seconds. Right-click a tab for a new session, in that
   tab's directory, of each agent installed on this computer.
@@ -323,7 +343,7 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   reopen": one click brings it and its windows back.
 - **Drag** a tab onto another to reorder the workspaces themselves (COSMIC, GNOME and niri, where
   a tab dropped among another screen's moves its workspace to that screen; KWin cannot reorder
-  its desktops, and Hyprland orders them by number). **Double-click** (or right-click → Rename) to name a plain workspace; a
+  its desktops, and Hyprland and sway order them by number). **Double-click** (or right-click → Rename) to name a plain workspace; a
   session's title always wins.
 - **Status, straight from the agent.** The hook in Sidelit's plugin (above; for Codex, once you
   have trusted it) makes every session report what it is doing as it happens: working, waiting
@@ -595,13 +615,16 @@ strip at the left edge, counted like the top bar, keeps windows beside it. On Hy
 act) and `.socket2.sock`, whose event lines the daemon watches. On niri, `niri.py` talks to
 niri's socket (`$NIRI_SOCKET`): a JSON request a line (`Workspaces`, `Windows`, `Outputs`, and
 the actions), and a connection of its own asking for the `EventStream`, whose events the daemon
-keeps its picture of the desktop from. On X11, `x11.py` reads the
+keeps its picture of the desktop from. On sway, `sway.py` talks to sway's socket (`$SWAYSOCK`)
+in i3's IPC protocol: requests (`GET_TREE`, `GET_WORKSPACES`, `GET_OUTPUTS`, and commands) on
+one connection, and another one subscribed to its workspace, window and screen events. On X11,
+`x11.py` reads the
 window manager's EWMH hints through python-xlib (desktops, their names and the current one, and
 each window's title, app, process and desktop, all followed as they change) and asks it for
 changes the way a pager does, with client messages to the root window; `xdock.py` makes the
 GTK 3 sidebar a dock on every desktop with `_NET_WM_STRUT_PARTIAL` set. `backend.py` picks
 the client for the desktop (`XDG_CURRENT_DESKTOP`, else the compositor's own socket variable,
-and `XDG_SESSION_TYPE=x11` for X11; `SIDELIT_BACKEND=cosmic|kde|gnome|hyprland|niri|x11` overrides
+and `XDG_SESSION_TYPE=x11` for X11; `SIDELIT_BACKEND=cosmic|kde|gnome|hyprland|niri|sway|x11` overrides
 it): every client has the same interface
 (`model.py` has the shapes), and what one cannot do is left out of its `caps`, so the sidebar
 hides those controls.
@@ -716,6 +739,35 @@ niri notes:
   carries a token for this run of niri: a window after the next login is never taken for one
   from before.
 
+sway notes:
+
+- **Ids.** A workspace's id is its name, written as Hyprland's are: a numbered one's name (`3`,
+  or `3: web`, numbered 3), else `name:` and its name. A new kept workspace gets the number after
+  every one in use; after a login a kept one is asked back under its name.
+- **Keeping one.** sway drops a workspace once it is empty and no screen shows it, and offers no
+  way to keep one. Sidelit keeps the list itself (in `$XDG_RUNTIME_DIR/sidelit/`, for as long
+  as sway runs): a kept workspace that sway dropped stays a tab, with no windows, and comes
+  back under its name when you go to it, when a window that belongs there is put back (after a
+  crash, say) or at a login. sway's own bar shows it only once it is back.
+- **Screens.** Each workspace is on one screen; the tabs go by number, whatever the screen. A
+  workspace goes, windows and all, to the screen most of its open windows were kept on. sway
+  moves an unplugged screen's workspaces onto another one, and back when it returns. A kept
+  workspace that sway dropped comes back on the screen it was on last. With no screen on at all
+  (a laptop's lid closed, no other screen), sway shows no workspace to anyone: Sidelit takes
+  everything to be where it was until a screen is back, and starts nothing again meanwhile. A
+  new workspace's number skips one your config puts on another screen (`workspace 6 output
+  HDMI-A-1`).
+- **Windows.** A sticky window (floating, taken along to every workspace of its screen) and one
+  in the scratchpad belong to none of the tabs.
+- **Renaming.** A workspace you rename in sway (`rename workspace … to …`) is still the same one
+  to Sidelit, kept under its new name. sway compares names in any case, and so does Sidelit.
+- **Shortcuts.** sway does not tell other programs its key bindings, so Sidelit reads them from
+  your config (and the files it includes): a `bindsym` (or `bindcode`) to `workspace number 3`
+  or `workspace 3` puts its keys on that workspace's chip, Super first.
+- **Events.** The daemon follows sway's events. sway drops a client whose events pile up
+  unread; Sidelit then subscribes again and reads everything anew. Window ids carry a token for
+  this run of sway, which numbers them anew at every start.
+
 X11 notes:
 
 - **Ids.** X11 desktops have positions but no ids. Sidelit gives each one an id and keeps the
@@ -803,7 +855,9 @@ the GNOME backend against a fake GNOME Shell with the extension, each on a priva
 (skipped without PyGObject and `dbus-daemon`); the Hyprland backend against a fake Hyprland's
 two sockets, once with a Lua config and once with a classic one; the niri backend against a
 fake niri socket with its event stream (`tests/fake_niri.py`), alone and with the engine
-driving it (`tests/sim_backend.py`: a login, a screen coming back, a rename in niri); the X11
+driving it (`tests/sim_backend.py`: a login, a screen coming back, a rename in niri); the sway
+backend against a fake sway speaking i3's IPC (`tests/fake_sway.py`), alone and with the engine
+driving it (`+`, a login, a crash, a screen coming back, a rename in sway); the X11
 backend against a fake X server with a small window manager in it (`tests/fake_x11.py`). To
 watch the real daemon decide without letting it act, run a second one in dry-run mode on a copy
 of your config:
@@ -823,7 +877,11 @@ login brings a kept workspace back under its number. On a real niri (a session y
 a nested one: niri started inside another session opens as a window), `tests/niri_live.py`
 checks the niri backend and `tests/niri_daemon_live.py` a test daemon, then (`--restore`, in a
 fresh niri) that a login brings a kept workspace back under its name; both need foot. On a real
-X11 window manager (a session you can spare, or Xvfb with xfwm4, Cinnamon, Marco or Openbox),
+sway (a session you can spare, or a headless one: `WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=2
+sway` has two screens), `tests/sway_live.py` checks the sway backend, with two screens also
+moving a workspace between them, and `tests/sway_daemon_live.py` a test daemon, then
+(`--restore`, in a fresh sway) that a login brings a kept workspace back under its number; both
+need foot and swaymsg. On a real X11 window manager (a session you can spare, or Xvfb with xfwm4, Cinnamon, Marco or Openbox),
 `tests/x11_live.py` checks the X11 backend and a test daemon; it needs xterm.
 
 Each agent's adapter is tested against events and answers recorded from the real agent

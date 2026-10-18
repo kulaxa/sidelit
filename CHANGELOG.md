@@ -6,6 +6,11 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- sway: Sidelit runs there too. The tabs are sway's own workspaces, by number; the ones you work
+  on are kept even after sway drops them empty (going there makes them again), and come back
+  under the same numbers after a login. Each tab shows the key your sway config binds to it.
+  Add `exec sidelit start` to `~/.config/sway/config` unless your session runs autostart
+  entries.
 - niri: Sidelit runs there too. The tabs are niri's workspaces, screen by screen; the ones you
   work on are kept by a name (`sidelit-1`, `sidelit-2`…) and come back under it after a login.
   Tabs can be dragged to reorder them, onto another screen too, and show Mod+1…9 on the screen

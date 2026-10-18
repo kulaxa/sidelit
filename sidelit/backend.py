@@ -11,14 +11,15 @@ it: the control is hidden rather than offered as a button that fails.
 - ``gnome``: GNOME, through Sidelit's GNOME Shell extension (gnome.py, gnome-extension/).
 - ``hyprland``: Hyprland, over its IPC sockets (hyprland.py).
 - ``niri``: niri, over its IPC socket (niri.py).
+- ``sway``: sway, over its IPC socket, i3's protocol (sway.py).
 - ``x11``: an X11 session with a window manager that keeps the EWMH hints: Cinnamon (Linux
   Mint), Xfce, MATE, Openbox and the like (x11.py).
 
-The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE, GNOME, Hyprland or
-niri). A compositor started by hand, which may not set it, is known by the socket variable it
-sets (HYPRLAND_INSTANCE_SIGNATURE, NIRI_SOCKET). An X11 session (XDG_SESSION_TYPE=x11) of any
-other desktop gets ``x11``. ``SIDELIT_BACKEND=cosmic``, ``kde``, ``gnome``, ``hyprland``,
-``niri`` or ``x11`` overrides it.
+The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE, GNOME, Hyprland, niri
+or sway). A compositor started by hand, which may not set it, is known by the socket variable
+it sets (HYPRLAND_INSTANCE_SIGNATURE, NIRI_SOCKET, SWAYSOCK). An X11 session
+(XDG_SESSION_TYPE=x11) of any other desktop gets ``x11``. ``SIDELIT_BACKEND=cosmic``, ``kde``,
+``gnome``, ``hyprland``, ``niri``, ``sway`` or ``x11`` overrides it.
 """
 from __future__ import annotations
 
@@ -26,11 +27,12 @@ import os
 import sys
 from typing import Callable
 
-BACKENDS = ("cosmic", "kde", "gnome", "hyprland", "niri", "x11")
+BACKENDS = ("cosmic", "kde", "gnome", "hyprland", "niri", "sway", "x11")
 # desktops that name GNOME in XDG_CURRENT_DESKTOP but do not run GNOME Shell
 NOT_GNOME_SHELL = {"BUDGIE", "GNOME-FLASHBACK", "UNITY", "PANTHEON"}
 # compositors of their own: the name in XDG_CURRENT_DESKTOP, the variable with their socket
-COMPOSITORS = (("HYPRLAND", "HYPRLAND_INSTANCE_SIGNATURE", "hyprland"), ("NIRI", "NIRI_SOCKET", "niri"))
+COMPOSITORS = (("HYPRLAND", "HYPRLAND_INSTANCE_SIGNATURE", "hyprland"), ("NIRI", "NIRI_SOCKET", "niri"),
+               ("SWAY", "SWAYSOCK", "sway"))
 
 
 def chosen(env=None) -> str:
@@ -88,6 +90,9 @@ def open_client(on_change: Callable[[], None] | None = None, primary: bool = Tru
     if chosen() == "niri":
         from sidelit.niri import NiriClient
         return NiriClient(on_change, primary=primary)
+    if chosen() == "sway":
+        from sidelit.sway import SwayClient
+        return SwayClient(on_change, primary=primary)
     if chosen() == "x11":
         from sidelit.x11 import X11Client
         return X11Client(on_change, primary=primary)
@@ -101,7 +106,7 @@ WS_USAGE = """usage: sidelit ws [COMMAND]
   activate N                 switch to workspace N (a number from 1, or a name; Hyprland's own number)
   new NAME                   add a workspace
   rename N NAME
-  pin N | unpin N            (COSMIC, GNOME, Hyprland, niri)
+  pin N | unpin N            (COSMIC, GNOME, Hyprland, niri, sway)
   move A before|after B      put workspace A next to B (COSMIC, GNOME, niri)
   movewin TITLE N [OUTPUT]   put the windows whose title has TITLE on workspace N"""
 

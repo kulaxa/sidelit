@@ -8,7 +8,7 @@ desktopdir="$HOME/.local/share/applications"
 autostartdir="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
 
 fail=0
-# COSMIC, KDE Plasma 6, GNOME, Hyprland or niri on Wayland, or an X11 desktop (Cinnamon, Xfce, MATE):
+# COSMIC, KDE Plasma 6, GNOME, Hyprland, niri or sway on Wayland, or an X11 desktop (Cinnamon, Xfce, MATE):
 # say so now rather than fail at the first start (any desktop the backend picker does not know
 # gets COSMIC's backend)
 desktop=${XDG_CURRENT_DESKTOP:-unknown}
@@ -18,7 +18,7 @@ gnome=0
 # (on X11 any window manager that keeps the EWMH hints will do; the daemon says if this one does not)
 if [[ $backend != x11 ]]; then
     [[ $backend != cosmic || ":$desktop:" == *:COSMIC:* ]] ||
-        echo "! Sidelit runs on COSMIC, KDE Plasma 6, GNOME, Hyprland and niri, and on X11 desktops, not on $desktop: it will not start here"
+        echo "! Sidelit runs on COSMIC, KDE Plasma 6, GNOME, Hyprland, niri and sway, and on X11 desktops, not on $desktop: it will not start here"
     [[ ${XDG_SESSION_TYPE:-} == wayland ]] ||
         echo "! the sidebar needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}"
 fi

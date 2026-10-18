@@ -384,7 +384,8 @@ class Daemon:
         # (a reconnected extension's windows are the last connection's until it reports again)
         reported = {inst: {w["id"] for w in c.get("windows") or []} for inst, c in self.chrome.items() if c.get("reported")}
         return Obs(spaces=spaces, windows=windows, outputs=frozenset(self.ws.output_names()), claude=found,
-                   browser=browser, browser_reported=reported, focused_at=focused_at)
+                   browser=browser, browser_reported=reported, focused_at=focused_at,
+                   blind=bool(getattr(self.ws, "blind", False)))
 
     # ---- Chrome ------------------------------------------------------------------------------
     def _browser_windows(self, windows: dict) -> dict:
