@@ -26,7 +26,7 @@ class Base(unittest.TestCase):
         self.clock = Clock()
         self.log = []
         self.layout = Layout()
-        self.ctx = ad.Ctx(resume_command=lambda s, cwd: f"claude --resume {s}")
+        self.ctx = ad.Ctx(resume_command=lambda s, cwd, agent=None: f"{agent or 'claude'} --resume {s}")
 
     def engine(self, startup=eng.STARTUP_S):
         self.e = Engine(self.layout, self.desk, ctx=self.ctx, journal=lambda k, **f: self.log.append((k, f)),

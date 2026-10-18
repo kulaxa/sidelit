@@ -29,8 +29,9 @@ dist="$repo/dist"
 # /usr/bin/sidelit-open                 `sidelit open URL` for url-handler settings
 # /usr/bin/sidelit-hook                 the plugin's hook by its old name (what Sidelit 0.5 put in settings.json)
 # /usr/bin/sidelit-chrome-host          native host for the Chrome extension (`sidelit chrome install`)
-# /usr/share/sidelit/.claude-plugin/    the marketplace that lists Sidelit's Claude Code plugin
-# /usr/share/sidelit/plugin/            the plugin (`sidelit hooks install` installs it from here)
+# /usr/share/sidelit/.claude-plugin/    the marketplace that lists Sidelit's plugin (Codex reads it too)
+# /usr/share/sidelit/plugin/            the plugin, for Claude Code and Codex (`sidelit hooks install`
+#                                       installs it in each from here)
 # /usr/share/sidelit/chrome-extension/  the Chrome extension, to load unpacked
 # /usr/share/sidelit/sidelit/           the python package + protocol XML
 #                                       (not on sys.path; the launcher sets PYTHONPATH)
@@ -50,7 +51,7 @@ stage() {
     local shellext="$dest/usr/share/gnome-shell/extensions/$gnome_uuid"
 
     install -d "$dest/usr/bin" "$py/protocols" "$py/core" "$dest/usr/share/$pkgname/chrome-extension" \
-        "$dest/usr/share/$pkgname/.claude-plugin" "$plugin/.claude-plugin" "$plugin/hooks" \
+        "$dest/usr/share/$pkgname/.claude-plugin" "$plugin/.claude-plugin" "$plugin/.codex-plugin" "$plugin/hooks" \
         "$dest/usr/share/applications" "$dest/etc/xdg/autostart" "$dest/usr/lib/systemd/user" "$shellext"
     local name
     for name in sidelit sidelit-open sidelit-hook sidelit-chrome-host; do
@@ -58,7 +59,8 @@ stage() {
     done
     install -m 644 "$repo/.claude-plugin/marketplace.json" "$dest/usr/share/$pkgname/.claude-plugin/"
     install -m 644 "$repo/plugin/.claude-plugin/plugin.json" "$plugin/.claude-plugin/"
-    install -m 644 "$repo/plugin/hooks/hooks.json" "$repo/plugin/hooks/usage.js" "$plugin/hooks/"
+    install -m 644 "$repo/plugin/.codex-plugin/plugin.json" "$plugin/.codex-plugin/"
+    install -m 644 "$repo/plugin/hooks/hooks.json" "$repo/plugin/hooks/codex.json" "$repo/plugin/hooks/usage.js" "$plugin/hooks/"
     install -m 755 "$repo/plugin/hooks/hook.py" "$plugin/hooks/"
     install -m 644 "$repo"/chrome-extension/* "$dest/usr/share/$pkgname/chrome-extension/"
     install -m 644 "$repo"/gnome-extension/*.js "$repo"/gnome-extension/metadata.json "$shellext/"

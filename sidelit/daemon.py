@@ -9,14 +9,19 @@ it down; systemd restarts it if anything else does. It:
   closes that have not stood long enough (a logout closes apps one by one),
 - serves the sidebar and the CLI on a unix socket (ipc.py): a state push on every
   change, and commands for everything that changes the layout,
-- reports this desktop's Claudes to the other sources that ask for them (sources.py).
+- reports this desktop's Claudes to the other sources that ask for them (sources.py),
+- asks the agents that offer their plan's usage limits for them (agents.py: polls_usage) and
+  writes them where the sidebar's bars read them.
+The coding agents (Claude Code, Codex) it only knows through their adapters (agents.py).
 """
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -26,7 +31,8 @@ gi.require_version("GLib", "2.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
-from sidelit import chrome, claude, config, crashes, ipc, launch, panes, session, sources, turncheck, version  # noqa: E402
+from sidelit import agents, chrome, claude, config, crashes, detect, ipc, launch, panes, session, sources, turncheck, version  # noqa: E402
+from sidelit.procs import load_json, shell_command  # noqa: E402
 from sidelit.tabstate import Attention  # noqa: E402
 from sidelit.backend import open_client  # noqa: E402
 from sidelit.core import adapters as ad  # noqa: E402
@@ -44,6 +50,9 @@ SAVE_DEBOUNCE_MS = 1500
 FOCUS_AFTER_SWITCH_MS = 350
 CHROME_START_S = 30     # after starting a browser for a profile, wait this long for its extension
 CLOSE_WAIT_S = 30       # a closed workspace on KDE goes once its windows have, if they do by then
+USAGE_EVERY_S = 300     # an agent's usage limits are asked for this often (polls_usage)...
+USAGE_AFTER_TURN_S = 60  # ...and again once one of its turns has ended, at most this often
+USAGE_FAILED_S = 1800   # (not logged in, say: asked again after this long)
 
 
 def say(msg: str):
@@ -62,12 +71,13 @@ class Daemon:
         self.loop = GLib.MainLoop()
         self.journal = journal_mod.Journal(config.JOURNAL)
         self.store = Store(config.LAYOUT)
-        self.detector = claude.Detector()
-        # before a Claude's tab turns yellow, a model says whether it needs you (turncheck.py)
-        self.turns = turncheck.Turns(turncheck.Checker(lambda: GLib.idle_add(self._turns_in),
-                                                       model=self.cfg.get("check_model") or turncheck.MODEL,
+        self.detector = detect.Detector()
+        # before a session's tab turns yellow, a model says whether it needs you (turncheck.py)
+        self.turns = turncheck.Turns(turncheck.Checker(lambda: GLib.idle_add(self._turns_in), cfg=self.cfg,
                                                        cwd=str(config.RUNTIME_DIR)),
                                      config.RUNTIME_DIR / "turns.json", journal=self._journal_turn)
+        # agent -> (when its usage limits are next asked for, whether they are being asked now)
+        self._usage: dict[str, list] = {a.name: [time.time() + 5, False] for a in agents.every() if a.polls_usage}
         self._unmatched: dict[str, str] = {}  # window -> state, for Claude-titled windows with no session matched
         self._models: dict[str, tuple[float, str | None]] = {}
         self._tl: dict[str, object] = {}
@@ -97,7 +107,7 @@ class Daemon:
         now = time.time()
         layout, absorb = self._load_layout(now)
         self.store.rotate_on_start()
-        ctx = ad.Ctx(known_dirs=[], resume_command=claude.resume_command,
+        ctx = ad.Ctx(known_dirs=[], resume_command=lambda sid, cwd, agent=None: agents.get(agent).resume_command(sid, cwd),
                      ignored=set(self.cfg.get("ignore_apps") or []),
                      endings=self._endings, browser_exit=self._browser_exit, app_exe=self._app_exe)
         self.engine = Engine(layout, self, ctx=ctx, journal=self.journal, now=now)
@@ -137,7 +147,7 @@ class Daemon:
         if layout is not None:
             return layout, False
         if config.REGISTRY.exists():
-            registry = claude.load_json(config.REGISTRY, {}) or {}
+            registry = load_json(config.REGISTRY, {}) or {}
             age = session_age_s()
             fresh = age is not None and age < SESSION_FRESH_S
             live = claude.live_session_ids()
@@ -216,7 +226,46 @@ class Daemon:
         except Exception:  # noqa: BLE001 (reporting must never stop the daemon)
             import traceback
             traceback.print_exc()
+        self._ask_usage(wall)
         return True
+
+    # ---- usage limits (the agents that offer them to whoever asks) ------------------------------
+    def _ask_usage(self, now: float):
+        """Each agent that offers its plan's usage limits (polls_usage) is asked, on a thread,
+        every USAGE_EVERY_S and soon after its turns end; what it says goes where the bars read
+        it (agent.usage_file). An agent not installed is not asked."""
+        for name, due in self._usage.items():
+            when, asking = due
+            if asking or now < when:
+                continue
+            agent = agents.get(name)
+            if not agent.installed():
+                due[0] = now + USAGE_FAILED_S
+                continue
+            due[1] = True
+
+            def ask(agent=agent, due=due):
+                limits = None
+                try:
+                    limits = agent.usage()
+                    if limits:
+                        path = agent.usage_file
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        tmp = path.with_name(path.name + ".tmp")
+                        tmp.write_text(json.dumps(limits) + "\n")
+                        tmp.replace(path)
+                except Exception as e:  # noqa: BLE001 (no bars is no reason to stop anything)
+                    say(f"usage: {agent.label}: {e}")
+                finally:
+                    due[0] = time.time() + (USAGE_EVERY_S if limits else USAGE_FAILED_S)
+                    due[1] = False
+            threading.Thread(target=ask, name=f"usage-{name}", daemon=True).start()
+
+    def _turn_ended(self, agent: str):
+        """A turn of `agent` ended: its usage changed, ask again soon."""
+        due = self._usage.get(agent)
+        if due is not None and not due[1]:
+            due[0] = min(due[0], max(time.time(), due[0] - USAGE_EVERY_S + USAGE_AFTER_TURN_S))
 
     # ---- how things ended ---------------------------------------------------------------------
     def _endings(self, since: float) -> tuple[list, bool]:
@@ -284,6 +333,8 @@ class Daemon:
         self.detector.note_focus(now, next((wid for wid, w in windows.items() if w.focused), None))
         self.detector.refresh(now)
         self.detector.assign(windows, self.engine.launched_pid)
+        for agent in self.detector.agents:
+            agent.watch([sid for sid, rec in self.detector.hooked.items() if rec["agent"] == agent.name])
         found = {}
         for wid, w in windows.items():
             infos = self.detector.claudes_for(w.title, w.pid, wid)
@@ -567,7 +618,7 @@ class Daemon:
         self.cfg = config.load()
         self.engine.ctx.ignored = set(self.cfg.get("ignore_apps") or [])
         self.engine.relaunch = bool(self.cfg.get("relaunch", True))
-        self.turns.checker.model = self.cfg.get("check_model") or turncheck.MODEL
+        self.turns.checker.cfg = self.cfg
         self.journal("config_reloaded")
         return True
 
@@ -599,7 +650,7 @@ class Daemon:
         hit = self._models.get(session)
         if hit and now - hit[0] < 15:
             return hit[1]
-        model = claude.session_model(session)
+        model = self.detector.agent_of(session).model(session, self.detector.hooked.get(session))
         self._models[session] = (now, model)
         return model
 
@@ -614,9 +665,14 @@ class Daemon:
                 typing = self._typing_in(w, group)
                 boxes += [self._box(c, w, c["session"] in typing, now) for c in group]
         if not boxes:
+            # (an agent whose title names its project is asked first: its test is the narrower,
+            # and only of a terminal, since a file manager on that folder has that title too)
+            asked = sorted(self.detector.agents, key=lambda a: a.window_title)
             for w in sorted(wins, key=lambda w: 0 if w.app in titles.TERMINAL_APP_IDS else 1):
-                if titles.looks_like_claude(w.title):
-                    boxes.append(self._unmatched_box(w, now))
+                agent = next((a for a in asked if (a.window_title or w.app in titles.TERMINAL_APP_IDS)
+                              and a.unmatched_title(w.title)), None)
+                if agent is not None:
+                    boxes.append(self._unmatched_box(w, now, agent.name))
         return sorted(boxes, key=lambda b: b["started"])
 
     @staticmethod
@@ -641,14 +697,15 @@ class Daemon:
         if self.cfg.get("check_turns", True):
             state, on = self.turns.state(sid, self.detector.hooked.get(sid), state, typing, now)
         calls = self.attention.update(sid, state, typing, now=now)
-        return {"key": sid, "session": sid, "title": c.get("title") or "", "state": state, "on": on,
+        return {"key": sid, "session": sid, "agent": c.get("agent") or "claude", "title": c.get("title") or "",
+                "state": state, "on": on,
                 "model": self._model(sid), "agents": c.get("agents") or 0, "cwd": c.get("cwd") or "",
                 "window": w.id, "pane": c.get("pane") or {}, "started": c.get("started") or 0.0,
                 "typed": c.get("prompt_t") or 0.0, "how": c.get("how"), "hooked": bool(c.get("hooked")),
                 "typing": typing, "calls": self.attention.since(sid) if calls else 0.0}
 
-    def _unmatched_box(self, w: Win, now: float) -> dict:
-        """A window whose title looks like Claude's, with no session matched: what its title says."""
+    def _unmatched_box(self, w: Win, now: float, agent: str = "claude") -> dict:
+        """A window whose title looks like an agent's, with no session matched: what its title says."""
         state = "busy" if titles.title_state(w.title) == "busy" else "done"
         # its turns cannot be checked, and it turns yellow on its title alone. Say so, or it goes unseen.
         if self._unmatched.get(w.id) == "busy" and state == "done" and not w.focused \
@@ -658,7 +715,7 @@ class Daemon:
         self._unmatched[w.id] = state
         key = f"w:{w.id}"
         calls = self.attention.update(key, state, w.focused, now=now)
-        return {"key": key, "session": None, "title": titles.bare_title(w.title) or "", "state": state, "on": "",
+        return {"key": key, "session": None, "agent": agent, "title": titles.bare_title(w.title) or "", "state": state, "on": "",
                 "model": None, "agents": 0, "cwd": "", "window": w.id, "pane": {}, "started": 0.0, "typed": 0.0,
                 "how": None, "hooked": False, "typing": w.focused,
                 "calls": self.attention.since(key) if calls else 0.0}
@@ -784,8 +841,11 @@ class Daemon:
             return None
         if method == "chrome":  # the Chrome extension, through its native host
             return self._chrome_message(params, conn)
-        if method == "claude_event":  # the Claude Code hook: a session did something
+        if method in ("agent_event", "claude_event"):  # the plugin's hook: a session did something
             self.detector.refresh(time.time(), force=True)
+            rec = self.detector.hooked.get(str(params.get("session") or ""))
+            if rec is not None and rec.get("event") == "Stop":
+                self._turn_ended(rec["agent"])
             self._schedule_step()  # (tool events come in bursts: coalesce)
             return None
         fn = getattr(self, "cmd_" + method.replace("-", "_"), None)
@@ -935,6 +995,8 @@ class Daemon:
             raise RuntimeError("could not create a pinned workspace (the compositor gave no id)")
         index = e.primary[lw.id].index
         self._switch(self._space(index))
+        if params.get("agent") and params.get("command") is None:  # a new session of that agent
+            params = {**params, "command": agents.get(params["agent"]).new_command()}
         if params.get("command") is not None:
             self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": params["command"]},
                            self._terminal_accepts, "terminal")
@@ -942,17 +1004,18 @@ class Daemon:
         tpls = config.templates(self.cfg)
         tpl = next((t for t in tpls if t.get("name") == params.get("template")), tpls[0])
         steps = tpl.get("steps") or [{"type": "claude"}]
-        # the first claude (else terminal) step is the workspace's terminal
-        first = next((s for s in steps if s.get("type") == "claude"), None) or \
+        # the first agent's step ("claude", "codex"), else terminal step, is the workspace's terminal
+        names = {a.name for a in agents.every()}
+        first = next((s for s in steps if s.get("type") in names), None) or \
             next((s for s in steps if s.get("type") == "terminal"), None)
         for step in ([first] if first else []) + [s for s in steps if s is not first]:
             kind = step.get("type", "app")
-            if kind == "claude" or kind == "terminal":
-                # its own command if it names one; else `claude` for a claude step, a shell for a terminal
+            if kind in names or kind == "terminal":
+                # its own command if it names one; else the agent's for an agent's step, a shell for a terminal
                 run = step.get("command")
-                if not run and kind == "claude":
-                    run = "claude"
-                command = claude.shell_command(run) if run else None
+                if not run and kind in names:
+                    run = agents.get(kind).command
+                command = shell_command(run) if run else None
                 self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": command},
                                self._terminal_accepts, "terminal")
                 continue
@@ -993,7 +1056,7 @@ class Daemon:
             self.cmd_activate({"ws": lw.id})
             return lw.id
         if command:
-            wrapped = claude.shell_command(command)
+            wrapped = shell_command(command)
             self._start_on(lw, index, {"type": "terminal", "cwd": lw.cwd or str(Path.home()), "command": wrapped},
                            self._terminal_accepts, f"terminal for {source} item {item}", state={"command": wrapped})
         else:
@@ -1012,21 +1075,23 @@ class Daemon:
         return str(home)
 
     def cmd_fork(self, params):
-        """Like /fork: the conversation so far in a new session, on a workspace of its own."""
+        """Like /fork: the conversation so far in a new session, on a workspace of its own,
+        by the session's own agent."""
         session = params["session"]
         lw, _ = self._lw_for(params)
-        cwd = (lw.cwd if lw else "") or (self.detector.hooked.get(session) or {}).get("cwd") \
-            or next((s.get("cwd") for s in self.detector.sessions if s.get("sessionId") == session), str(Path.home()))
-        return self.cmd_new({"cwd": cwd, "after": lw.id if lw else None,
-                             "command": claude.shell_command(f"claude --resume {session} --fork-session")})
+        cwd = (lw.cwd if lw else "") or self.detector.cwd_of(session) or str(Path.home())
+        command = self.detector.agent_of(session).fork_command(session, cwd)
+        if command is None:
+            raise RuntimeError(f"{self.detector.agent_of(session).label} cannot fork a session")
+        return self.cmd_new({"cwd": cwd, "after": lw.id if lw else None, "command": command})
 
     def cmd_resume(self, params):
-        """A closed Claude from the recent list, on a new workspace."""
+        """A closed session from the recent list, on a new workspace, by its own agent."""
         session = params["session"]
         rec = next((r for r in self.engine.layout.recent if r.get("session") == session), {})
         cwd = params.get("cwd") or rec.get("cwd") or str(Path.home())
         ws_id = self.cmd_new({"cwd": cwd, "name": rec.get("workspace") or "",
-                              "command": claude.resume_command(session, cwd)})
+                              "command": agents.get(rec.get("agent")).resume_command(session, cwd)})
         self.engine.layout.recent = [r for r in self.engine.layout.recent if r.get("session") != session]
         self.engine.dirty = True
         return ws_id

@@ -45,8 +45,8 @@ else
         echo "! gtk4-layer-shell not found: the GTK 3 sidebar runs (see \"The GTK 4 sidebar\" in the README for the smooth one)"
     fi
 fi
-if ! command -v claude &>/dev/null; then
-    echo "! claude CLI not found on PATH. The sidebar runs, but the session features need Claude Code."
+if ! command -v claude &>/dev/null && ! command -v codex &>/dev/null; then
+    echo "! claude CLI not found on PATH (nor codex). The sidebar runs, but the session features need Claude Code or Codex."
 fi
 [[ $fail -eq 1 ]] && exit 1
 
@@ -92,12 +92,12 @@ if [[ $gnome == 1 ]]; then
     fi
 fi
 
-# every Claude Code session reports its status and window through Sidelit's Claude Code plugin,
-# installed with Claude Code's own `claude plugin` commands
-if command -v claude &>/dev/null; then
-    "$bindir/sidelit" hooks install | sed 's/^/  /' || echo "  ! Sidelit's Claude Code plugin is not installed (see above); the rest is"
+# every coding agent session reports its status and window through Sidelit's plugin, installed
+# in each agent found with its own commands (`claude plugin`, `codex plugin`)
+if command -v claude &>/dev/null || command -v codex &>/dev/null; then
+    "$bindir/sidelit" hooks install | sed 's/^/  /' || echo "  ! Sidelit's plugin is not installed in every agent (see above); the rest is"
 else
-    echo "  once Claude Code is installed: sidelit hooks install (Sidelit's Claude Code plugin)"
+    echo "  once Claude Code or Codex is installed: sidelit hooks install (Sidelit's plugin, in each)"
 fi
 # Chrome windows and their tabs, through the companion extension
 "$bindir/sidelit" chrome install 2>/dev/null | sed 's/^/  /' || true

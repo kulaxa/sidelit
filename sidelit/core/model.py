@@ -118,12 +118,15 @@ class Slot:
 
     @property
     def claudes(self) -> list[dict]:
-        """Every Claude its window shows, {"session", "claude_title", "cwd"} each: the one
-        `session` names, then state["more"], the others in the same window (split panes, tabs)."""
+        """Every agent session its window shows, {"session", "claude_title", "cwd"} each, and
+        "agent" for one that is not Claude Code's: the one `session` names, then state["more"],
+        the others in the same window (split panes, tabs)."""
         if not self.session:
             return []
         first = {"session": self.session, "claude_title": self.state.get("claude_title") or "",
                  "cwd": self.state.get("cwd") or ""}
+        if self.state.get("agent"):
+            first["agent"] = self.state["agent"]
         return [first] + [m for m in self.state.get("more") or [] if isinstance(m, dict) and m.get("session")]
 
 
@@ -250,7 +253,8 @@ class Layout:
             self.recent = [r for r in self.recent if r.get("session") != c["session"]]
             self.recent.insert(0, {"session": c["session"], "title": title,
                                    "cwd": c.get("cwd") or (ws.cwd if ws else ""),
-                                   "workspace": (ws.name if ws else "") or "", "closed": round(now, 1)})
+                                   "workspace": (ws.name if ws else "") or "", "closed": round(now, 1),
+                                   **({"agent": c["agent"]} if c.get("agent") else {})})
         del self.recent[self.RECENT_MAX:]
 
     def remember_workspace(self, ws: Workspace, now: float, why: str, closed_slots=()) -> dict | None:

@@ -170,6 +170,8 @@ button.cw-close:hover {{ color: #ffffff; }}
 
 .cw-usage {{ background-color: rgba(62,62,68,0.84); border: 1px solid rgba(255,255,255,0.10); border-radius: 16px;
   padding: 12px 14px 10px; margin: 8px 8px 3px; }}
+.usage-agent {{ color: rgba(235,235,245,0.45); font-size: 72%; font-weight: 600; letter-spacing: 0.5px; }}
+.usage-agent.usage-next {{ margin-top: 10px; }}
 .usage-label {{ color: rgba(235,235,245,0.62); font-size: 82%; }}
 .usage-value {{ color: rgba(255,255,255,0.92); font-size: 82%; font-weight: 600; }}
 .usage-reset {{ color: rgba(235,235,245,0.32); font-size: 72%; }}
@@ -674,9 +676,20 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.update_btn.set_visible(False)
 
     # ---- usage ------------------------------------------------------------
-    def _render_usage(self, rows):
+    def _render_usage(self, groups):
+        """The bars of each agent that has usage limits, under its name."""
         clear(self.usage_box)
         self._countdowns = []
+        for i, (agent, rows) in enumerate(groups):
+            head = label(agent.upper(), "usage-agent")  # (the sidebar's small headings: cw-src-head)
+            if i:
+                head.add_css_class("usage-next")
+            self.usage_box.append(head)
+            self._render_usage_rows(rows)
+        self.usage_box.set_visible(bool(groups))
+        return False
+
+    def _render_usage_rows(self, rows):
         for caption, percent, resets in rows:
             head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
             name = label(caption, "usage-label")
@@ -700,8 +713,6 @@ class Sidebar(Gtk.Window, SidebarLogic):
                 row.append(cd)
                 self._countdowns.append((cd, resets))
             self.usage_box.append(row)
-        self.usage_box.set_visible(bool(rows))
-        return False
 
     # ---- other sources (sources.py) ----------------------------------------------------
     def _draw_sources(self):

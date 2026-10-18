@@ -24,12 +24,14 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-from sidelit import config, gnome, sources, version as local_version
-from sidelit.claude import load_json, login_shell
+from sidelit import agents, config, gnome, sources, version as local_version
+from sidelit.procs import load_json, login_shell
 from sidelit.tabstate import Attention, note
 
-# The plan's usage limits as Claude Code measures them after each turn, written by Sidelit's
-# Claude Code plugin (plugin/hooks/usage.js); the last ones seen are kept for after a login
+# The plans' usage limits, a file per agent that has them (agents.py: usage_file): Claude
+# Code's as it measures them after each turn, written by Sidelit's plugin from inside it
+# (plugin/hooks/usage.js); one the daemon asks the agent for (Codex's). The last ones seen are
+# kept for after a login.
 USAGE_FILE = config.RUNTIME_DIR / "usage.json"
 USAGE_CACHE = config.CONFIG_DIR / "usage-cache.json"
 USAGE_EVERY_S = 15
@@ -87,6 +89,20 @@ def usage_rows(data, now: datetime | None = None) -> list[tuple[str, float, str 
                      float(limit["percentUsed"]), resets if moment is not None else None))
     order = list(USAGE_NAMES.values())
     return sorted(rows, key=lambda r: order.index(r[0]) if r[0] in order else len(order))
+
+
+def usage_sources() -> list[tuple[str, Path, Path]]:
+    """(agent's name to show, the file its limits are in, the copy kept of the last ones) for
+    every agent that has usage limits."""
+    out = []
+    for agent in agents.every():
+        if agent.usage_file is None:
+            continue
+        if agent.name == "claude":
+            out.append((agent.label, USAGE_FILE, USAGE_CACHE))
+        else:
+            out.append((agent.label, agent.usage_file, config.CONFIG_DIR / f"usage-cache-{agent.name}.json"))
+    return out
 
 
 def usage_level(percent: float) -> str | None:
@@ -193,7 +209,8 @@ def history_lines(h: dict) -> tuple[str, str, str, str]:
     only says the title again)."""
     title = h.get("title") or "Workspace"
     what = ", ".join(h.get("what") or [])
-    others = [w for w in h.get("what") or [] if w != title and not (w.startswith("Claude ") and title in w)]
+    sessions = tuple(f"{a.short} " for a in agents.every())  # ("Claude 'Fix tests'": the title again)
+    others = [w for w in h.get("what") or [] if w != title and not (w.startswith(sessions) and title in w)]
     folder = os.path.basename((h.get("cwd") or "").rstrip("/")) if h.get("cwd") != str(Path.home()) else "~"
     closed = h.get("closed") or 0
     sub = " · ".join(filter(None, (datetime.fromtimestamp(closed).strftime("%H:%M") if closed else "",
@@ -225,13 +242,14 @@ def group_items(src: dict, bound: set) -> list[dict]:
 
 
 def box_info(c: dict, last_title: str = "") -> dict:
-    """What a Claude's box shows: the glyph Claude puts in its terminal's title (working or
-    not), its title, the model and a note, one dot per subagent at work, and whether it calls
-    you (the daemon decides: tabstate.Attention)."""
+    """What a session's box shows: its agent's mark (for Claude Code the glyph it puts in its
+    terminal's title, working or not: agents.py), its title, the model and a note, one dot per
+    subagent at work, and whether it calls you (the daemon decides: tabstate.Attention)."""
     state = c.get("state") or "done"
     cls = STATE_CLASS.get(state, "idle")
-    return {"key": c.get("key") or c.get("session") or "", "session_id": c.get("session"),
-            "title": c.get("title") or last_title or "Session", "glyph": "◐" if cls == "working" else "✳",
+    agent = agents.get(c.get("agent"))
+    return {"key": c.get("key") or c.get("session") or "", "session_id": c.get("session"), "agent": agent.name,
+            "title": c.get("title") or last_title or "Session", "glyph": agent.mark(cls == "working"),
             "sub": " · ".join(filter(None, (c.get("model"), note(c)))) or " ", "state": state, "cls": cls,
             "agents": int(c.get("agents") or 0), "calls": bool(c.get("calls")), "cwd": c.get("cwd") or ""}
 
@@ -315,7 +333,9 @@ def close_question(tab: dict) -> tuple[str, str] | None:
     claudes = [c for c in tab.get("claudes") or [] if c.get("title")]
     name = tab.get("name") or (claudes[0]["title"] if len(claudes) == 1 else folder_name(tab.get("cwd")))
     apps = sorted({(w.get("app") or "?").rsplit(".", 1)[-1].replace("google-", "") for w in windows})
-    kept = "Its Claude Code sessions stay" if len(tab.get("claudes") or []) > 1 else "A Claude Code session stays"
+    labels = {agents.get(c.get("agent")).label for c in tab.get("claudes") or []} or {agents.get(None).label}
+    kind = f"{labels.pop()} session" if len(labels) == 1 else "session"
+    kept = f"Its {kind}s stay" if len(tab.get("claudes") or []) > 1 else f"A {kind} stays"
     return (f"Close workspace{' – ' + name if name else ''}?",
             f"Closes {len(windows)} window{'s' if len(windows) != 1 else ''} ({', '.join(apps)}). {kept}"
             f" in Recent sessions (right-click the header).")
@@ -337,7 +357,7 @@ class SidebarLogic:
         self._snapshot = None
         self._attention = Attention()
         self._countdowns: list = []  # (label, reset stamp)
-        self._usage_at = None        # when the plugin measured the figures the bars show
+        self._usage_at: dict = {}    # agent -> when the figures its bars show were measured
         self._usage_rows = None
         self._footer_until = 0.0
         self._restart_pending = False
@@ -476,22 +496,27 @@ class SidebarLogic:
         return False
 
     def _refresh_usage(self):
-        """The bars from the figures the plugin wrote after the last turn of any session; until
-        one has since a login, the last ones seen (USAGE_CACHE). Bars only for what is known."""
-        data = load_json(USAGE_FILE, None)  # (None too while the plugin is half way through writing it)
-        if isinstance(data, dict) and data.get("limits"):
-            if data.get("at") != self._usage_at:
-                self._usage_at = data.get("at")
-                try:
-                    save_json(USAGE_CACHE, data)
-                except OSError:
-                    pass
-        else:
-            data = load_json(USAGE_CACHE, None)
-        rows = usage_rows(data)
-        if rows != self._usage_rows:
-            self._usage_rows = rows
-            self._render_usage(rows)
+        """The bars, under each agent's name: from the figures last written for it (after the
+        last turn of any of its sessions); until some are since a login, the last ones seen (its
+        cache). Bars only for what is known."""
+        groups = []
+        for name, live, cache in usage_sources():
+            data = load_json(live, None)  # (None too while it is half way through being written)
+            if isinstance(data, dict) and data.get("limits"):
+                if data.get("at") != self._usage_at.get(name):
+                    self._usage_at[name] = data.get("at")
+                    try:
+                        save_json(cache, data)
+                    except OSError:
+                        pass
+            else:
+                data = load_json(cache, None)
+            rows = usage_rows(data)
+            if rows:
+                groups.append((name, rows))
+        if groups != self._usage_rows:
+            self._usage_rows = groups
+            self._render_usage(groups)
         return True
 
     def _tick_countdowns(self):
@@ -636,8 +661,12 @@ class SidebarLogic:
         items = []
         if not info["closed"]:
             items.append(("Open terminal here", lambda: self.send("terminal", **where)))
-        items.append(("New session in this directory", lambda: self.send(
-            "new", cwd=cwd, after=tab.get("ws"), command=f"{login_shell()} -i -c 'claude; exec {login_shell()} -i'")))
+        # a new session of each agent installed (Claude Code's with none: its terminal says so)
+        found = agents.installed() or [agents.get(None)]
+        for agent in found:
+            items.append((f"New {agent.label} session in this directory" if len(found) > 1 else
+                          "New session in this directory",
+                          lambda a=agent: self.send("new", cwd=cwd, after=tab.get("ws"), agent=a.name)))
         if session:
             items.append(("Fork session", lambda: self.fork(tab, session)))
         if not info["closed"]:
@@ -667,6 +696,8 @@ class SidebarLogic:
             sub = []
             for r in recent:
                 name = (r.get("title") or r.get("session", "")[:8])[:48]
+                if r.get("agent"):  # (another agent's than Claude Code: its mark says whose)
+                    name = f"{agents.get(r['agent']).mark(False)} {name}"
                 where = home_path(r.get("cwd"))
                 sub.append((f"{name}  —  {where}" if where else name,
                             lambda s=r["session"]: self.send("resume", session=s)))

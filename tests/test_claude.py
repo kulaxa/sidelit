@@ -14,6 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from sidelit import claude  # noqa: E402
+from sidelit import detect  # noqa: E402
 from sidelit import hooks  # noqa: E402
 from sidelit.core.model import Win  # noqa: E402
 
@@ -37,17 +38,17 @@ class TrackerTest(unittest.TestCase):
         self.table = {CLAUDE_PID: (SHELL_PID, "claude"), SHELL_PID: (TERM_PID, "zsh"), TERM_PID: (1, "terminator"),
                       501: (401, "claude"), 401: (301, "zsh"), 301: (1, "terminator")}
         self.headless: set[int] = set()
-        self._in_terminal = claude.in_terminal
-        claude.in_terminal = lambda pid: pid not in self.headless
+        self._in_terminal = detect.in_terminal
+        detect.in_terminal = lambda pid: pid not in self.headless
         self.d = self.detector()
 
-    def detector(self):
-        return claude.Detector(hook_dir=self.hook_dir, agents=lambda now: (list(self.live.values()), now),
-                               started=lambda pid: None)
+    def detector(self, poll=None, started=lambda pid: None):
+        poll = poll or (lambda now: (list(self.live.values()), now))
+        return detect.Detector(agents=[claude.ClaudeCode(hook_dir=self.hook_dir, poll=poll)], started=started)
 
     def tearDown(self):
         claude.PROJECTS = self._saved
-        claude.in_terminal = self._in_terminal
+        detect.in_terminal = self._in_terminal
         self.tmp.cleanup()
 
     def hook(self, sid, state, t, pid=CLAUDE_PID, prompt_t=None, **extra):
@@ -132,11 +133,11 @@ class TrackerTest(unittest.TestCase):
         self.look({"A": a}, 110.0)
         self.listed("s1", CLAUDE_PID, "busy")
         self.assertEqual(self.look({"A": a}, 120.0)["A"]["status"], "busy")
-        self.assertEqual(self.look({"A": a}, 120.0 + claude.WOKEN_MAX_S + 1)["A"]["status"], "done")
+        self.assertEqual(self.look({"A": a}, 120.0 + detect.WOKEN_MAX_S + 1)["A"]["status"], "done")
 
     def test_claude_code_is_asked_only_while_a_claude_runs(self):
         asked = []
-        self.d = claude.Detector(hook_dir=self.hook_dir, agents=lambda now: (asked.append(now) or [], now))
+        self.d = self.detector(poll=lambda now: (asked.append(now) or [], now), started=detect.process_started)
         self.d.refresh(100.0, force=True, table={1: (0, "systemd"), 777: (os.getpid(), "claude")})
         self.assertEqual(asked, [])  # (only the turn checker's)
         self.d.refresh(101.0, force=True, table=self.table)
@@ -231,7 +232,7 @@ class TrackerTest(unittest.TestCase):
         self.hook("s1", "done", 101.0, prompt_t=100.5, agents={"a1": 101.0})
         self.assertEqual(self.look({"A": a}, 102.0)["A"]["status"], "busy")
         # one not heard from for half an hour: its stop got lost
-        seen = self.look({"A": a}, 101.0 + claude.AGENT_QUIET_S + 1)
+        seen = self.look({"A": a}, 101.0 + detect.AGENT_QUIET_S + 1)
         self.assertEqual((seen["A"]["status"], seen["A"]["agents"]), ("done", 0))
 
     def test_without_hooks_the_title_still_works(self):
@@ -332,8 +333,7 @@ class TrackerTest(unittest.TestCase):
 
     def test_a_box_keeps_its_place_through_clear(self):
         """Claudes are in the order their processes started: /clear starts a new session, not a new Claude."""
-        self.d = claude.Detector(hook_dir=self.hook_dir, agents=lambda now: ([], now),
-                                 started=lambda pid: {602: 50.0, 702: 60.0}.get(pid))
+        self.d = self.detector(poll=lambda now: ([], now), started=lambda pid: {602: 50.0, 702: 60.0}.get(pid))
         self.pane("s1", 602, 100.0, started=90.0)
         self.pane("s2", 702, 101.0, started=95.0)
         self.assertEqual(self.sessions(self.look_all({"A": term("A", "✳ X")}, 102.0, {"A": TERM_PID}), "A"), ["s1", "s2"])
@@ -385,7 +385,7 @@ class HookScriptTest(unittest.TestCase):
                            capture_output=True, env=env, timeout=5)
             rec = json.loads((Path(home) / "claude" / "x1.json").read_text())
             self.assertEqual((rec["pane"]["TERMINATOR_UUID"], rec["pane"]["TMUX_PANE"]), ("urn:uuid:abc", "%3"))
-            self.assertEqual(claude.pane_id(rec["pane"]), "TMUX_PANE=%3")  # tmux inside Terminator: tmux's pane
+            self.assertEqual(detect.pane_id(rec["pane"]), "TMUX_PANE=%3")  # tmux inside Terminator: tmux's pane
 
     def test_a_background_task_waking_claude_is_not_you_typing(self):
         """(else the terminal that had the keyboard then would be taken for this Claude's)"""

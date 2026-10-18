@@ -123,12 +123,12 @@ class FakeChecker:
         self.asked = []
         self.warmed = 0
 
-    def warm(self):
+    def warm(self, agent="claude"):
         self.warmed += 1
 
-    def check(self, key, transcript, shell=False, said=None):
-        self.asked.append((key, transcript, shell))
-        self.said = said
+    def check(self, key, rec, shell=False):
+        self.asked.append((key, rec.get("transcript"), shell))
+        self.said = rec.get("said")
 
     def answer(self, verdict, on="", wakes=True):
         key = self.asked[-1][0]
@@ -277,17 +277,17 @@ class ParallelTest(unittest.TestCase):
         import time
 
         class Slow(turncheck.Checker):
-            def _spawn(self):
+            def _spawn(self, agent):
                 return None
 
-            def _check(self, transcript, shell, said=None):
+            def _check(self, rec, shell):
                 time.sleep(0.5)
                 return "input", "", None, False
 
         checker = Slow(lambda: None)
         started = time.time()
         for i in range(4):
-            checker.check(i, "")
+            checker.check(i, {})
         got = sorted(checker.results.get(timeout=5)[0] for _ in range(4))
         self.assertEqual(got, [0, 1, 2, 3])
         self.assertLess(time.time() - started, 1.5)

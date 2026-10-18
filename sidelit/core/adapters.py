@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable
 
-from sidelit import chrome
+from sidelit import agents, chrome
 from sidelit.core import titles
 from sidelit.core.model import Slot, Win
 
@@ -36,7 +36,7 @@ class Ctx:
     """What an adapter may know beyond the window itself."""
     claude: dict = field(default_factory=dict)          # window id -> Claude session info
     known_dirs: list = field(default_factory=list)      # directories Claudes run in, for folder names
-    resume_command: Callable[[str, str], str] | None = None   # (session, cwd) -> shell command
+    resume_command: Callable[[str, str, str | None], str] | None = None   # (session, cwd, agent) -> shell command
     ignored: set = field(default_factory=set)            # config ignore_apps
     # (slot, the Claudes of its window that ended: Slot.claudes entries; None: all of them)
     on_session_ended: Callable[..., None] | None = None
@@ -106,13 +106,14 @@ class Adapter:
 
 
 class TerminalAdapter(Adapter):
-    """Terminals, and the Claudes running in one. A terminal is one slot whether or not a
-    Claude runs in it; state["session"] is the Claude it shows (resumed on restore),
-    state["more"] the other Claudes in the same window (split panes, tabs: each comes back in
-    a terminal of its own, Engine._split_claudes), state["cwd"] the directory (from the Claude,
-    or from a `user@host: dir` prompt title), state["command"] what it was started to run, if
-    that is how it comes back (an other source's item opened in a terminal: its own command
-    resumes it, not a bare `claude`)."""
+    """Terminals, and the coding agent sessions running in one ("Claudes": Claude Code's, or
+    another agent's, agents.py). A terminal is one slot whether or not a session runs in it;
+    state["session"] is the session it shows (resumed on restore, by its agent: state["agent"],
+    none for Claude Code), state["more"] the other sessions in the same window (split panes,
+    tabs: each comes back in a terminal of its own, Engine._split_claudes), state["cwd"] the
+    directory (from the session, or from a `user@host: dir` prompt title), state["command"] what
+    it was started to run, if that is how it comes back (an other source's item opened in a
+    terminal: its own command resumes it, not a bare `claude`)."""
     name = "terminal"
     launch_mode = "slot"
     launch_after = 0.0
@@ -139,7 +140,15 @@ class TerminalAdapter(Adapter):
                 if value and st.get(key) != value:
                     st[key] = value
                     changed = True
-            more = [{"session": c["session"], "claude_title": c.get("title") or "", "cwd": c.get("cwd") or ""}
+            agent = _agent_key(claude)
+            if agent != st.get("agent"):
+                if agent:
+                    st["agent"] = agent
+                else:
+                    st.pop("agent", None)
+                changed = True
+            more = [{"session": c["session"], "claude_title": c.get("title") or "", "cwd": c.get("cwd") or "",
+                     **({"agent": _agent_key(c)} if _agent_key(c) else {})}
                     for c in claude.get("more") or [] if c.get("session")]
             if more != (st.get("more") or []):
                 if more:
@@ -159,8 +168,8 @@ class TerminalAdapter(Adapter):
         if prompt and st.get("cwd") != prompt and not st.get("session"):
             st["cwd"] = prompt
             changed = True
-        if st.get("session") and not titles.looks_like_claude(win.title):
-            # Claude exited and left the shell: after a while (and only while nothing is
+        if st.get("session") and not agents.get(st.get("agent")).owns_title(win.title, st.get("cwd") or ""):
+            # the agent exited and left the shell: after a while (and only while nothing is
             # being shuffled around) this terminal is a plain terminal again
             since = st.get("no_claude_since")
             if since is None:
@@ -168,7 +177,7 @@ class TerminalAdapter(Adapter):
             elif calm and now - since >= CLAUDE_GONE_S:
                 if ctx.on_session_ended:
                     ctx.on_session_ended(slot)
-                for key in ("session", "claude_title", "no_claude_since", "more"):
+                for key in ("session", "claude_title", "no_claude_since", "more", "agent"):
                     st.pop(key, None)
                 if prompt:
                     st["cwd"] = prompt
@@ -203,7 +212,7 @@ class TerminalAdapter(Adapter):
             return {"type": "terminal", "cwd": cwd if cwd and os.path.isdir(cwd) else os.path.expanduser("~"),
                     "command": slot.state["command"]}
         if slot.session:
-            command = ctx.resume_command(slot.session, cwd) if ctx.resume_command else None
+            command = ctx.resume_command(slot.session, cwd, slot.state.get("agent")) if ctx.resume_command else None
             return {"type": "terminal", "cwd": cwd or os.path.expanduser("~"), "command": command}
         if cwd and os.path.isdir(cwd):
             return {"type": "terminal", "cwd": cwd, "command": None}
@@ -216,9 +225,16 @@ class TerminalAdapter(Adapter):
         return f"terminal in {slot.state.get('cwd') or '?'}"
 
 
+def _agent_key(c: dict) -> str | None:
+    """A session's agent as a slot keeps it: none for Claude Code (what a layout from before
+    agents means)."""
+    agent = c.get("agent")
+    return agent if agent and agent != "claude" else None
+
+
 def describe_claude(c: dict) -> str:
-    """A Claude of a slot (Slot.claudes) in a line."""
-    return f"Claude {c.get('claude_title') or c['session'][:8]!r}"
+    """An agent session of a slot (Slot.claudes) in a line: "Claude 'Fix tests'"."""
+    return f"{agents.get(c.get('agent')).short} {c.get('claude_title') or c['session'][:8]!r}"
 
 
 class FilesAdapter(Adapter):

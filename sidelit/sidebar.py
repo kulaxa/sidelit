@@ -161,6 +161,8 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-close:hover {{ color: #ffffff; }}
 .cw-usage {{ background-color: rgba(62,62,68,0.84); border: 1px solid rgba(255,255,255,0.10); border-radius: 16px;
   padding: 12px 14px 10px; }}
+.usage-agent {{ color: rgba(235,235,245,0.45); font-size: 72%; font-weight: 600; letter-spacing: 0.5px; }}
+.usage-agent.usage-next {{ margin-top: 10px; }}
 .usage-label {{ color: rgba(235,235,245,0.62); font-size: 82%; }}
 .usage-value {{ color: rgba(255,255,255,0.92); font-size: 82%; font-weight: 600; }}
 .usage-reset {{ color: rgba(235,235,245,0.32); font-size: 72%; }}
@@ -614,10 +616,24 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.update_btn.hide()
 
     # ---- usage ------------------------------------------------------------
-    def _render_usage(self, rows):
+    def _render_usage(self, groups):
+        """The bars of each agent that has usage limits, under its name."""
         for child in self.usage_box.get_children():
             self.usage_box.remove(child)
         self._countdowns = []
+        for i, (agent, rows) in enumerate(groups):
+            head = Gtk.Label(label=agent.upper(), xalign=0)  # (the sidebar's small headings: cw-src-head)
+            head.get_style_context().add_class("usage-agent")
+            if i:
+                head.get_style_context().add_class("usage-next")
+            self.usage_box.pack_start(head, False, False, 0)
+            self._render_usage_rows(rows)
+        for child in self.usage_box.get_children():
+            child.show_all()
+        self.usage_box.set_visible(bool(groups))
+        return False
+
+    def _render_usage_rows(self, rows):
         for caption, percent, resets in rows:
             head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
             name = Gtk.Label(label=caption, xalign=0)
@@ -644,10 +660,6 @@ class Sidebar(Gtk.Window, SidebarLogic):
                 row.pack_start(cd, False, False, 0)
                 self._countdowns.append((cd, resets))
             self.usage_box.pack_start(row, False, False, 0)
-        for child in self.usage_box.get_children():
-            child.show_all()
-        self.usage_box.set_visible(bool(rows))
-        return False
 
     # ---- other sources (sources.py) ----------------------------------------------------
     def _draw_sources(self):

@@ -295,6 +295,10 @@ class Engine:
             # them now its own
             first, more = left[0], left[1:]
             other.state.update(session=first["session"], claude_title=first.get("claude_title") or "")
+            if first.get("agent"):
+                other.state["agent"] = first["agent"]
+            else:
+                other.state.pop("agent", None)
             if first.get("cwd"):
                 other.state["cwd"] = first["cwd"]
             if more:

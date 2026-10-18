@@ -18,7 +18,8 @@ USAGE = """usage: sidelit <command>
   restore                  start what is missing from the layout now (runs by itself after a login)
   reapply                  put every window back on its workspace and screen
   reload                   re-read config.json
-  hooks install|uninstall|status   Sidelit's Claude Code plugin, which reports each session's status
+  hooks install|uninstall|status   Sidelit's plugin in each coding agent (Claude Code, Codex), which
+                                   reports each session's status
   chrome install|uninstall|status  the bridge to the Chrome extension (windows and their tabs)
   ws ...                   talk to the compositor directly (list, toplevels, activate N, ...)
   open [--app] URL         open a link on the workspace you are looking at

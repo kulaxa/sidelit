@@ -296,9 +296,9 @@ main() {
     dir=${XDG_DATA_HOME:-$HOME/.local/share}/sidelit
     fetch_sidelit
 
-    # install.sh links the command into ~/.local/bin and installs the Claude Code plugin if it
-    # finds `claude`, which Claude Code's own installer puts in ~/.local/bin too: both on PATH
-    # for this run, even where a login has not put ~/.local/bin there yet
+    # install.sh links the command into ~/.local/bin and installs Sidelit's plugin in each coding
+    # agent it finds (`claude`, `codex`), whose own installers put them in ~/.local/bin too: all on
+    # PATH for this run, even where a login has not put ~/.local/bin there yet
     local bindir=$HOME/.local/bin on_path=1
     case ":$PATH:" in
         *":$bindir:"*) ;;
@@ -306,7 +306,7 @@ main() {
     esac
     [ ! -x "$HOME/.claude/local/claude" ] || PATH=$PATH:$HOME/.claude/local
 
-    say "Setting it up: the sidelit command, starting at login, the Claude Code plugin, the Chrome bridge"
+    say "Setting it up: the sidelit command, starting at login, the plugin for Claude Code and Codex, the Chrome bridge"
     local out status
     out=$(bash "$dir/install.sh" </dev/null 2>&1)
     status=$?
@@ -355,8 +355,12 @@ main() {
         echo "  Next: to start Sidelit at every login, add this line to $(tilde "$hypr")/hyprland.conf:"
         echo "    exec-once = sidelit start"
     fi
-    command -v claude >/dev/null ||
-        echo "  Next: install Claude Code (curl -fsSL https://claude.ai/install.sh | bash), then run this line again to connect Sidelit to it."
+    command -v claude >/dev/null || command -v codex >/dev/null ||
+        echo "  Next: install Claude Code (curl -fsSL https://claude.ai/install.sh | bash) or Codex, then run this line again to connect Sidelit to it."
+    # Codex runs a plugin's hooks only once you have trusted them (it asks when it next starts)
+    ! command -v codex >/dev/null ||
+        PYTHONPATH=$dir python3 -c 'from sidelit import codex; raise SystemExit(codex.Codex().hooks_trusted() is False)' 2>/dev/null </dev/null ||
+        echo "  Next: the next time Codex starts, it asks you to review Sidelit's hooks: trust them (or later, with /hooks in Codex)."
     ! chrome_step_left ||
         echo "  Next, in Chrome (each profile): chrome://extensions → Developer mode → Load unpacked → $(tilde "$dir")/chrome-extension"
     [ -n "$on_path" ] ||

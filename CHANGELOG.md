@@ -6,6 +6,13 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- Codex: its sessions get a box of their own, marked ◆ (Claude Code's keep ✳), with their
+  state, title and model, the same "needs you" check (through `codex exec`), fork, and resume
+  after a login; Codex's usage limits sit at the bottom under its name, Claude Code's under
+  theirs. `sidelit hooks install` (and the one-line install) puts Sidelit's plugin in every agent
+  it finds; Codex then asks you once, when it next starts, to trust the plugin's hooks. A
+  Sidelit from before puts it in at its first start after the update. Right-click a tab for a
+  new session of each agent.
 - X11 desktops: Cinnamon (Linux Mint), Xfce and MATE, and other window managers that keep the
   standard EWMH hints. The sidebar is a panel on the left that maximised windows stop beside,
   next to the desktop's own panels; workspaces are the window manager's desktops and keep their

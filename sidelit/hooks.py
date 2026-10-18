@@ -1,11 +1,14 @@
-"""`sidelit hooks install|uninstall|status`: Sidelit's Claude Code plugin.
+"""`sidelit hooks install|uninstall|status`: Sidelit's plugin, in every coding agent installed.
 
-The plugin (plugin/, listed by .claude-plugin/marketplace.json in the folder above this package)
-carries the hook that reports what each session does (plugin/hooks/hook.py) and the usage
-limits for the bars (plugin/hooks/usage.js). It goes in and out the way any Claude Code plugin
-does, with Claude Code's own commands: `claude plugin marketplace add <that folder>`, then
-`claude plugin install sidelit@sidelit`. Claude Code keeps track of it in its settings itself,
-and loads it in place from that folder, so updating Sidelit updates the plugin.
+Each agent takes it its own way (agents.py: install, uninstall, status, upgrade); this is the
+command over all of them, and Claude Code's way.
+
+For Claude Code the plugin (plugin/, listed by .claude-plugin/marketplace.json in the folder
+above this package) carries the hook that reports what each session does (plugin/hooks/hook.py)
+and the usage limits for the bars (plugin/hooks/usage.js). It goes in and out the way any Claude
+Code plugin does, with Claude Code's own commands: `claude plugin marketplace add <that folder>`,
+then `claude plugin install sidelit@sidelit`. Claude Code keeps track of it in its settings
+itself, and loads it in place from that folder, so updating Sidelit updates the plugin.
 
 Sidelit 0.5 wrote its hook into ~/.claude/settings.json instead. Once the plugin is in, those
 entries go (recognised by their command, which ends in sidelit-hook): every other hook and the
@@ -219,39 +222,65 @@ def present(name: str = NAME) -> bool:
                for entries in hooks.values() if isinstance(entries, list) for x in entries)
 
 
+def status() -> tuple[bool, list[str]]:
+    """Claude Code's: is the plugin in and enabled, with nothing of Sidelit 0.5's left over?"""
+    state = plugin_state()
+    if state is None:
+        said = ["Sidelit's Claude Code plugin is not installed (sidelit hooks install)"]
+    else:
+        said = [f"Sidelit's Claude Code plugin is installed, {'enabled' if state.get('enabled') else 'disabled'}"
+                f" ({state.get('readFromFolder') or state.get('installPath') or PLUGIN})"]
+    if present():
+        said.append(f"! {SETTINGS} still has the hook Sidelit 0.5 wrote there (sidelit hooks install takes it out)")
+    return state is not None and bool(state.get("enabled")) and not present(), said
+
+
+def upgrade() -> list[str]:
+    """`sidelit start`, for Claude Code: the hook Sidelit 0.5 wrote into settings.json becomes the plugin."""
+    if not present():
+        return []
+    from sidelit import config
+    said = [f"Sidelit's Claude Code hook is a plugin now: installing it, and taking the old hook out of {SETTINGS}"
+            + (" (dry run: nothing is changed)" if config.DRY_RUN else "")]
+    return said + ([] if config.DRY_RUN else [f"  ✓ {line}" for line in install()])
+
+
+# ---- the command, over every agent ------------------------------------------------------------
 def main(argv: list[str]) -> int:
+    from sidelit import agents
     cmd = argv[0] if argv else "status"
-    try:
-        if cmd == "install":
-            for line in install():
-                print(f"✓ {line}")
-            print("  Claude Code sessions started from now on report their status and window to Sidelit")
-            print("  (one already running: type /reload-plugins in it); until then they are followed by their")
-            print("  terminal title.")
-        elif cmd == "upgrade":  # (`sidelit start`: quiet unless there is something to do)
-            if present():
-                from sidelit import config
-                print(f"sidelit: Sidelit's Claude Code hook is a plugin now: installing it, and taking the old "
-                      f"hook out of {SETTINGS}" + (" (dry run: nothing is changed)" if config.DRY_RUN else ""))
-                for line in [] if config.DRY_RUN else install():
-                    print(f"  ✓ {line}")
-        elif cmd == "uninstall":
-            for line in uninstall() or ["Sidelit's Claude Code plugin was not installed"]:
-                print(f"✓ {line}")
-        elif cmd == "status":
-            state = plugin_state()
-            if state is None:
-                print("Sidelit's Claude Code plugin is not installed (sidelit hooks install)")
-            else:
-                print(f"Sidelit's Claude Code plugin is installed, {'enabled' if state.get('enabled') else 'disabled'}"
-                      f" ({state.get('readFromFolder') or state.get('installPath') or PLUGIN})")
-            if present():
-                print(f"! {SETTINGS} still has the hook Sidelit 0.5 wrote there (sidelit hooks install takes it out)")
-            return 0 if state is not None and state.get("enabled") and not present() else 1
-        else:
-            print("usage: sidelit hooks install|uninstall|status", file=sys.stderr)
-            return 2
-    except (ValueError, RuntimeError, OSError) as e:
-        print(f"sidelit hooks: {e}", file=sys.stderr)
+    found = agents.installed()
+    if cmd not in ("install", "upgrade", "uninstall", "status"):
+        print("usage: sidelit hooks install|uninstall|status", file=sys.stderr)
+        return 2
+    if not found and cmd in ("install", "status"):
+        names = " or ".join(a.label for a in agents.every())
+        print(f"sidelit hooks: no coding agent found on PATH ({names}): install one first", file=sys.stderr)
         return 1
-    return 0
+    code = 0
+    # (taking it out, and putting right what an older Sidelit left, is for every agent: one that
+    # is gone from PATH may still have Sidelit's leftovers)
+    for agent in agents.every() if cmd in ("uninstall", "upgrade") else found:
+        if cmd == "uninstall" and agent not in found and agent.name != "claude":
+            continue
+        try:
+            if cmd == "install":
+                for line in agent.install():
+                    print(f"✓ {line}")
+                for line in agent.after_install:
+                    print(line)
+            elif cmd == "upgrade":  # (`sidelit start`: quiet unless there is something to do)
+                for line in agent.upgrade():
+                    print(line if line.startswith(" ") else f"sidelit: {line}")
+            elif cmd == "uninstall":
+                for line in agent.uninstall() or [f"Sidelit's {agent.label} plugin was not installed"]:
+                    print(f"✓ {line}")
+            else:
+                ok, said = agent.status()
+                for line in said:
+                    print(line)
+                code = code or (0 if ok else 1)
+        except (ValueError, RuntimeError, OSError) as e:
+            print(f"sidelit hooks: {agent.label}: {e}", file=sys.stderr)
+            code = 1
+    return code

@@ -57,8 +57,9 @@ def _default_terminal() -> tuple[str, str]:
 DEFAULT_TERMINAL = _default_terminal()
 
 # What '+' offers for a new workspace: a name, and what to start there, in order. The tab
-# follows the first "claude" step.
+# follows the first coding agent's step.
 #   {"type": "claude"}                   a terminal with `claude` in it
+#   {"type": "codex"}                    a terminal with `codex` in it
 #   {"type": "terminal"}                 a terminal; with "command": …, running that
 #   {"type": "app", "exec": …}           any other program, as a command line
 # An "exec" line may use {cwd}, the workspace's directory, and {browser}, the default browser
@@ -93,10 +94,13 @@ DEFAULT_CONFIG = {
     "relaunch": True,           # start again windows that went without you closing them (crashes)
     "restore_delay": 6,         # seconds after start before the restore begins
     "ignore_apps": [],          # app ids never kept in the layout
-    # before a Claude's tab turns yellow, a model reads the end of its turn: a Claude that only
-    # waits (CI, a deploy, a background job) stays orange, "waiting on CI pipeline"
+    # before a session's tab turns yellow, a model reads the end of its turn: a session that only
+    # waits (CI, a deploy, a background job) stays orange, "waiting on CI pipeline". Each agent's
+    # turns are read through that agent: Claude Code's by check_model, Codex's by
+    # check_model_codex ("": the model your Codex is set to)
     "check_turns": True,
     "check_model": "claude-sonnet-5-5",
+    "check_model_codex": "",
 }
 
 

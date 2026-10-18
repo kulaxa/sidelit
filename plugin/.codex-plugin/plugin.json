@@ -1,0 +1,14 @@
+{
+  "name": "sidelit",
+  "version": "1",
+  "description": "Tells the Sidelit sidebar what each Codex session is doing (working, waiting for you, done, its window)",
+  "author": {
+    "name": "Mario Jalšovec",
+    "url": "https://github.com/kulaxa"
+  },
+  "homepage": "https://github.com/kulaxa/sidelit",
+  "repository": "https://github.com/kulaxa/sidelit",
+  "license": "MIT",
+  "keywords": ["sidebar", "linux", "status"],
+  "hooks": "./hooks/codex.json"
+}

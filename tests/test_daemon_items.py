@@ -111,7 +111,7 @@ class FocusAfterSlide(unittest.TestCase):
 
 
 def claude(sid, title, status="done", started=0.0, typed=0.0, pane=None):
-    """A Claude as the detector reports it (claude.Detector.claudes_for)."""
+    """A Claude as the detector reports it (detect.Detector.claudes_for)."""
     return {"session": sid, "title": title, "status": status, "agents": 0, "cwd": "/src/pricing", "pid": 1,
             "pane": pane or {}, "started": started, "prompt_t": typed, "how": "launch", "hooked": True}
 
@@ -126,7 +126,8 @@ class Boxes(unittest.TestCase):
         d = object.__new__(daemon.Daemon)
         d.cfg = {"check_turns": False}
         d.attention = daemon.Attention()
-        d.detector = mock.Mock(hooked={})
+        from sidelit import agents
+        d.detector = mock.Mock(hooked={}, agents=agents.every())
         d._model = lambda sid: "Opus 5.5"
         d._unmatched = {}
         d.journal = lambda kind, **fields: None
@@ -208,6 +209,22 @@ class Boxes(unittest.TestCase):
         self.assertEqual([(b["key"], b["session"], b["title"]) for b in self.boxes()], [("w:A", None, "Remote work")])
         self.window("B", "✳ Pricing API", claude("s1", "Pricing API"))
         self.assertEqual([b["key"] for b in self.boxes()], ["s1"])
+
+    def test_a_codex_with_no_session_matched_is_codexs_box(self):
+        """(before you trusted its hooks: its spinner looks like Claude's, its title is its project)"""
+        from sidelit import agents
+        codex = agents.get("codex")
+        with mock.patch.object(codex, "_tuis", {900: (1.0, "/src/pricing", ["codex"], 2.0)}), \
+                mock.patch.object(codex, "_live", {900}):
+            self.window("A", "⠸ pricing")
+            self.assertEqual([(b["agent"], b["title"], b["state"]) for b in self.boxes()], [("codex", "pricing", "busy")])
+            self.window("A", "pricing")
+            self.assertEqual([(b["agent"], b["state"]) for b in self.boxes()], [("codex", "done")])
+            self.window("A", "⠸ Fix tests")  # (a Claude's)
+            self.assertEqual([b["agent"] for b in self.boxes()], ["claude"])
+            del self.windows["A"]  # the file manager on that folder has its name too: not a Codex
+            self.windows["F"] = self.Win(id="F", app="org.gnome.Nautilus", title="pricing", space=1, output="eDP-1")
+            self.assertEqual(self.boxes(), [])
 
     def test_the_history_lists_every_claude(self):
         h = {"id": "h1", "closed": 1.0, "workspace": {"cwd": "/src/pricing", "slots": [

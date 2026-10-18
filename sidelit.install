@@ -1,8 +1,9 @@
 # pacman's install script for Sidelit (PKGBUILD: install=sidelit.install)
 
-# Sidelit's Claude Code plugin is registered in each user's Claude Code, from
+# Sidelit's plugin is registered in each user's Claude Code and Codex, from
 # /usr/share/sidelit: a package removal cannot take it out for them, so say how
 post_remove() {
-    echo "Sidelit is removed. Its Claude Code plugin is still listed in Claude Code for each user"
+    echo "Sidelit is removed. Its plugin is still listed in Claude Code and Codex for each user"
     echo "who installed it; as that user: claude plugin uninstall sidelit@sidelit; claude plugin marketplace remove sidelit"
+    echo "(and for Codex: codex plugin remove sidelit@sidelit; codex plugin marketplace remove sidelit)"
 }

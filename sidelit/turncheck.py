@@ -1,17 +1,18 @@
-"""Does a Claude that ended its turn need you, or is it only waiting for a pipeline?
+"""Does an agent that ended its turn need you, or is it only waiting for a pipeline?
 
-A tab turns yellow when its Claude finishes on a workspace you are not looking at. Often it
+A tab turns yellow when its session finishes on a workspace you are not looking at. Often it
 has only pushed and is waiting for CI, a deploy or a background job, and there is nothing
-for you to do yet. So before the tab turns yellow, Sonnet reads the end of the turn (what
-you asked, the last tool calls, what Claude said) and answers "input" (it needs you: it is
+for you to do yet. So before the tab turns yellow, a model reads the end of the turn (what
+you asked, the last tool calls, what the agent said) and answers "input" (it needs you: it is
 finished, stuck or asking) or "waiting" (and on what). A check that fails or takes too long
 counts as "input": the tab turns yellow, as it always did.
 
-The model runs through `claude -p` on the subscription, no API key, the way the spell checker
-in ~/.claude/wpm does: no tools, no settings, no session saved. Starting claude takes 5-20 s,
-so one process is started ahead while a Claude is working; each check takes it and the next
-one starts. One check per process: no check sees another session's conversation. The spare
-quits after IDLE_QUIT seconds with nothing working.
+The model runs through the session's own agent, in its headless mode (agents.py): Claude
+Code's `claude -p` on the subscription, no API key, the way the spell checker in ~/.claude/wpm
+does (no tools, no settings, no session saved); Codex's `codex exec --ephemeral`. Starting one
+takes 5-20 s, so one process is started ahead while a session of that agent is working; each
+check takes it and the next one starts. One check per process: no check sees another session's
+conversation. The spare quits after IDLE_QUIT seconds with nothing working.
 """
 from __future__ import annotations
 
@@ -19,22 +20,19 @@ import json
 import os
 import queue
 import re
-import select
-import subprocess
 import threading
 import time
 from pathlib import Path
 
-from sidelit.claude import claude_binary
+from sidelit import agents as agents_mod
 
 MODEL = "claude-sonnet-5-5"
-CHECK_TIMEOUT = 45.0  # a check that has to start claude first waits for that too
+CHECK_TIMEOUT = 45.0  # a check that has to start the agent first waits for that too
 CHECKING_MAX_S = CHECK_TIMEOUT + 15  # an answer that has not come by then is not coming
-IDLE_QUIT = 600.0     # no Claude working for this long: stop the spare
+IDLE_QUIT = 600.0     # no session working for this long: stop the spare
 TURN_FRESH_S = 900    # a turn that ended longer ago is not checked (the daemon just started)
 SHELL_GRACE_S = 15    # a background shell that ends wakes Claude up: this long to show it is busy
-FLUSH_WAIT_S = 1.0    # without the hook's copy of Claude's last words, give the transcript this long
-STRANDED_S = 1200     # waiting with nothing that could wake Claude: yellow after this long
+STRANDED_S = 1200     # waiting with nothing that could wake it: yellow after this long
 PARALLEL = 4          # checks at once
 # tools that wake Claude up later by themselves (a background shell or agent says so in its line)
 WAKERS = ("Monitor", "ScheduleWakeup", "CronCreate")
@@ -42,7 +40,6 @@ TAIL = 1 << 20        # bytes of the transcript read, from its end
 ASKED_MAX = 1500      # characters of your request
 TURN_MAX = 6000       # characters of the turn's end
 TOOL_MAX = 160        # characters per tool call
-LEAKED_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_WPM_FILE")
 
 PROMPT = """A software engineer runs several Claude Code sessions side by side, one per workspace. When a session ends its turn, its tab turns yellow to call them back. Before it does, you read the end of that turn and decide whether the session really needs them now.
 
@@ -56,7 +53,12 @@ Reply with only a JSON object: {"verdict": "input"} or {"verdict": "waiting", "o
 Every message is a new, independent session: ignore earlier messages."""
 
 
-# ---- the end of a turn, from the transcript ----------------------------------------------------
+def prompt_for(agent) -> str:
+    """The judge's instructions, about the agent whose turn it reads."""
+    return PROMPT if agent.name == "claude" else PROMPT.replace("Claude Code", agent.label)
+
+
+# ---- the end of a turn, from a Claude Code transcript --------------------------------------------
 def _entries(path: str) -> list[dict]:
     try:
         with open(path, "rb") as fh:
@@ -228,11 +230,11 @@ class Turns:
             pass
 
     def state(self, sid: str, rec: dict | None, state: str, active: bool, now: float) -> tuple[str, str]:
-        """(state, what it waits on) for a Claude's tab; `state` is what the hook and Claude
-        Code's list of sessions say (claude.Detector), `active` whether you are looking at its
-        workspace."""
+        """(state, what it waits on) for a session's tab; `state` is what the hook and the
+        agent's own list of sessions say (detect.Detector), `active` whether you are looking at
+        its workspace."""
         if state == "busy":
-            self.checker.warm()
+            self.checker.warm((rec or {}).get("agent") or "claude")
         turn = float((rec or {}).get("turn_end") or 0)
         if not turn or rec.get("state") != "done" or state not in ("done", "shell"):
             return state, ""
@@ -245,7 +247,7 @@ class Turns:
                 v = {"turn": turn, "verdict": "seen"}
             else:
                 v = {"turn": turn, "verdict": "checking", "since": now, "shell": state == "shell"}
-                self.checker.check((sid, turn), rec.get("transcript") or "", shell=shell, said=rec.get("said"))
+                self.checker.check((sid, turn), rec, shell=shell)
             self.verdicts[sid] = v
         if v["verdict"] == "checking":
             if now - v["since"] < CHECKING_MAX_S:
@@ -310,41 +312,45 @@ class Turns:
 
 # ---- the model ----------------------------------------------------------------------------------
 class Checker:
-    """Checks turns, each on a thread of its own with a claude of its own, up to PARALLEL at
-    once: when several Claudes stop together, the ones after the first do not wait in line
-    while claude starts for each (5-20 s a time) and run out the clock. check() queues one;
-    the answer comes back on self.results as (key, verdict, on, error, seconds, wakes) and
-    notify() is called (from a worker: hand it on to the main loop). warm() says a Claude is
-    working, so a check may come soon: one process is started ahead for it."""
+    """Checks turns, each on a thread of its own with a judging process of its own (the
+    session's agent's: agents.py), up to PARALLEL at once: when several sessions stop together,
+    the ones after the first do not wait in line while an agent starts for each (5-20 s a time)
+    and run out the clock. check() queues one; the answer comes back on self.results as (key,
+    verdict, on, error, seconds, wakes) and notify() is called (from a worker: hand it on to the
+    main loop). warm(agent) says a session of that agent is working, so a check may come soon:
+    one process is started ahead for it. `cfg` (config.json) says the model each agent judges
+    with (check_model, check_model_codex)."""
 
-    def __init__(self, notify, model: str = MODEL, cwd: str | None = None):
+    def __init__(self, notify, cfg: dict | None = None, cwd: str | None = None):
         self.notify = notify
-        self.model = model
+        self.cfg = cfg if cfg is not None else {}
         self.cwd = cwd
         self.results: queue.Queue = queue.Queue()
         self.jobs: queue.Queue = queue.Queue()
-        self.spare = None
-        self.wanted = 0.0     # last time a Claude was working
-        self._warming = False
+        self.spares: dict[str, object] = {}   # agent -> its process started ahead
+        self.wanted: dict[str, float] = {}    # agent -> last time one of its sessions was working
+        self._warming: set[str] = set()
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(PARALLEL)
         threading.Thread(target=self._work, name="turncheck", daemon=True).start()
 
-    def warm(self):
-        self.wanted = time.time()
-        if not self._warming:
-            self._warming = True
+    def warm(self, agent: str = "claude"):
+        self.wanted[agent] = time.time()
+        if agent not in self._warming:
+            self._warming.add(agent)
             self.jobs.put(None)
 
-    def check(self, key, transcript: str, shell: bool = False, said: str | None = None):
-        self.wanted = time.time()
-        self.jobs.put((key, transcript, shell, said))
+    def check(self, key, rec: dict, shell: bool = False):
+        """Judge the turn `rec` (a hook record: detect.Detector.hooked) ended."""
+        self.wanted[rec.get("agent") or "claude"] = time.time()
+        self.jobs.put((key, rec, shell))
 
     def stop(self):
         self.jobs.put(False)
 
     def _work(self):
-        """Hands out checks and keeps the spare: one ready while a Claude works, none after."""
+        """Hands out checks and keeps the spares: one ready while a session of its agent works,
+        none after."""
         while True:
             try:
                 job = self.jobs.get(timeout=30)
@@ -352,23 +358,26 @@ class Checker:
                 job = None
             if job is False:
                 with self._lock:
-                    self._kill_spare()
+                    for agent in list(self.spares):
+                        self._kill_spare(agent)
                 return
             if job is not None:
                 self._slots.acquire()
                 threading.Thread(target=self._run, args=(job,), name="turncheck-job", daemon=True).start()
             with self._lock:
-                if time.time() - self.wanted > IDLE_QUIT:
-                    self._kill_spare()
-                    self._warming = False
-                elif self.spare is None or self.spare.poll() is not None:
-                    self.spare = self._spawn()
+                for agent, wanted in list(self.wanted.items()):
+                    spare = self.spares.get(agent)
+                    if time.time() - wanted > IDLE_QUIT:
+                        self._kill_spare(agent)
+                        self._warming.discard(agent)
+                    elif spare is None or spare.poll() is not None:
+                        self.spares[agent] = self._spawn(agent)
 
     def _run(self, job):
-        key, transcript, shell, said = job
+        key, rec, shell = job
         started = time.time()
         try:
-            verdict, on, error, wakes = self._check(transcript, shell, said)
+            verdict, on, error, wakes = self._check(rec, shell)
         except Exception as exc:  # noqa: BLE001
             verdict, on, error, wakes = "input", "", f"{type(exc).__name__}: {exc}", False
         finally:
@@ -380,23 +389,22 @@ class Checker:
             pass
         self.jobs.put(None)  # (the spare may have gone to this check: start another)
 
-    def _take(self):
-        """The spare if it is up, else a new claude."""
+    def _take(self, agent: str):
+        """The agent's spare if it is up, else a new process."""
         with self._lock:
-            proc, self.spare = self.spare, None
-        return proc if proc is not None and proc.poll() is None else self._spawn()
+            proc = self.spares.pop(agent, None)
+        return proc if proc is not None and proc.poll() is None else self._spawn(agent)
 
-    def _check(self, transcript: str, shell: bool, said: str | None = None) -> tuple[str, str, str | None, bool]:
-        if not said:
-            time.sleep(FLUSH_WAIT_S)  # (a Claude Code that does not tell the hook)
-        turn = last_turn(transcript, said)
+    def _check(self, rec: dict, shell: bool) -> tuple[str, str, str | None, bool]:
+        agent = agents_mod.get(rec.get("agent"))
+        turn = agent.last_turn(rec)
         if turn is None:
-            return "input", "", "nothing to read in the transcript", False
-        proc = self._take()
+            return "input", "", "nothing to read of the turn", False
+        proc = self._take(agent.name)
         if proc is None:
-            return "input", "", "claude not found", turn["wakes"]
+            return "input", "", f"{agent.command} not found", turn["wakes"]
         try:
-            reply = self._ask(proc, describe(turn, shell))
+            reply = agent.ask_judge(proc, describe(turn, shell), CHECK_TIMEOUT)
             got = parse(reply)
             if got is None:
                 return "input", "", f"unexpected reply: {reply[:80]!r}", turn["wakes"]
@@ -407,50 +415,14 @@ class Checker:
             proc.kill()
             proc.wait()
 
-    def _spawn(self):
-        binary = claude_binary()
-        if binary is None:
-            return None
-        env = {k: v for k, v in os.environ.items() if k not in LEAKED_ENV}
-        env["MAX_THINKING_TOKENS"] = "0"
-        try:
-            return subprocess.Popen(
-                [binary, "-p", "--model", self.model, "--system-prompt", PROMPT,
-                 "--settings", json.dumps({"alwaysThinkingEnabled": False}), "--setting-sources", "",
-                 "--tools", "", "--strict-mcp-config", "--no-chrome", "--disable-slash-commands",
-                 "--no-session-persistence", "--input-format", "stream-json",
-                 "--output-format", "stream-json", "--verbose"],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                env=env, cwd=self.cwd or None, start_new_session=True)
-        except OSError:
-            return None  # (the check says so: "claude not found")
+    def _spawn(self, name: str):
+        agent = agents_mod.get(name)
+        return agent.spawn_judge(agent.check_model(self.cfg), prompt_for(agent), self.cwd)
 
-    def _kill_spare(self):
-        if self.spare is not None:
-            self.spare.kill()
-            self.spare.wait()
-            self.spare = None
+    def _kill_spare(self, agent: str):
+        proc = self.spares.pop(agent, None)
+        if proc is not None:
+            proc.kill()
+            proc.wait()
 
-    @staticmethod
-    def _ask(proc, text: str) -> str:
-        message = {"type": "user", "message": {"role": "user", "content": text}}
-        proc.stdin.write((json.dumps(message) + "\n").encode())
-        proc.stdin.flush()
-        deadline, buf, fd = time.time() + CHECK_TIMEOUT, b"", proc.stdout.fileno()
-        while True:
-            while b"\n" not in buf:
-                if not select.select([fd], [], [], max(0.0, deadline - time.time()))[0]:
-                    raise TimeoutError(f"no answer in {CHECK_TIMEOUT:.0f} s")
-                chunk = os.read(fd, 65536)
-                if not chunk:
-                    raise EOFError("claude -p exited")
-                buf += chunk
-            line, buf = buf.split(b"\n", 1)
-            try:
-                event = json.loads(line)
-            except ValueError:
-                continue
-            if event.get("type") == "result":
-                if event.get("is_error"):
-                    raise RuntimeError(str(event.get("result"))[:80])
-                return str(event.get("result") or "")
+

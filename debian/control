@@ -20,7 +20,7 @@ Conflicts: claude-workspace
 Replaces: claude-workspace
 Description: workspace sidebar for Linux desktops, one tab per workspace
  Sidelit puts every workspace on the desktop in a sidebar on the left, one tab
- each, and finds the coding agent session working on it (Claude Code today). An
+ each, and finds the coding agent sessions working on it (Claude Code, Codex). An
  agent's tab shows the session's title, model and directory, turns yellow when
  the agent needs you, and has a fork button; a plain workspace's tab lists what
  is open there. Clicking a tab switches to it with the keyboard in the agent's
@@ -39,5 +39,5 @@ Description: workspace sidebar for Linux desktops, one tab per workspace
  sockets; on X11 desktops (Cinnamon, as on Linux Mint, Xfce, MATE and other
  window managers that keep the EWMH hints), the window manager's hints through
  python-xlib, with the sidebar as a dock window. Nothing is compiled.
- The session features need the claude CLI. This package replaces
+ The session features need the claude or the codex CLI. This package replaces
  claude-workspace, the project's earlier name.

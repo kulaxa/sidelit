@@ -90,16 +90,17 @@ class CommonTest(unittest.TestCase):
     def test_usage_bars_follow_the_file_and_outlast_a_login(self):
         class Bars(sidebar_common.SidebarLogic):
             def __init__(self):
-                self._usage_at = self._usage_rows = None
+                self._usage_at, self._usage_rows = {}, None
                 self.drawn = []
 
-            def _render_usage(self, rows):
-                self.drawn.append(rows)
+            def _render_usage(self, groups):
+                self.drawn.append(groups)
         later = "2999-01-01T00:00:00Z"
         with tempfile.TemporaryDirectory() as tmp:
             live, cache = Path(tmp) / "run/usage.json", Path(tmp) / "config/usage-cache.json"
-            with mock.patch.object(sidebar_common, "USAGE_FILE", live), \
-                    mock.patch.object(sidebar_common, "USAGE_CACHE", cache):
+            codex = (Path(tmp) / "run/usage-codex.json", Path(tmp) / "config/usage-cache-codex.json")
+            with mock.patch.object(sidebar_common, "usage_sources",
+                                   lambda: [("Claude Code", live, cache), ("Codex", *codex)]):
                 bars = Bars()
                 bars._refresh_usage()
                 self.assertEqual(bars.drawn, [[]])  # nothing known: no bars
@@ -107,14 +108,24 @@ class CommonTest(unittest.TestCase):
                 live.write_text(json.dumps({"at": 1, "limits": [{"kind": "five_hour", "percentUsed": 10, "resetsAt": later}]}))
                 bars._refresh_usage()
                 bars._refresh_usage()  # (the same figures: not drawn again)
-                self.assertEqual(bars.drawn[1:], [[("Session", 10.0, later)]])
+                self.assertEqual(bars.drawn[1:], [[("Claude Code", [("Session", 10.0, later)])]])
                 live.write_text('{"at": 2, "limits": [{"kin')  # the plugin half way through writing it
                 bars._refresh_usage()
                 self.assertEqual(len(bars.drawn), 2)
+                # another agent's limits come under its own name
+                codex[0].write_text(json.dumps({"at": 3, "limits": [{"kind": "seven_day", "percentUsed": 55, "resetsAt": later}]}))
+                bars._refresh_usage()
+                self.assertEqual(bars.drawn[-1], [("Claude Code", [("Session", 10.0, later)]), ("Codex", [("Week", 55.0, later)])])
                 live.unlink()  # a new login: no session has measured anything yet
+                codex[0].unlink()
                 fresh = Bars()
                 fresh._refresh_usage()
-                self.assertEqual(fresh.drawn, [[("Session", 10.0, later)]])
+                self.assertEqual(fresh.drawn, [[("Claude Code", [("Session", 10.0, later)]), ("Codex", [("Week", 55.0, later)])]])
+
+    def test_each_agent_with_limits_has_its_files(self):
+        names = [name for name, _, _ in sidebar_common.usage_sources()]
+        self.assertEqual(names, ["Claude Code", "Codex"])
+        self.assertEqual(sidebar_common.usage_sources()[0][1:], (sidebar_common.USAGE_FILE, sidebar_common.USAGE_CACHE))
 
     def test_closing_asks_only_when_there_are_windows(self):
         self.assertIsNone(sidebar_common.close_question({"windows": []}))

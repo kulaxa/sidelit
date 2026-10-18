@@ -40,14 +40,15 @@ And on X11:
 
 Other desktops are planned.
 
-**Works with Claude Code.** Sidelit plugs into Claude Code as a plugin, installed with Claude
-Code's own plugin commands: every session reports what it is doing as it happens, and Claude
-Code's own measure of your plan's usage limits comes along for the bars. Beyond that it only
-reads what Claude Code offers for it (its list of running sessions, the titles in its
-transcripts), touches Claude's settings itself only once, to take out the hook Sidelit 0.5 had
-put there, and never touches your login. Sidelit is an
-independent project, not made by or affiliated with Anthropic; Claude and Claude Code are
-Anthropic's trademarks.
+**Works with Claude Code and Codex.** Sidelit plugs into each as a plugin, installed with the
+agent's own plugin commands: every session reports what it is doing as it happens, and the
+agent's own measure of your plan's usage limits comes along for the bars. Beyond that it only
+reads what each agent offers for it (Claude Code's list of running sessions and the titles in
+its transcripts; Codex's app-server), touches Claude's settings itself only once, to take out
+the hook Sidelit 0.5 had put there, never edits Codex's, and never touches your login. Each box
+says whose session it is: ✳ for Claude Code, ◆ for Codex. Sidelit is an independent project,
+not made by or affiliated with Anthropic or OpenAI; Claude and Claude Code are Anthropic's
+trademarks, Codex is OpenAI's.
 
 ## Install
 
@@ -75,7 +76,7 @@ for the one thing left after it, and on Hyprland, [On Hyprland](#on-hyprland).
 Sidelit needs COSMIC, KDE Plasma 6, GNOME 46 or later, or Hyprland, on Wayland, or an X11
 desktop whose window manager keeps the EWMH hints (Cinnamon, Xfce, MATE), Python 3.10 or later
 with GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the layer
-shell; on X11, python-xlib), and the `claude` CLI for the session features. Nothing is
+shell; on X11, python-xlib), and the `claude` or `codex` CLI for the session features. Nothing is
 compiled: the Wayland client is pure Python, in the tree, on KDE it talks to KWin over D-Bus, on
 GNOME to its own GNOME Shell extension, which is JavaScript, on Hyprland to Hyprland's own
 sockets, and on X11 to the window manager through python-xlib.
@@ -94,7 +95,7 @@ curl -LO https://github.com/kulaxa/sidelit/releases/latest/download/sidelit-late
 sudo pacman -U ./sidelit-latest-any.pkg.tar.zst
 ```
 
-Then, once, as yourself: `sidelit hooks install` (Sidelit's Claude Code plugin, see below)
+Then, once, as yourself: `sidelit hooks install` (Sidelit's plugin, in Claude Code and Codex, see below)
 and, if you use Chrome, `sidelit chrome install`. Start it with `sidelit start`; after that it starts at
 every login.
 
@@ -107,8 +108,8 @@ sidelit start
 ```
 
 `install.sh` links `sidelit` into `~/.local/bin`, adds a desktop entry, an autostart entry and
-two systemd user units (the daemon and the sidebar), and installs Sidelit's Claude Code plugin
-and the Chrome bridge.
+two systemd user units (the daemon and the sidebar), and installs Sidelit's plugin in each
+coding agent it finds (Claude Code, Codex) and the Chrome bridge.
 `uninstall.sh` takes all of that away again and leaves your layout alone. The line above and a
 package do not mix: to go from a package to the line, remove the package first.
 
@@ -215,6 +216,48 @@ package is already removed, the same by hand: `claude plugin uninstall sidelit@s
 `claude plugin marketplace remove sidelit`. Sidelit 0.5's `sidelit hooks install` puts its old
 hook back.
 
+### The Codex plugin
+
+The same plugin folder has a Codex manifest (`plugin/.codex-plugin/plugin.json`), whose hooks
+(`plugin/hooks/codex.json`) run the same hook script. Codex reads Sidelit's marketplace too, and
+`sidelit hooks install` installs it with Codex's own commands:
+
+```bash
+codex plugin marketplace add ~/.local/share/sidelit    # or /usr/share/sidelit
+codex plugin add sidelit@sidelit
+```
+
+**Codex runs a plugin's hooks only once you have trusted them.** The next time it starts, it
+asks you to review Sidelit's hooks: trust them there (or later with `/hooks` in Codex).
+`sidelit hooks status` says whether you have. Until then a Codex terminal still gets a box (◆,
+named after its project, working while Codex's spinner turns in its title), but no more than
+its title says. Codex keeps a copy of the plugin, so `sidelit
+start` refreshes that copy after an update; trust stays, since the hooks themselves do not
+change. A Sidelit installed before Codex was supported puts the plugin in at its first start
+after the update (once: take it out with `sidelit hooks uninstall` and it stays out).
+
+What Codex offers differs a little from Claude Code:
+
+- Its interactive sessions run in its shared background server (unless you start `codex
+  --no-daemon`), which runs their hooks too, so the hook cannot tell which terminal a session is
+  in. Sidelit finds it: the `codex` that was started for that session (`codex resume <id>`, as a
+  restore does), else the one in the session's folder that started last before the session did.
+  Two Codex sessions in one folder, in two terminals, can be confused when you start a new one
+  inside the older terminal (`/new`).
+- It has no event for "a question for you", only for a permission: a Codex session asking you
+  something shows done, and the turn check says whether it needs you.
+- Its terminal's title is the project's name, not the session's: a box's title is the name you
+  gave the session (`/rename`), else what you first asked in it.
+- The turn check runs `codex exec --ephemeral` (no tools, no hooks or plugins, nothing saved),
+  on the model your Codex is set to unless config `check_model_codex` names one, and reads the
+  turn from what the hook kept of it (what you asked, the commands it ran, what it said last):
+  Codex says its transcript "isn't a stable interface".
+- The usage bars come from Codex's app-server (`account/rateLimits/read`), asked every five
+  minutes and soon after a turn ends; they need you logged in to Codex with ChatGPT.
+
+Removing it: `sidelit hooks uninstall` (or by hand, `codex plugin remove sidelit@sidelit`, then
+`codex plugin marketplace remove sidelit`).
+
 ## How to run
 
 ```bash
@@ -226,7 +269,7 @@ sidelit reapply        # put every window back on its workspace and screen
 sidelit state|layout   # what the daemon sees / keeps, as JSON
 sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N [OUTPUT]
 sidelit open URL       # open a link on the current workspace (see below)
-sidelit hooks install|uninstall|status   # Sidelit's Claude Code plugin
+sidelit hooks install|uninstall|status   # Sidelit's plugin, in Claude Code and Codex
 sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which profiles are connected
 ```
 
@@ -246,10 +289,13 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   GNOME, the key bound to "Switch to workspace N"; on Hyprland, the key that goes to that
   workspace's number).
 - **`+`** pins a fresh workspace (on KDE, adds a desktop; on Hyprland, the next number) and opens a terminal in your home
-  directory, or whatever the template you pick says. Start `claude` there as usual and the tab
-  picks up its title within seconds.
-- **Fork** icon: like `/fork`, opens `claude --resume <id> --fork-session` in a new workspace in
-  the same directory.
+  directory, or whatever the template you pick says. Start `claude` or `codex` there as usual
+  and the tab picks up its title within seconds. Right-click a tab for a new session, in that
+  tab's directory, of each agent installed on this computer.
+- **Each box says whose session it is**: ✳ for Claude Code (◐ while it works: the glyphs Claude
+  Code puts in its own terminal's title), ◆ for Codex.
+- **Fork** icon: like `/fork`, opens `claude --resume <id> --fork-session` (`codex fork <id>` for
+  a Codex session) in a new workspace in the same directory.
 - **×** closes the whole workspace: every window on it gets a normal close request (after a
   confirmation listing what will close), the workspace is unpinned and disappears once empty (on
   KDE, the desktop is removed once its windows have closed). A session that was there stays in
@@ -258,9 +304,9 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
 - **Drag** a tab onto another to reorder the workspaces themselves (COSMIC and GNOME; KWin
   cannot reorder its desktops, and Hyprland orders them by number). **Double-click** (or right-click → Rename) to name a plain workspace; a
   session's title always wins.
-- **Status, straight from the agent.** The hook in Sidelit's Claude Code plugin (above) makes
-  every session report what it is doing as it happens: working, waiting for a permission or an
-  answer, done. That is its main thread; the subagents it runs are dots beside the model, one
+- **Status, straight from the agent.** The hook in Sidelit's plugin (above; for Codex, once you
+  have trusted it) makes every session report what it is doing as it happens: working, waiting
+  for a permission or an answer, done. That is its main thread; the subagents it runs are dots beside the model, one
   each, and so is a session it started itself, which never gets a box. It also says which
   terminal it lives in: by process ancestry for a session the daemon started (or whose window's
   process the desktop names), else by which window had the keyboard when you submitted a prompt;
@@ -280,9 +326,10 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   only go on when you nudge it. The check takes a second or two, and the tab keeps breathing
   orange meanwhile. If it fails or takes more than a minute, the tab turns yellow anyway. A turn
   that ends while you are typing in its terminal is not checked, unless it left a shell running
-  (below). The check runs `claude -p` on your subscription (no API key), with no tools and no
-  session saved; one process is started ahead while a session works. Config: `check_turns`
-  (false = yellow at every turn end), `check_model`. `sidelit why turn_checked` lists the
+  (below). The check runs through the session's own agent: `claude -p` on your subscription (no
+  API key), or `codex exec` for a Codex session, with no tools and no session saved; one process
+  is started ahead while a session works. Config: `check_turns` (false = yellow at every turn
+  end), `check_model`, `check_model_codex`. `sidelit why turn_checked` lists the
   verdicts (`why TITLE` one session's), and every tab that turned yellow without one.
 - **Working, and waiting.** The orange stripe breathes while the agent works, and stays orange
   without breathing while its turn is over but it waits on something (the check above says
@@ -311,7 +358,7 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   keeps them in the layout. A chat app closing to the tray keeps its place, and its window goes
   home when it comes back.
 - **Restore after login.** A few seconds after a login the daemon starts what is missing: each
-  session resumed with `claude --resume` in a terminal on its workspace, terminals in their
+  session resumed by its agent (`claude --resume`, `codex resume`) in a terminal on its workspace, terminals in their
   directory, file managers on their folder, web app windows on their URL, one at a time, each
   waiting for its window. Apps that restore their own windows (Chrome, VS Code) are started once
   and their windows placed as they appear, matched by title. Then it switches back to the
@@ -340,10 +387,11 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   search box on top matches titles, windows and directories (Enter opens the first match). Pick
   one and it comes back on a new workspace: its name and directory, its session resumed, its
   terminals, folders and web apps reopened one at a time. The last 100 are kept.
-- **Usage.** Your plan's 5-hour and weekly limits sit at the bottom (on a Pro or Max plan), as
-  Claude Code measured them after the last turn of any session, through the plugin's mod. They
-  appear after the first turn, the last ones seen stay through a login, and a window whose reset
-  has passed goes. Sidelit never reads your Claude login for them.
+- **Usage.** Your plans' 5-hour and weekly limits sit at the bottom, under each agent's name:
+  Claude Code's (on a Pro or Max plan) as it measured them after the last turn of any session,
+  through the plugin's mod; Codex's (logged in with ChatGPT) as its app-server says. They appear
+  after the first turn (Codex's within seconds of the start), the last ones seen stay through a
+  login, and a window whose reset has passed goes. Sidelit never reads your logins for them.
 - **Links open where you are.** `sidelit open URL` looks at the active workspace: a browser
   window there gets focused and receives the tab; if there is none, a new browser window opens
   on this workspace instead of a tab landing in whichever window the browser last used somewhere
@@ -444,7 +492,9 @@ re-reads it.
 - `restore_on_login`, `restore_windows`, `restore_delay`, `relaunch`: the restore after a login
   and after a crash.
 - `ignore_apps`: app ids never kept in the layout.
-- `check_turns`, `check_model`: the check before a tab turns yellow.
+- `check_turns`, `check_model`, `check_model_codex`: the check before a tab turns yellow (each
+  agent's sessions are checked through that agent; `check_model_codex` empty is your Codex's
+  own model).
 
 ### What `+` opens: templates
 
@@ -457,7 +507,8 @@ next to a browser window on GitHub:
 {"name": "Claude Code + browser", "steps": [{"type": "claude"}, {"type": "app", "exec": "{browser} https://github.com"}]}
 ```
 
-- `{"type": "claude"}` is a terminal with `claude` in it, and the tab follows it. A
+- `{"type": "claude"}` is a terminal with `claude` in it, and the tab follows it;
+  `{"type": "codex"}` the same with `codex`. A
   `{"type": "terminal"}` step is a shell, or with `"command": "..."` runs that; an
   `{"type": "app", "exec": "..."}` step runs any command line.
 - An `exec` line can use `{cwd}`, the workspace's directory, and `{browser}`, your default
@@ -472,7 +523,8 @@ few session variables systemd lacks, such as the input method):
   has no surfaces, so screens coming and going cannot kill it, and systemd restarts it if
   anything else does. It observes the desktop on every change and once a second and steps the
   engine. The turn checker (`turncheck.py`) runs in it: before a tab turns yellow, it asks a
-  model (a `claude -p` it starts ahead) whether the session needs you or only waits.
+  model (through the session's agent, a `claude -p` or `codex exec` it starts ahead) whether the
+  session needs you or only waits.
 - **The sidebar** is a view: it draws the state the daemon pushes over
   `$XDG_RUNTIME_DIR/sidelit/daemon.sock` and sends a command for everything you do. It keeps
   nothing, so it can crash or restart without losing anything. What it does is
@@ -530,12 +582,24 @@ it): every client has the same interface
 (`model.py` has the shapes), and what one cannot do is left out of its `caps`, so the sidebar
 hides those controls.
 
-Session state comes from Sidelit's Claude Code plugin (each session's events, and the usage
-limits), from `claude agents --json` (Claude Code's list of running sessions, which its docs
-call the supported way to read session state from outside it) and from the transcripts in
+Sidelit knows coding agents only through one interface (`sidelit/agents.py`), with an adapter
+per agent: `claude.py` for Claude Code, `codex.py` for Codex. Each says how to recognise the
+agent's process, how to put Sidelit's plugin in and take it out (always through the agent's own
+plugin commands), what its sessions are and what they are called, how to resume and fork one,
+how to ask it, headless, whether a turn needs you, and what its plan's usage limits are. The
+plugin's one hook (`plugin/hooks/hook.py`) turns every agent's events into Sidelit's states,
+with a table per agent; `detect.py`, which works out which window shows which session, is the
+same for all of them.
+
+For Claude Code, session state comes from Sidelit's plugin (each session's events, and the
+usage limits), from `claude agents --json` (Claude Code's list of running sessions, which its
+docs call the supported way to read session state from outside it) and from the transcripts in
 `~/.claude/projects/` (the session's title and model). Nothing else of Claude Code's is read,
 and nothing of it is written but through its own `claude plugin` commands (apart from taking
-out, once, the hook Sidelit 0.5 had written into `~/.claude/settings.json`).
+out, once, the hook Sidelit 0.5 had written into `~/.claude/settings.json`). For Codex, from
+the plugin's events, its process list (`/proc`), and its app-server (`codex app-server`, over
+stdio: a session's name, the usage limits, whether you trusted the hooks); nothing of Codex's is
+written but through its own `codex plugin` commands.
 
 COSMIC notes: only pinned workspaces have a stable id, workspace `rename` is ignored on COSMIC
 1.0 (names live in the layout), and toplevel → workspace mapping arrives on the compositor's next
@@ -706,6 +770,14 @@ checks the Hyprland backend, with two screens also moving workspaces between the
 login brings a kept workspace back under its number. On a real X11 window manager (a session
 you can spare, or Xvfb with xfwm4, Cinnamon, Marco or Openbox), `tests/x11_live.py` checks the
 X11 backend and a test daemon; it needs xterm.
+
+Each agent's adapter is tested against events and answers recorded from the real agent
+(`tests/test_claude.py`, `tests/test_codex.py`). With Codex installed, `tests/codex_live.py`
+runs the real Codex CLI, nothing of yours: a throwaway `CODEX_HOME` whose model is a stand-in
+on localhost (no account, nothing billed). It installs the plugin with Codex's commands, trusts
+its hooks when Codex asks, runs turns in Codex's terminal UI (with its background server and
+with `--no-daemon`), and checks what Sidelit makes of them: the session in its own `codex`, its
+state, title and model, the turn check through `codex exec`, resume and fork.
 
 ## Licence
 
