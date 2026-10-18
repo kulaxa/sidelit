@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Remove what install.sh created. ~/.config/sidelit (layout, config) is left alone.
 set -euo pipefail
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 "$HOME/.local/bin/sidelit" stop 2>/dev/null || true
 "$HOME/.local/bin/sidelit" hooks uninstall 2>/dev/null || true  # (the Claude Code plugin)
 "$HOME/.local/bin/sidelit" chrome uninstall 2>/dev/null || true
@@ -21,4 +22,4 @@ rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/sidelit.desktop"
 rm -f "${XDG_CONFIG_HOME:-$HOME/.config}"/systemd/user/sidelit-{daemon,sidebar}.service
 systemctl --user daemon-reload 2>/dev/null || true
 echo "✓ removed launcher, desktop entry, autostart and the systemd user units"
-echo "  the clone itself is untouched; delete it if you no longer need it"
+echo "  the clone itself, $repo, is untouched; delete it if you no longer need it"

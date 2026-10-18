@@ -14,9 +14,10 @@ jobs:
       - run: python -m py_compile sidelit/*.py sidelit/core/*.py plugin/hooks/*.py
       # the engine against a fake desktop: logout cascades, unplugged screens, login restores
       - run: python -m unittest discover -s tests -v
-      - run: sh -n bin/sidelit bin/sidelit-open bin/sidelit-hook bin/sidelit-chrome-host debian/sidelit.postrm
+      # (one file per `sh -n`: it reads only its first argument as the script)
+      - run: for f in bin/sidelit bin/sidelit-open bin/sidelit-hook bin/sidelit-chrome-host debian/sidelit.postrm; do sh -n "$f"; done
       - run: python -m json.tool chrome-extension/manifest.json > /dev/null
-      - run: bash -n install.sh uninstall.sh package.sh PKGBUILD sidelit.install
+      - run: for f in get.sh install.sh uninstall.sh package.sh PKGBUILD sidelit.install; do bash -n "$f"; done
       - run: test "$(cat VERSION)" = "$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md)"
       - run: test "$(cat VERSION)" = "$(sed -n 's/^pkgver=//p' PKGBUILD)"
       - run: test "$(cat VERSION)" = "$(python -c 'import json; print(json.load(open("chrome-extension/manifest.json"))["version"])')"
@@ -44,6 +45,54 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-gi dbus-daemon
       - run: python3 -m unittest discover -s tests -v
+
+  # The one-line install (get.sh) on a fresh system of each distribution it knows, as a user with
+  # sudo, cloning this checkout: the packages, the clone, install.sh, the start (which goes
+  # nowhere here: no desktop). Then again with sudo taken away: a second run must not need it.
+  installer:
+    name: One-line install on ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:24.04', 'debian:trixie', 'fedora:latest', 'archlinux:latest', 'opensuse/tumbleweed:latest']
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck get.sh install.sh uninstall.sh
+      # (a pull request is checked out on no branch, and the second run pulls one)
+      - run: git checkout -B installer-test
+      - run: |
+          docker run --rm -v "$PWD:/src:ro" "${{ matrix.image }}" bash -euc '
+            if command -v apt-get >/dev/null; then apt-get update -q && apt-get install -y -q sudo
+            elif command -v dnf >/dev/null; then dnf install -y -q sudo shadow-utils
+            elif command -v pacman >/dev/null; then pacman -Syu --noconfirm --needed sudo
+            else zypper -n install sudo shadow
+            fi
+            useradd -m tester
+            echo "tester ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/tester
+            # no systemd user manager runs in a container: a systemctl that fails sends Sidelit
+            # down its path without one, as on a system without systemd
+            ln -s /bin/false /usr/local/bin/systemctl
+            # the checkout to clone, owned by the tester (git refuses a checkout of another user)
+            cp -r /src /srv/sidelit
+            chown -R tester: /srv/sidelit
+            as_tester() {
+              sudo -u tester env HOME=/home/tester PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+                XDG_CURRENT_DESKTOP=KDE XDG_SESSION_TYPE=wayland SIDELIT_REPO=/srv/sidelit \
+                bash -c "cd && cat /src/get.sh | bash" || { cat /home/tester/.cache/sidelit-install.log; exit 1; }
+            }
+            as_tester
+            test -L /home/tester/.local/bin/sidelit
+            test -f /home/tester/.config/autostart/sidelit.desktop
+            # the GTK 4 sidebar where the distribution has gtk4-layer-shell (all but Ubuntu 24.04)
+            if [ "${{ matrix.image }}" != ubuntu:24.04 ]; then
+              cd /home/tester/.local/share/sidelit
+              python3 -c "from sidelit import sidebar4; raise SystemExit(sidebar4.layer_shell_paths() is None)"
+              cd /
+            fi
+            rm /etc/sudoers.d/tester
+            as_tester
+          '
 
   package:
     name: Build the .deb

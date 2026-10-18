@@ -6,6 +6,10 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- One line installs Sidelit on Ubuntu, Pop!_OS, Debian, Fedora, Arch and openSUSE, and the same
+  line again updates it: `curl -fsSL https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash`.
+  It installs the few packages Sidelit needs with the distribution's own package manager (asking
+  for your password once), puts Sidelit in `~/.local/share/sidelit` and starts it.
 - Sidelit plugs into Claude Code as an ordinary Claude Code plugin, installed and removed with
   Claude Code's own `claude plugin` commands (`sidelit hooks install|uninstall|status` run
   them). Sidelit no longer writes its hook into Claude's settings: the first `sidelit start`

@@ -29,6 +29,25 @@ Anthropic's trademarks.
 
 ## Install
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash
+```
+
+or, with wget:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash
+```
+
+Run it in a terminal on your desktop (COSMIC or KDE Plasma 6, on Wayland). It installs the few
+packages Sidelit needs (asking for your password once), puts Sidelit in `~/.local/share/sidelit`
+and starts it; from then on it starts at every login. Run the same line again to update. It
+knows Ubuntu, Pop!_OS, Debian, Fedora, Arch (and EndeavourOS, CachyOS, Manjaro) and openSUSE;
+what it did is in `~/.cache/sidelit-install.log`, and `~/.local/share/sidelit/uninstall.sh`
+takes it out again.
+
+### Other ways to install
+
 Sidelit needs COSMIC or KDE Plasma 6 on Wayland, Python 3.10 or later with GTK 3 and
 gtk-layer-shell (the packages pull them in), and the `claude` CLI for the session features.
 Nothing is compiled: the Wayland client is pure Python, in the tree, and on KDE it talks to KWin
@@ -63,7 +82,8 @@ sidelit start
 `install.sh` links `sidelit` into `~/.local/bin`, adds a desktop entry, an autostart entry and
 two systemd user units (the daemon and the sidebar), and installs Sidelit's Claude Code plugin
 and the Chrome bridge.
-`uninstall.sh` takes all of that away again and leaves your layout alone.
+`uninstall.sh` takes all of that away again and leaves your layout alone. The line above and a
+package do not mix: to go from a package to the line, remove the package first.
 
 Or build the packages yourself: `./package.sh deb` or `./package.sh arch` (into `dist/`).
 
@@ -71,9 +91,11 @@ Or build the packages yourself: `./package.sh deb` or `./package.sh arch` (into 
 
 With [gtk4-layer-shell](https://github.com/wmww/gtk4-layer-shell) installed, the sidebar runs
 on GTK 4: drawn on the GPU, so pointing at a tab swells its card and slides the cards below it
-aside smoothly. Without it the GTK 3 sidebar runs, the same in every other way. Arch
-(`gtk4-layer-shell`) and Debian 13 (`gir1.2-gtk4layershell-1.0`) package it; where nothing
-does (Ubuntu 24.04, Pop!_OS), build it into `~/.local`, where the sidebar looks for it:
+aside smoothly. Without it the GTK 3 sidebar runs, the same in every other way. When the
+install line installs packages, it adds this one where the distribution has it: Arch
+(`gtk4-layer-shell`), Debian 13 (`gir1.2-gtk4layershell-1.0 libgtk4-layer-shell0`), Fedora
+(`gtk4-layer-shell`), openSUSE (`typelib-1_0-Gtk4LayerShell-1_0`); where nothing does (Ubuntu
+24.04, Pop!_OS), build it into `~/.local`, where the sidebar looks for it:
 
 ```bash
 sudo apt install meson ninja-build libgtk-4-dev wayland-protocols gobject-introspection libgirepository1.0-dev
