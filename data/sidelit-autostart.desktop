@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=Sidelit
-Comment=A workspace sidebar for COSMIC, KDE Plasma, GNOME and Hyprland: one tab per workspace, with its agent's status
+Comment=A workspace sidebar for COSMIC, KDE Plasma, GNOME, Hyprland, Cinnamon, Xfce and MATE: one tab per workspace, with its agent's status
 Exec=sidelit start
 Terminal=false
 NoDisplay=true
-OnlyShowIn=KDE;COSMIC;GNOME;Hyprland;
+OnlyShowIn=KDE;COSMIC;GNOME;Hyprland;X-Cinnamon;XFCE;MATE;LXDE;
 X-GNOME-Autostart-enabled=true

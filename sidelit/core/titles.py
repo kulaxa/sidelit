@@ -15,9 +15,11 @@ TERMINAL_APP_IDS = {
     "cosmic-term", "com.system76.CosmicTerm",       # COSMIC's
     "org.gnome.Terminal", "org.gnome.Ptyxis", "org.gnome.Console",  # GNOME's (Ptyxis since Ubuntu 25.10, Fedora 41)
     "org.kde.konsole", "konsole", "org.kde.yakuake",  # KDE's
+    "xfce4-terminal", "mate-terminal", "xterm",       # Xfce's, MATE's, and the oldest one (Mint's is GNOME's)
 }
 FILE_MANAGERS = {"com.system76.CosmicFiles", "org.gnome.Nautilus", "nautilus", "org.kde.dolphin",
-                 "thunar", "nemo", "pcmanfm"}
+                 "thunar", "nemo", "pcmanfm",
+                 "org.Nemo", "org.xfce.Thunar", "org.mate.Caja", "caja"}  # (GTK's app ids: Mint's, Xfce's, MATE's)
 BROWSERS = {"google-chrome", "chromium", "chromium-browser", "brave-browser", "microsoft-edge",
             "vivaldi", "vivaldi-stable", "firefox", "org.mozilla.firefox"}
 

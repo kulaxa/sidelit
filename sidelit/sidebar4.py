@@ -64,7 +64,12 @@ def should_run() -> bool:
     (on GNOME, where nothing needs the layer shell, GTK 4 itself)."""
     if choice() == "gtk3":
         return False
-    return gtk4_available() if gnome.hosted() else layer_shell_paths() is not None
+    if gnome.hosted():
+        return gtk4_available()
+    from sidelit import xdock
+    if xdock.on_x11():
+        return False  # no layer shell on X11: the GTK 3 sidebar docks itself there (xdock.py)
+    return layer_shell_paths() is not None
 
 
 def _exec_sidebar(env: dict):

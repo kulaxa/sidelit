@@ -12,12 +12,13 @@ Homepage: https://github.com/kulaxa/sidelit
 Depends: python3 (>= 3.10),
  python3-gi,
  gir1.2-gtk-3.0,
- gir1.2-gtklayershell-0.1
+ gir1.2-gtklayershell-0.1,
+ python3-xlib
 Recommends: terminator, gir1.2-gtk-4.0
-Suggests: cosmic-comp, kwin-wayland, gnome-shell, hyprland, gir1.2-gtk4layershell-1.0, libgtk4-layer-shell0
+Suggests: cosmic-comp, kwin-wayland, gnome-shell, hyprland, cinnamon, xfwm4, marco, gir1.2-gtk4layershell-1.0, libgtk4-layer-shell0
 Conflicts: claude-workspace
 Replaces: claude-workspace
-Description: workspace sidebar for COSMIC, KDE Plasma, GNOME and Hyprland, one tab per workspace
+Description: workspace sidebar for Linux desktops, one tab per workspace
  Sidelit puts every workspace on the desktop in a sidebar on the left, one tab
  each, and finds the coding agent session working on it (Claude Code today). An
  agent's tab shows the session's title, model and directory, turns yellow when
@@ -35,6 +36,8 @@ Description: workspace sidebar for COSMIC, KDE Plasma, GNOME and Hyprland, one t
  pure-Python Wayland client in the package; on KDE Plasma 6, KWin's D-Bus
  interface and a KWin script; on GNOME (46 and later, Wayland), a GNOME Shell
  extension in the package, which each user turns on once; on Hyprland, its IPC
- sockets. Nothing is compiled.
+ sockets; on X11 desktops (Cinnamon, as on Linux Mint, Xfce, MATE and other
+ window managers that keep the EWMH hints), the window manager's hints through
+ python-xlib, with the sidebar as a dock window. Nothing is compiled.
  The session features need the claude CLI. This package replaces
  claude-workspace, the project's earlier name.

@@ -40,6 +40,9 @@ TERMINALS = [
     ("kitty", "--directory={cwd}", "sh -c {command}"),             # Hyprland's own
     ("foot", "--working-directory={cwd}", "sh -c {command}"),      # sway's
     ("alacritty", "--working-directory {cwd}", "-e sh -c {command}"),  # niri's
+    ("gnome-terminal", "--working-directory={cwd}", "-- sh -c {command}"),  # Linux Mint's (Cinnamon's)
+    ("xfce4-terminal", "--working-directory={cwd}", "-x sh -c {command}"),  # Xfce's
+    ("mate-terminal", "--working-directory={cwd}", "-x sh -c {command}"),   # MATE's
     ("xterm", "", "-e {command}"),
 ]
 

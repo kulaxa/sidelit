@@ -5,6 +5,10 @@ restarting itself after a crash (the user session, and with it our runtime dir, 
 Either way nothing is on screen and everything in the layout is missing, so the restore
 runs once per compositor. The marker records which compositor was restored; a new one
 (a different pid or start time) means its windows were never brought back.
+
+On X11 windows live with the X server, which often runs as root, so the window manager stands
+in for it: a login starts one. (One restarted in a running session, as Cinnamon's "Restart
+Cinnamon" does, finds every window still there, and a restore then finds nothing missing.)
 """
 from __future__ import annotations
 
@@ -12,7 +16,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-COMPOSITORS = ("cosmic-comp", "kwin_wayland", "gnome-shell", "Hyprland")
+COMPOSITORS = ("cosmic-comp", "kwin_wayland", "gnome-shell", "Hyprland",
+               # X11 window managers (x11.py): Cinnamon's is cinnamon itself, Xfce's xfwm4, MATE's marco
+               "cinnamon", "xfwm4", "marco", "openbox", "metacity", "budgie-wm", "fluxbox", "icewm")
 FRESH_S = 600   # a compositor younger than this has just started: we are part of its start-up
 
 

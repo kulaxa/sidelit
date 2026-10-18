@@ -8,11 +8,11 @@
 pkgname=sidelit
 pkgver=0.5.0
 pkgrel=1
-pkgdesc='A workspace sidebar for COSMIC, KDE Plasma, GNOME and Hyprland: one tab per workspace with its coding agent, and a daemon that keeps the layout'
+pkgdesc='A workspace sidebar for COSMIC, KDE Plasma, GNOME, Hyprland and X11 desktops: one tab per workspace with its coding agent, and a daemon that keeps the layout'
 arch=('any')
 url='https://github.com/kulaxa/sidelit'
 license=('MIT')
-depends=('python' 'python-gobject' 'gtk3' 'gtk-layer-shell' 'systemd')
+depends=('python' 'python-gobject' 'gtk3' 'gtk-layer-shell' 'python-xlib' 'systemd')
 optdepends=('claude-code: session titles, status, model line and usage'
             'terminator: the default terminal the sidebar opens'
             'gtk4-layer-shell: the GTK 4 sidebar, drawn on the GPU'
@@ -20,7 +20,10 @@ optdepends=('claude-code: session titles, status, model line and usage'
             'cosmic-comp: runs on the COSMIC desktop'
             'kwin: runs on KDE Plasma 6'
             'gnome-shell: runs on GNOME, with the GNOME Shell extension in the package'
-            'hyprland: runs on Hyprland')
+            'hyprland: runs on Hyprland'
+            'cinnamon: runs on Cinnamon, on X11'
+            'xfwm4: runs on Xfce, on X11 (as on other window managers that keep the EWMH hints)'
+            'marco: runs on MATE, on X11')
 # the project's earlier name
 conflicts=('claude-workspace')
 replaces=('claude-workspace')

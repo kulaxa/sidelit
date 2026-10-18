@@ -30,12 +30,53 @@ fail() {
 tilde() { printf '%s' "${1/#"$HOME"/\~}"; }
 
 # ---- the desktop ------------------------------------------------------------------------------
-# Sets `desktop` (cosmic, kde, gnome, hyprland) and `desktop_name`, or stops with what is wrong.
+# An X11 session: as the session says, else an X display and no Wayland one
+x11_session() {
+    case ${XDG_SESSION_TYPE:-} in
+        x11) return 0 ;;
+        wayland) return 1 ;;
+    esac
+    [ -n "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]
+}
+
+# On X11: Cinnamon (Linux Mint), Xfce, MATE or another window manager that keeps the EWMH hints
+# (sidelit/x11.py). KDE and GNOME have their own way, tried on Wayland only.
+check_x11_desktop() {
+    local current=${XDG_CURRENT_DESKTOP:-}
+    session_name=X11
+    case ":${current^^}:" in
+        *:KDE:* | *:GNOME:*)
+            case ":${current^^}:" in
+                *:BUDGIE:* | *:GNOME-FLASHBACK:* | *:UNITY:* | *:PANTHEON:*) ;;
+                *) fail "On KDE Plasma and GNOME, Sidelit needs their Wayland session, and this one is X11: pick the Wayland session at the login screen." ;;
+            esac
+            ;;
+    esac
+    desktop=x11
+    case ":${current^^}:" in
+        *:X-CINNAMON:*) desktop_name=Cinnamon ;;
+        *:XFCE:*) desktop_name=Xfce ;;
+        *:MATE:*) desktop_name=MATE ;;
+        ::) desktop_name="your window manager" ;;
+        *) desktop_name=${current%%:*} ;;
+    esac
+}
+
+# Sets `desktop` (cosmic, kde, gnome, hyprland, x11), `desktop_name` and `session_name`, or
+# stops with what is wrong.
 check_desktop() {
     local current=${XDG_CURRENT_DESKTOP:-}
+    if x11_session; then
+        check_x11_desktop
+        return
+    fi
+    session_name=Wayland
     # a compositor started by hand may not name itself: its socket variable does
     [ -n "$current" ] || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || current=Hyprland
     case ":${current^^}:" in
+        # Cinnamon's Wayland session has no way yet for an app to see or move other windows
+        *:X-CINNAMON:*)
+            fail "Sidelit runs on Cinnamon's X11 session, not on its Wayland one: pick \"Cinnamon\" (not \"Cinnamon on Wayland\") at the login screen." ;;
         *:COSMIC:*) desktop=cosmic desktop_name=COSMIC ;;
         *:KDE:*)
             [ "${KDE_SESSION_VERSION:-6}" -ge 6 ] 2>/dev/null ||
@@ -48,8 +89,8 @@ check_desktop() {
         # on GNOME, GTK 4 is a required package, and a first install ends with logging out and in
         *:GNOME:*) desktop=gnome desktop_name=GNOME ;;
         *:HYPRLAND:*) desktop=hyprland desktop_name=Hyprland ;;
-        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME or Hyprland)." ;;
-        *) fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME and Hyprland, not on $current." ;;
+        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME or Hyprland, or Cinnamon, Xfce or MATE on X11)." ;;
+        *) fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME and Hyprland, and on X11 desktops (Cinnamon, Xfce, MATE), not on $current." ;;
     esac
     [ "${XDG_SESSION_TYPE:-}" = wayland ] || [ -n "${WAYLAND_DISPLAY:-}" ] ||
         fail "Sidelit needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}: pick the Wayland session at the login screen."
@@ -87,6 +128,15 @@ needed_packages() {
         dnf) echo python3 python3-gobject gobject-introspection gtk3 gtk-layer-shell git ;;
         pacman) echo python python-gobject gtk3 gtk-layer-shell git ;;
         zypper) echo python3 python3-gobject python3-gobject-Gdk typelib-1_0-Gtk-3_0 typelib-1_0-GtkLayerShell-0_1 git ;;
+    esac
+}
+
+# python-xlib: how Sidelit talks to the X server, on X11
+xlib_package() {
+    case $pm in
+        apt | dnf) echo python3-xlib ;;
+        pacman) echo python-xlib ;;
+        zypper) echo python3-python-xlib ;;
     esac
 }
 
@@ -138,15 +188,16 @@ manual_command() {
 install_packages() {
     local pkg needed missing=() extras=()
     needed=$(needed_packages)
-    # on GNOME the sidebar is GTK 4, without layer shell
+    # on GNOME the sidebar is GTK 4, without layer shell; on X11 it is GTK 3, docked through Xlib
     [ "$desktop" != gnome ] || needed="$needed $(gtk4_package)"
+    [ "$desktop" != x11 ] || needed="$needed $(xlib_package)"
     for pkg in $needed; do
         installed "$pkg" || missing+=("$pkg")
     done
     # the terminal Sidelit opens by default, when none it knows is installed (KDE has Konsole,
-    # Hyprland users kitty or foot; sidelit/config.py, TERMINALS)
+    # Hyprland users kitty or foot, Mint, Xfce and MATE their own; sidelit/config.py, TERMINALS)
     local term found_term=''
-    for term in terminator konsole kgx xterm foot kitty alacritty; do
+    for term in terminator konsole kgx xterm foot kitty alacritty gnome-terminal xfce4-terminal mate-terminal; do
         command -v "$term" >/dev/null && { found_term=1; break; }
     done
     [ -n "$found_term" ] || missing+=(terminator)
@@ -234,7 +285,7 @@ main() {
 
     check_desktop
     check_distro
-    say "${distro_name:-Linux}, $desktop_name on Wayland"
+    say "${distro_name:-Linux}, $desktop_name on $session_name"
     ! packaged ||
         fail "Sidelit is installed here as a package already, and the sidebar's update button updates it. To switch to this way of installing, remove the package ('sudo $pm remove sidelit') and run this line again."
 

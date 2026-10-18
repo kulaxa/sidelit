@@ -8,21 +8,31 @@ desktopdir="$HOME/.local/share/applications"
 autostartdir="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
 
 fail=0
-# COSMIC, KDE Plasma 6, GNOME or Hyprland, on Wayland: say so now rather than fail at the first
-# start (any desktop the backend picker does not know gets COSMIC's backend)
+# COSMIC, KDE Plasma 6, GNOME or Hyprland on Wayland, or an X11 desktop (Cinnamon, Xfce, MATE):
+# say so now rather than fail at the first start (any desktop the backend picker does not know
+# gets COSMIC's backend)
 desktop=${XDG_CURRENT_DESKTOP:-unknown}
 backend=$(PYTHONPATH="$repo" python3 -c 'from sidelit.backend import chosen; print(chosen())' 2>/dev/null || true)
 gnome=0
 [ "$backend" = gnome ] && gnome=1
-[[ $backend != cosmic || ":$desktop:" == *:COSMIC:* ]] ||
-    echo "! Sidelit runs on COSMIC, KDE Plasma 6, GNOME and Hyprland, not on $desktop: it will not start here"
-[[ ${XDG_SESSION_TYPE:-} == wayland ]] ||
-    echo "! the sidebar needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}"
+# (on X11 any window manager that keeps the EWMH hints will do; the daemon says if this one does not)
+if [[ $backend != x11 ]]; then
+    [[ $backend != cosmic || ":$desktop:" == *:COSMIC:* ]] ||
+        echo "! Sidelit runs on COSMIC, KDE Plasma 6, GNOME and Hyprland, and on X11 desktops, not on $desktop: it will not start here"
+    [[ ${XDG_SESSION_TYPE:-} == wayland ]] ||
+        echo "! the sidebar needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}"
+fi
 if ! python3 -c "import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk" &>/dev/null; then
     echo "✗ python3 GTK bindings missing. Install with 'sudo apt install python3-gi gir1.2-gtk-3.0'."
     fail=1
 fi
-if [[ $gnome == 1 ]]; then
+if [[ $backend == x11 ]]; then
+    # X11 has no layer shell: the GTK 3 sidebar docks itself through python-xlib, as the daemon talks
+    if ! python3 -c "import Xlib.display" &>/dev/null; then
+        echo "✗ python-xlib missing. Install with 'sudo apt install python3-xlib' (Fedora: python3-xlib, Arch: python-xlib)."
+        fail=1
+    fi
+elif [[ $gnome == 1 ]]; then
     # GNOME has no layer shell: its extension docks a plain GTK 4 window (GTK 3 if need be)
     python3 -c "import gi; gi.require_version('Gtk','4.0')" &>/dev/null ||
         echo "! GTK 4's python bindings missing: the GTK 3 sidebar runs. For the smooth one: 'sudo apt install gir1.2-gtk-4.0'"

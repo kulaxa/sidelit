@@ -1,6 +1,6 @@
 # Sidelit
 
-A sidebar for COSMIC, KDE Plasma, GNOME and Hyprland where every workspace is a tab, and the coding agent working
+A sidebar for COSMIC, KDE Plasma, GNOME, Hyprland, Cinnamon, Xfce and MATE where every workspace is a tab, and the coding agent working
 on it shows its status there: working, waiting for you, done. Each agent keeps its terminal,
 its browser and whatever else it needs on a workspace of its own, and Sidelit keeps that layout:
 windows go back where they belong after a screen change, a crash or a login, and the sessions
@@ -27,6 +27,17 @@ that were open come back resumed. You look after agents, not windows.
   is the key that goes to that workspace (Super+1… out of the box). Hyprland does not run
   autostart entries by itself: see [On Hyprland](#on-hyprland) for the one line to add.
 
+And on X11:
+
+- **Cinnamon** (Linux Mint's default), **Xfce** and **MATE**, or any other window manager that
+  keeps the standard EWMH hints (Openbox, Budgie's): workspaces are the window manager's
+  desktops, and the sidebar is a panel on the left that maximised windows stop beside. As on
+  KDE, desktops stay until you remove them, so there is no pinning, and they cannot be
+  reordered, so tabs cannot be dragged. The shortcut on each tab is the key bound to "switch to
+  workspace N" (on Xfce Ctrl+F1… out of the box; Cinnamon and MATE bind none until you do).
+- Not on X11: KDE Plasma and GNOME (use their Wayland sessions). Not on Wayland: Cinnamon's
+  Wayland session (pick "Cinnamon" at the login screen).
+
 Other desktops are planned.
 
 **Works with Claude Code.** Sidelit plugs into Claude Code as a plugin, installed with Claude
@@ -50,23 +61,26 @@ or, with wget:
 wget -qO- https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash
 ```
 
-Run it in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME or Hyprland, on Wayland). It installs
+Run it in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME or Hyprland on Wayland;
+Cinnamon, Xfce or MATE on X11). It installs
 the few packages Sidelit needs (asking for your password once), puts Sidelit in
 `~/.local/share/sidelit` and starts it; from then on it starts at every login. Run the same line
-again to update. It knows Ubuntu, Pop!_OS, Debian, Fedora, Arch (and EndeavourOS, CachyOS,
-Manjaro) and openSUSE; what it did is in `~/.cache/sidelit-install.log`, and
+again to update. It knows Ubuntu, Linux Mint, Pop!_OS, Debian, Fedora, Arch (and EndeavourOS,
+CachyOS, Manjaro) and openSUSE; what it did is in `~/.cache/sidelit-install.log`, and
 `~/.local/share/sidelit/uninstall.sh` takes it out again. On GNOME, see [On GNOME](#on-gnome)
 for the one thing left after it, and on Hyprland, [On Hyprland](#on-hyprland).
 
 ### Other ways to install
 
-Sidelit needs COSMIC, KDE Plasma 6, GNOME 46 or later, or Hyprland, on Wayland, Python 3.10 or
-later with GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the
-layer shell), and the `claude` CLI for the session features. Nothing is compiled: the Wayland
-client is pure Python, in the tree, on KDE it talks to KWin over D-Bus, on GNOME to its own GNOME
-Shell extension, which is JavaScript, and on Hyprland to Hyprland's own sockets.
+Sidelit needs COSMIC, KDE Plasma 6, GNOME 46 or later, or Hyprland, on Wayland, or an X11
+desktop whose window manager keeps the EWMH hints (Cinnamon, Xfce, MATE), Python 3.10 or later
+with GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the layer
+shell; on X11, python-xlib), and the `claude` CLI for the session features. Nothing is
+compiled: the Wayland client is pure Python, in the tree, on KDE it talks to KWin over D-Bus, on
+GNOME to its own GNOME Shell extension, which is JavaScript, on Hyprland to Hyprland's own
+sockets, and on X11 to the window manager through python-xlib.
 
-**Ubuntu, Pop!_OS, Debian:** the .deb from the latest release:
+**Ubuntu, Linux Mint, Pop!_OS, Debian:** the .deb from the latest release:
 
 ```bash
 curl -LO https://github.com/kulaxa/sidelit/releases/latest/download/sidelit_latest_all.deb
@@ -423,7 +437,7 @@ re-reads it.
 - `sidebar`: `auto`, `gtk4` or `gtk3` (see the GTK 4 sidebar above).
 - `terminal` (a command with `{cwd}`) and `terminal_cmd` (with `{command}` too): the terminal
   the sidebar opens. The default is the first of Terminator, Konsole, GNOME Console, kitty,
-  foot, Alacritty and xterm that is installed.
+  foot, Alacritty, GNOME Terminal, Xfce's and MATE's terminals and xterm that is installed.
 - `browser`: the executable `sidelit open` uses for a new window.
 - `templates`, `default_template`: what `+` can open (below).
 - `web_apps`: one-click web app windows, as `[{"name": …, "url": …}]`.
@@ -464,7 +478,8 @@ few session variables systemd lacks, such as the input method):
   nothing, so it can crash or restart without losing anything. What it does is
   `sidebar_common.py`; the drawing is GTK 4 (`sidebar4.py` picks it and loads gtk4-layer-shell,
   `sidebar4_ui.py` draws) or, without gtk4-layer-shell, GTK 3 (`sidebar.py`). On GNOME the
-  extension runs it instead of systemd (its log is in the journal as `sidelit-sidebar`).
+  extension runs it instead of systemd (its log is in the journal as `sidelit-sidebar`). On X11
+  it is the GTK 3 one, as a dock window (`xdock.py`).
 
 The engine (`sidelit/core/`, pure Python, tested against a fake desktop in `tests/`):
 
@@ -504,9 +519,14 @@ Desktop Icons NG runs its window: GNOME then knows that window as its own and ma
 strip at the left edge, counted like the top bar, keeps windows beside it. On Hyprland,
 `hyprland.py` talks to Hyprland's two sockets (in `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/`):
 `.socket.sock` for requests (`j/clients`, `j/workspaces`, `j/monitors`, and the dispatchers that
-act) and `.socket2.sock`, whose event lines the daemon watches. `backend.py` picks
-the client for the desktop (`XDG_CURRENT_DESKTOP`, else the compositor's own socket variable;
-`SIDELIT_BACKEND=cosmic|kde|gnome|hyprland` overrides it): every client has the same interface
+act) and `.socket2.sock`, whose event lines the daemon watches. On X11, `x11.py` reads the
+window manager's EWMH hints through python-xlib (desktops, their names and the current one, and
+each window's title, app, process and desktop, all followed as they change) and asks it for
+changes the way a pager does, with client messages to the root window; `xdock.py` makes the
+GTK 3 sidebar a dock on every desktop with `_NET_WM_STRUT_PARTIAL` set. `backend.py` picks
+the client for the desktop (`XDG_CURRENT_DESKTOP`, else the compositor's own socket variable,
+and `XDG_SESSION_TYPE=x11` for X11; `SIDELIT_BACKEND=cosmic|kde|gnome|hyprland|x11` overrides
+it): every client has the same interface
 (`model.py` has the shapes), and what one cannot do is left out of its `caps`, so the sidebar
 hides those controls.
 
@@ -583,6 +603,27 @@ Hyprland notes:
   line (a working Claude retitles its terminal ten times a second); anything else makes Sidelit
   read everything again.
 
+X11 notes:
+
+- **Ids.** X11 desktops have positions but no ids. Sidelit gives each one an id and keeps the
+  list, with the names, in `~/.local/state/sidelit/x11-desktops.json`; the window manager brings
+  the same desktops back at the next login, and they get the same ids.
+- **Desktops coming and going.** When one comes or goes without Sidelit (Cinnamon can remove one
+  in the middle), the names and the windows say which: the ones after it move down a place.
+  EWMH adds and drops desktops only at the end, so to remove one in the middle Sidelit drops the
+  last one, then moves the windows and names after it down by one.
+- **Windows.** Window numbers start over with every X server, so a window's identifier also
+  carries a token kept on the root window (`_SIDELIT_SESSION`): a window after the next login is
+  never taken for a remembered one. A window's app id is GTK's own where GTK sets one
+  (`org.gnome.Terminal`), else its `WM_CLASS`, as on Wayland. A window on every desktop belongs
+  to none of the tabs.
+- **Screens.** A window is on the screen its middle is on, and goes to another one with
+  `_NET_MOVERESIZE_WINDOW` (a maximised one is maximised there again). The sidebar's strip is
+  reserved from the left edge of the whole X screen, so it belongs on the leftmost screen (the
+  `monitor` default); it leaves room for the desktop's own panels.
+- **Login.** The window manager starting (cinnamon, xfwm4, marco…) is what tells the daemon to
+  bring windows back.
+
 ## Moving from Claude Workspace
 
 Sidelit is Claude Workspace under a new name. To move over:
@@ -647,7 +688,8 @@ windows (one, a logout cascade, an app crash, a tray app), moving them, unpluggi
 replugging a screen, daemon restarts, a login restore. The KDE backend against a fake KWin, and
 the GNOME backend against a fake GNOME Shell with the extension, each on a private session bus
 (skipped without PyGObject and `dbus-daemon`); the Hyprland backend against a fake Hyprland's
-two sockets, once with a Lua config and once with a classic one. To watch the real daemon
+two sockets, once with a Lua config and once with a classic one; the X11 backend against a fake
+X server with a small window manager in it (`tests/fake_x11.py`). To watch the real daemon
 decide without letting it act, run a second one in dry-run mode on a copy of your config:
 `SIDELIT_HOME=/tmp/sidelit-test SIDELIT_DRY_RUN=1 python3 -m sidelit daemon`.
 
@@ -661,7 +703,9 @@ clicks and types into the sidebar the extension runs), and `tests/gnome_restore_
 login restore. On a real Hyprland (a session you can spare, or a nested one), `tests/hyprland_live.py`
 checks the Hyprland backend, with two screens also moving workspaces between them, and
 `tests/hyprland_daemon_live.py` a test daemon, then (`--restore`, in a fresh Hyprland) that a
-login brings a kept workspace back under its number.
+login brings a kept workspace back under its number. On a real X11 window manager (a session
+you can spare, or Xvfb with xfwm4, Cinnamon, Marco or Openbox), `tests/x11_live.py` checks the
+X11 backend and a test daemon; it needs xterm.
 
 ## Licence
 

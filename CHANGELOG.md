@@ -6,6 +6,12 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- X11 desktops: Cinnamon (Linux Mint), Xfce and MATE, and other window managers that keep the
+  standard EWMH hints. The sidebar is a panel on the left that maximised windows stop beside,
+  next to the desktop's own panels; workspaces are the window manager's desktops and keep their
+  place across logins. The one-line install takes these sessions and adds python-xlib. Not on
+  Cinnamon's Wayland session. GNOME Terminal, Xfce's and MATE's terminals are now terminals
+  Sidelit opens.
 - Hyprland: Sidelit runs there too, with a Lua config (Hyprland 0.55 and later) or a classic
   one. The tabs are Hyprland's own workspaces, by number; the ones you work on stay even when
   empty and come back under the same number after a login. Add `exec-once = sidelit start` (or,

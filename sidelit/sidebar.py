@@ -19,13 +19,16 @@ import signal
 
 import gi
 
-from sidelit import gnome
+from sidelit import gnome, xdock
+
+# on X11 the sidebar is a dock window (xdock.py); GNOME's extension docks it on either
+X11_DOCK = not gnome.hosted() and xdock.on_x11()
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Pango", "1.0")
 gi.require_version("GdkPixbuf", "2.0")
-if not gnome.hosted():
+if not gnome.hosted() and not X11_DOCK:
     gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import GLib  # noqa: E402
 
@@ -35,7 +38,7 @@ GLib.set_prgname("sidelit")
 from gi.repository import Gdk, GdkPixbuf, Gtk, Pango  # noqa: E402
 
 # on GNOME there is no layer shell: Sidelit's GNOME Shell extension docks the plain window
-if gnome.hosted():
+if gnome.hosted() or X11_DOCK:
     GtkLayerShell = None
 else:
     from gi.repository import GtkLayerShell  # noqa: E402
@@ -375,7 +378,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             if self._monitor is not None:
                 GtkLayerShell.set_monitor(self, self._monitor)
             GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
-        else:
+        elif not X11_DOCK:
             self.set_decorated(False)  # GNOME's extension docks it: no title bar
         disp = Gdk.Display.get_default()
         disp.connect("monitor-added", lambda *_: self._screens_changed("monitor added"))
@@ -385,10 +388,14 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.connect("delete-event", self._on_delete)
         self.set_default_size(width, 600)
         self.set_size_request(width, -1)
+        if X11_DOCK:  # a dock window, as tall as its screen (after the sizes above)
+            xdock.dock(self, self._monitor, width)
 
         self.get_style_context().add_class("cw-window")
         visual = self.get_screen().get_rgba_visual()
-        if visual is not None:  # without one (no compositor) the clear window is just dark
+        # without one (no compositor) the clear window is just dark; X11 has one either way,
+        # but it is clear only while a compositor runs
+        if visual is not None and (not X11_DOCK or self.get_screen().is_composited()):
             self.set_visual(visual)
 
         css = Gtk.CssProvider()
@@ -546,6 +553,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
         picking one brings it back with its windows. The list is asked for now, not pushed."""
         if gnome.hosted():  # GNOME's dock gets the keyboard only when it asks: the search needs it
             gnome.focus_sidebar()
+        elif X11_DOCK:  # (so does a dock on X11)
+            xdock.focus(self)
         pop = Gtk.Popover(relative_to=button, position=Gtk.PositionType.BOTTOM)
         pop.get_style_context().add_class("cw-history-pop")
 

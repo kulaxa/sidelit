@@ -10,11 +10,13 @@ it: the control is hidden rather than offered as a button that fails.
 - ``kde``: KDE Plasma 6, over KWin's D-Bus interface and a KWin script (kwin.py).
 - ``gnome``: GNOME, through Sidelit's GNOME Shell extension (gnome.py, gnome-extension/).
 - ``hyprland``: Hyprland, over its IPC sockets (hyprland.py).
+- ``x11``: an X11 session with a window manager that keeps the EWMH hints: Cinnamon (Linux
+  Mint), Xfce, MATE, Openbox and the like (x11.py).
 
 The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE, GNOME or Hyprland). A
 compositor started by hand, which may not set it, is known by the socket variable it sets
-(HYPRLAND_INSTANCE_SIGNATURE). ``SIDELIT_BACKEND=cosmic``, ``kde``, ``gnome`` or ``hyprland``
-overrides it.
+(HYPRLAND_INSTANCE_SIGNATURE). An X11 session (XDG_SESSION_TYPE=x11) of any other desktop gets
+``x11``. ``SIDELIT_BACKEND=cosmic``, ``kde``, ``gnome``, ``hyprland`` or ``x11`` overrides it.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ import os
 import sys
 from typing import Callable
 
-BACKENDS = ("cosmic", "kde", "gnome", "hyprland")
+BACKENDS = ("cosmic", "kde", "gnome", "hyprland", "x11")
 # desktops that name GNOME in XDG_CURRENT_DESKTOP but do not run GNOME Shell
 NOT_GNOME_SHELL = {"BUDGIE", "GNOME-FLASHBACK", "UNITY", "PANTHEON"}
 # compositors of their own: the name in XDG_CURRENT_DESKTOP, the variable with their socket
@@ -45,11 +47,23 @@ def chosen(env=None) -> str:
     for name, _var, backend in COMPOSITORS:
         if name in desktops:
             return backend
-    if "COSMIC" not in desktops:
-        for _name, var, backend in COMPOSITORS:
-            if env.get(var):
-                return backend
+    if "COSMIC" in desktops:
+        return "cosmic"
+    for _name, var, backend in COMPOSITORS:
+        if env.get(var):
+            return backend
+    if x11_session(env):  # Cinnamon (Mint), Xfce, MATE, any window manager that keeps the EWMH hints
+        return "x11"
     return "cosmic"
+
+
+def x11_session(env=None) -> bool:
+    """Is this an X11 session? As the session says, else: an X display and no Wayland one."""
+    env = os.environ if env is None else env
+    kind = (env.get("XDG_SESSION_TYPE") or "").strip().lower()
+    if kind in ("x11", "wayland"):
+        return kind == "x11"
+    return bool(env.get("DISPLAY")) and not env.get("WAYLAND_DISPLAY")
 
 
 def open_client(on_change: Callable[[], None] | None = None, primary: bool = True):
@@ -69,6 +83,9 @@ def open_client(on_change: Callable[[], None] | None = None, primary: bool = Tru
     if chosen() == "hyprland":
         from sidelit.hyprland import HyprlandClient
         return HyprlandClient(on_change, primary=primary)
+    if chosen() == "x11":
+        from sidelit.x11 import X11Client
+        return X11Client(on_change, primary=primary)
     from sidelit.wsclient import WorkspaceClient
     return WorkspaceClient(on_change, primary=primary)
 
