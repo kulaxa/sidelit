@@ -8,12 +8,14 @@ desktopdir="$HOME/.local/share/applications"
 autostartdir="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
 
 fail=0
-# COSMIC, KDE Plasma 6 or GNOME, on Wayland: say so now rather than fail at the first start
+# COSMIC, KDE Plasma 6, GNOME or Hyprland, on Wayland: say so now rather than fail at the first
+# start (any desktop the backend picker does not know gets COSMIC's backend)
 desktop=${XDG_CURRENT_DESKTOP:-unknown}
+backend=$(PYTHONPATH="$repo" python3 -c 'from sidelit.backend import chosen; print(chosen())' 2>/dev/null || true)
 gnome=0
-[ "$(PYTHONPATH="$repo" python3 -c 'from sidelit.backend import chosen; print(chosen())' 2>/dev/null)" = gnome ] && gnome=1
-[[ ":$desktop:" == *:COSMIC:* || ":$desktop:" == *:KDE:* || $gnome == 1 ]] ||
-    echo "! Sidelit runs on COSMIC, KDE Plasma 6 and GNOME, not on $desktop: it will not start here"
+[ "$backend" = gnome ] && gnome=1
+[[ $backend != cosmic || ":$desktop:" == *:COSMIC:* ]] ||
+    echo "! Sidelit runs on COSMIC, KDE Plasma 6, GNOME and Hyprland, not on $desktop: it will not start here"
 [[ ${XDG_SESSION_TYPE:-} == wayland ]] ||
     echo "! the sidebar needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}"
 if ! python3 -c "import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk" &>/dev/null; then

@@ -425,7 +425,7 @@ class Daemon:
 
     def _as_space(self, w) -> Space:
         return Space(index=w.index, ids=frozenset(w.all_ids), pinned=w.pinned, active=w.active, name=w.name or "",
-                     copies_pinned=getattr(w, "copies_pinned", True))
+                     copies_pinned=getattr(w, "copies_pinned", True), output=getattr(w, "monitor", "") or "")
 
     def _dry(self, what: str) -> bool:
         if config.DRY_RUN:
@@ -452,12 +452,18 @@ class Daemon:
         self.ws.move(a, b, before=True)
         return True
 
-    def pin_new_space(self) -> Space | None:
+    def pin_new_space(self, want: tuple = ()) -> Space | None:
+        """A fresh workspace, kept. `want`: the ids the workspace it is for had, for a desktop
+        that can bring one back under its id (Hyprland: its number)."""
         if self._dry("pin a new workspace"):
             return None
         if "pin" not in self.ws.caps:
             ws = self.ws.create("Workspace")  # a desktop whose workspaces persist anyway
             return self._as_space(ws) if ws is not None else None
+        if not getattr(self.ws, "spare_workspace", True):
+            # no empty workspace waits at the end (Hyprland): the desktop makes one, pinned
+            ws = self.ws.create("Workspace", want=tuple(want))
+            return self._as_space(ws) if ws is not None and ws.all_ids else None
         lst = self.ws.list()
         if not lst:
             return None

@@ -30,9 +30,11 @@ fail() {
 tilde() { printf '%s' "${1/#"$HOME"/\~}"; }
 
 # ---- the desktop ------------------------------------------------------------------------------
-# Sets `desktop` (cosmic, kde, gnome) and `desktop_name`, or stops with what is wrong.
+# Sets `desktop` (cosmic, kde, gnome, hyprland) and `desktop_name`, or stops with what is wrong.
 check_desktop() {
     local current=${XDG_CURRENT_DESKTOP:-}
+    # a compositor started by hand may not name itself: its socket variable does
+    [ -n "$current" ] || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || current=Hyprland
     case ":${current^^}:" in
         *:COSMIC:*) desktop=cosmic desktop_name=COSMIC ;;
         *:KDE:*)
@@ -42,11 +44,12 @@ check_desktop() {
             ;;
         # (these name GNOME too, but run a shell of their own: sidelit/backend.py, NOT_GNOME_SHELL)
         *:BUDGIE:* | *:GNOME-FLASHBACK:* | *:UNITY:* | *:PANTHEON:*)
-            fail "Sidelit runs on COSMIC, KDE Plasma 6 and GNOME, not on $current." ;;
+            fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME and Hyprland, not on $current." ;;
         # on GNOME, GTK 4 is a required package, and a first install ends with logging out and in
         *:GNOME:*) desktop=gnome desktop_name=GNOME ;;
-        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC, KDE Plasma 6 or GNOME)." ;;
-        *) fail "Sidelit runs on COSMIC, KDE Plasma 6 and GNOME, not on $current." ;;
+        *:HYPRLAND:*) desktop=hyprland desktop_name=Hyprland ;;
+        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME or Hyprland)." ;;
+        *) fail "Sidelit runs on COSMIC, KDE Plasma 6, GNOME and Hyprland, not on $current." ;;
     esac
     [ "${XDG_SESSION_TYPE:-}" = wayland ] || [ -n "${WAYLAND_DISPLAY:-}" ] ||
         fail "Sidelit needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}: pick the Wayland session at the login screen."
@@ -140,11 +143,13 @@ install_packages() {
     for pkg in $needed; do
         installed "$pkg" || missing+=("$pkg")
     done
-    # the terminal Sidelit opens by default, when none it knows is installed (KDE has Konsole)
-    if ! command -v terminator >/dev/null && ! command -v konsole >/dev/null &&
-        ! command -v kgx >/dev/null && ! command -v xterm >/dev/null; then
-        missing+=(terminator)
-    fi
+    # the terminal Sidelit opens by default, when none it knows is installed (KDE has Konsole,
+    # Hyprland users kitty or foot; sidelit/config.py, TERMINALS)
+    local term found_term=''
+    for term in terminator konsole kgx xterm foot kitty alacritty; do
+        command -v "$term" >/dev/null && { found_term=1; break; }
+    done
+    [ -n "$found_term" ] || missing+=(terminator)
     if [ ${#missing[@]} -eq 0 ]; then
         say "The system packages Sidelit needs are installed"
         return
@@ -272,9 +277,18 @@ main() {
     "$bindir/sidelit" "$action" </dev/null 2>&1 | tee -a "$log" | sed 's/^/  /'
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "Sidelit is installed, but did not start: 'sidelit log' says why."
 
-    local version
+    local version login=1 hypr=${XDG_CONFIG_HOME:-$HOME/.config}/hypr
     version=$(cat "$dir/VERSION")
-    if [ -z "$before" ]; then
+    # Hyprland itself runs no autostart entries; a session that runs them (uwsm starts systemd's
+    # xdg-desktop-autostart.target) starts Sidelit, else it takes a line in Hyprland's config,
+    # unless that is there already
+    if [ "$desktop" = hyprland ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null &&
+        ! grep -rqs "sidelit start" "$hypr"; then
+        login=''
+    fi
+    if [ -z "$before" ] && [ -z "$login" ]; then
+        echo "${bold}✓ Sidelit $version is installed and started.${plain} Run this line again to update it."
+    elif [ -z "$before" ]; then
         echo "${bold}✓ Sidelit $version is installed and started.${plain} It starts by itself at every login; run this line again to update it."
     elif [ "$before" = "$version" ]; then
         echo "${bold}✓ Sidelit $version is up to date, and ${action}ed.${plain}"
@@ -283,6 +297,13 @@ main() {
     fi
     [ "$desktop" != gnome ] || [ -n "$before" ] ||
         echo "  Next: log out and back in once, so that GNOME loads Sidelit's extension."
+    if [ -z "$login" ] && [ -f "$hypr/hyprland.lua" ]; then
+        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$hypr")/hyprland.lua:"
+        echo "    hl.on(\"hyprland.start\", function () hl.exec_cmd(\"sidelit start\") end)"
+    elif [ -z "$login" ]; then
+        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$hypr")/hyprland.conf:"
+        echo "    exec-once = sidelit start"
+    fi
     command -v claude >/dev/null ||
         echo "  Next: install Claude Code (curl -fsSL https://claude.ai/install.sh | bash), then run this line again to connect Sidelit to it."
     ! chrome_step_left ||

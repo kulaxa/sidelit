@@ -1,6 +1,6 @@
 # Sidelit
 
-A sidebar for COSMIC, KDE Plasma and GNOME where every workspace is a tab, and the coding agent working
+A sidebar for COSMIC, KDE Plasma, GNOME and Hyprland where every workspace is a tab, and the coding agent working
 on it shows its status there: working, waiting for you, done. Each agent keeps its terminal,
 its browser and whatever else it needs on a workspace of its own, and Sidelit keeps that layout:
 windows go back where they belong after a screen change, a crash or a login, and the sessions
@@ -20,6 +20,12 @@ that were open come back resumed. You look after agents, not windows.
   on COSMIC; the sidebar is hidden in the overview, like every window. With GNOME's setting
   "workspaces on the primary display only" (the default), windows on other screens are on
   every workspace, so they belong to none of the tabs.
+- **Hyprland** (checked with 0.56, with the new Lua config and with a classic one): the tabs are
+  Hyprland's own workspaces, by their numbers. A workspace Sidelit keeps stays even when it is
+  empty, and after a login it comes back under the same number, so Super+3 still takes you to
+  it. Hyprland orders workspaces by number, so tabs cannot be dragged. The shortcut on each tab
+  is the key that goes to that workspace (Super+1… out of the box). Hyprland does not run
+  autostart entries by itself: see [On Hyprland](#on-hyprland) for the one line to add.
 
 Other desktops are planned.
 
@@ -44,21 +50,21 @@ or, with wget:
 wget -qO- https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash
 ```
 
-Run it in a terminal on your desktop (COSMIC, KDE Plasma 6 or GNOME, on Wayland). It installs
+Run it in a terminal on your desktop (COSMIC, KDE Plasma 6, GNOME or Hyprland, on Wayland). It installs
 the few packages Sidelit needs (asking for your password once), puts Sidelit in
 `~/.local/share/sidelit` and starts it; from then on it starts at every login. Run the same line
 again to update. It knows Ubuntu, Pop!_OS, Debian, Fedora, Arch (and EndeavourOS, CachyOS,
 Manjaro) and openSUSE; what it did is in `~/.cache/sidelit-install.log`, and
 `~/.local/share/sidelit/uninstall.sh` takes it out again. On GNOME, see [On GNOME](#on-gnome)
-for the one thing left after it.
+for the one thing left after it, and on Hyprland, [On Hyprland](#on-hyprland).
 
 ### Other ways to install
 
-Sidelit needs COSMIC, KDE Plasma 6 or GNOME 46 or later on Wayland, Python 3.10 or later with
-GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the layer
-shell), and the `claude` CLI for the session features. Nothing is compiled: the Wayland client
-is pure Python, in the tree, on KDE it talks to KWin over D-Bus, and on GNOME to its own GNOME
-Shell extension, which is JavaScript.
+Sidelit needs COSMIC, KDE Plasma 6, GNOME 46 or later, or Hyprland, on Wayland, Python 3.10 or
+later with GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the
+layer shell), and the `claude` CLI for the session features. Nothing is compiled: the Wayland
+client is pure Python, in the tree, on KDE it talks to KWin over D-Bus, on GNOME to its own GNOME
+Shell extension, which is JavaScript, and on Hyprland to Hyprland's own sockets.
 
 **Ubuntu, Pop!_OS, Debian:** the .deb from the latest release:
 
@@ -108,6 +114,16 @@ The packages and `install.sh` install Sidelit's GNOME Shell extension. Then:
 
 If no sidebar appears, `sidelit status` says whether the extension is running. To take Sidelit
 off the screen, `sidelit stop`, or switch the extension off.
+
+### On Hyprland
+
+Hyprland itself runs no autostart entries, so Sidelit starts by itself only when your session
+runs them (uwsm does). Otherwise add one line to your Hyprland config, so it starts at every
+login (the install line says so when it is needed):
+
+- with a classic config (`~/.config/hypr/hyprland.conf`): `exec-once = sidelit start`
+- with a Lua config (`~/.config/hypr/hyprland.lua`, Hyprland 0.55 and later):
+  `hl.on("hyprland.start", function () hl.exec_cmd("sidelit start") end)`
 
 ### The GTK 4 sidebar (optional)
 
@@ -213,8 +229,9 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   in tmux, WezTerm and kitty (with remote control on); Terminator offers no way to focus a pane
   from outside, so there its window comes forward. Each tab shows its switch shortcut (COSMIC's
   default Super+1…9, Super+0 for the last; on KDE, the key bound to "Switch to Desktop N"; on
-  GNOME, the key bound to "Switch to workspace N").
-- **`+`** pins a fresh workspace (on KDE, adds a desktop) and opens a terminal in your home
+  GNOME, the key bound to "Switch to workspace N"; on Hyprland, the key that goes to that
+  workspace's number).
+- **`+`** pins a fresh workspace (on KDE, adds a desktop; on Hyprland, the next number) and opens a terminal in your home
   directory, or whatever the template you pick says. Start `claude` there as usual and the tab
   picks up its title within seconds.
 - **Fork** icon: like `/fork`, opens `claude --resume <id> --fork-session` in a new workspace in
@@ -225,7 +242,7 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   *Recent sessions*. A kept workspace that is not on the desktop shows as "closed – click to
   reopen": one click brings it and its windows back.
 - **Drag** a tab onto another to reorder the workspaces themselves (COSMIC and GNOME; KWin
-  cannot reorder its desktops). **Double-click** (or right-click → Rename) to name a plain workspace; a
+  cannot reorder its desktops, and Hyprland orders them by number). **Double-click** (or right-click → Rename) to name a plain workspace; a
   session's title always wins.
 - **Status, straight from the agent.** The hook in Sidelit's Claude Code plugin (above) makes
   every session report what it is doing as it happens: working, waiting for a permission or an
@@ -405,8 +422,8 @@ re-reads it.
 - `monitor`: the sidebar's screen, `leftmost`, `largest`, or a model or maker substring.
 - `sidebar`: `auto`, `gtk4` or `gtk3` (see the GTK 4 sidebar above).
 - `terminal` (a command with `{cwd}`) and `terminal_cmd` (with `{command}` too): the terminal
-  the sidebar opens. The default is the first of Terminator, Konsole, GNOME Console and xterm
-  that is installed.
+  the sidebar opens. The default is the first of Terminator, Konsole, GNOME Console, kitty,
+  foot, Alacritty and xterm that is installed.
 - `browser`: the executable `sidelit open` uses for a new window.
 - `templates`, `default_template`: what `+` can open (below).
 - `web_apps`: one-click web app windows, as `[{"name": …, "url": …}]`.
@@ -484,10 +501,14 @@ connection (`GetState`, a `Changed` signal, and the workspace and window actions
 `sidebar.js` starts the sidebar while the daemon holds `io.github.kulaxa.sidelit`, the way
 Desktop Icons NG runs its window: GNOME then knows that window as its own and makes it a dock
 (every workspace, above windows, out of the overview, the dash and Alt+Tab), and an invisible
-strip at the left edge, counted like the top bar, keeps windows beside it. `backend.py` picks
-the client for the desktop (`XDG_CURRENT_DESKTOP`; `SIDELIT_BACKEND=cosmic|kde|gnome` overrides
-it): every client has the same interface (`model.py` has the shapes), and what one cannot do is
-left out of its `caps`, so the sidebar hides those controls.
+strip at the left edge, counted like the top bar, keeps windows beside it. On Hyprland,
+`hyprland.py` talks to Hyprland's two sockets (in `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/`):
+`.socket.sock` for requests (`j/clients`, `j/workspaces`, `j/monitors`, and the dispatchers that
+act) and `.socket2.sock`, whose event lines the daemon watches. `backend.py` picks
+the client for the desktop (`XDG_CURRENT_DESKTOP`, else the compositor's own socket variable;
+`SIDELIT_BACKEND=cosmic|kde|gnome|hyprland` overrides it): every client has the same interface
+(`model.py` has the shapes), and what one cannot do is left out of its `caps`, so the sidebar
+hides those controls.
 
 Session state comes from Sidelit's Claude Code plugin (each session's events, and the usage
 limits), from `claude agents --json` (Claude Code's list of running sessions, which its docs
@@ -535,6 +556,32 @@ The extension uses GNOME Shell internals in two places, both checked against GNO
 and 51: the workspace tracker's `_checkWorkspaces` (to keep pinned workspaces) and the layout
 manager's tracked chrome (to put the sidebar beside a dock already on the left). Each GNOME
 release (every six months) needs the extension's `shell-version` raised after a check.
+
+Hyprland notes:
+
+- **Ids.** A workspace's id is its number (`3`), or `name:` and its name. A kept workspace is
+  asked back under its number after a login; a new one gets the next number.
+- **Keeping one.** Hyprland drops an empty workspace you are not looking at. Sidelit keeps one
+  with a persistent workspace rule, as `workspace = 3, persistent:true` in a config would.
+- **Screens.** The rule names the workspace's screen (without one, Hyprland moves it to the
+  screen with the keyboard whenever it applies its rules). The rule follows the workspace when
+  you move it; two swapped workspaces change together. While its screen is unplugged the rule
+  stays, and the workspace goes back when the screen does.
+- **Your config.** A workspace your config keeps is never unpinned; one it puts on a screen
+  stays there, and `+` skips numbers your config puts on another screen. With two screens, a
+  workspace your config keeps without naming a screen moves to the screen with the keyboard
+  whenever a rule is set: give it a `monitor:`.
+- **Reloads.** Rules added at runtime go when Hyprland reloads its config; Sidelit adds its own
+  again. A rule Sidelit lets go is switched off (Lua config), or stays unpinned until the next
+  reload (classic config: that number keeps opening on its last screen).
+- **Two command forms.** Since 0.55 a Lua config takes commands in Lua
+  (`hl.dsp.focus({window = "address:…"})`) and refuses the classic form (`focuswindow
+  address:…`). Sidelit asks which on connecting (`eval` exists only with Lua).
+- **Shortcuts.** A Lua config's bindings are hidden from outside, so there Super and a number
+  key are taken to go to that workspace; a classic config's say where they go.
+- **Events.** Windows go by Hyprland's stable id. Titles and focus come straight from the event
+  line (a working Claude retitles its terminal ten times a second); anything else makes Sidelit
+  read everything again.
 
 ## Moving from Claude Workspace
 
@@ -599,7 +646,8 @@ The engine against a fake desktop that behaves like cosmic-comp where it matters
 windows (one, a logout cascade, an app crash, a tray app), moving them, unplugging and
 replugging a screen, daemon restarts, a login restore. The KDE backend against a fake KWin, and
 the GNOME backend against a fake GNOME Shell with the extension, each on a private session bus
-(skipped without PyGObject and `dbus-daemon`). To watch the real daemon
+(skipped without PyGObject and `dbus-daemon`); the Hyprland backend against a fake Hyprland's
+two sockets, once with a Lua config and once with a classic one. To watch the real daemon
 decide without letting it act, run a second one in dry-run mode on a copy of your config:
 `SIDELIT_HOME=/tmp/sidelit-test SIDELIT_DRY_RUN=1 python3 -m sidelit daemon`.
 
@@ -610,7 +658,10 @@ Shell with the extension (a session you can spare, or `gnome-shell --headless` w
 session bus), `tests/gnome_live.py --sidebar` checks the GNOME backend and the docked sidebar,
 `tests/gnome_daemon_live.py` a test daemon (with `--real`, in a throwaway session only, it
 clicks and types into the sidebar the extension runs), and `tests/gnome_restore_live.py` a
-login restore.
+login restore. On a real Hyprland (a session you can spare, or a nested one), `tests/hyprland_live.py`
+checks the Hyprland backend, with two screens also moving workspaces between them, and
+`tests/hyprland_daemon_live.py` a test daemon, then (`--restore`, in a fresh Hyprland) that a
+login brings a kept workspace back under its number.
 
 ## Licence
 

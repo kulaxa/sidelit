@@ -257,7 +257,7 @@ class FakeDesktop:
         self._trailing()
         return True
 
-    def pin_new_space(self):
+    def pin_new_space(self, want=()):
         idx = len(self.spaces)
         self.spaces[-1].pin()
         self._trailing()

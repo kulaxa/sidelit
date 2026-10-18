@@ -6,6 +6,11 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- Hyprland: Sidelit runs there too, with a Lua config (Hyprland 0.55 and later) or a classic
+  one. The tabs are Hyprland's own workspaces, by number; the ones you work on stay even when
+  empty and come back under the same number after a login. Add `exec-once = sidelit start` (or,
+  with a Lua config, `hl.on("hyprland.start", function () hl.exec_cmd("sidelit start") end)`)
+  unless your session runs under uwsm. kitty, foot and Alacritty are now terminals Sidelit opens.
 - GNOME (46 to 51, on Wayland): Sidelit runs there with its own GNOME Shell extension, which
   the packages and `install.sh` install. Turn it on once: log out and back in, then switch on
   Sidelit in the Extensions app (or `gnome-extensions enable sidelit@kulaxa.github.io`). The

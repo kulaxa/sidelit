@@ -30,12 +30,16 @@ RESTORED_MARKER = RUNTIME_DIR / "restored"       # which compositor had its wind
 
 # The terminals Sidelit knows how to start, best first: config.json's "terminal" and
 # "terminal_cmd" default to the first one installed (Terminator's when none is). Each is started
-# in the workspace's directory and, where it takes one, given it as an option too.
+# in the workspace's directory and, where it takes one, given it as an option too. ({command} is
+# one shell command line: a terminal that runs a program rather than a line gets it through sh.)
 #   executable     the directory                      what to run there
 TERMINALS = [
     ("terminator", "-u --working-directory={cwd}", "-e {command}"),
     ("konsole", "--workdir {cwd}", "-e {command}"),
     ("kgx", "--working-directory={cwd}", "-e {command}"),
+    ("kitty", "--directory={cwd}", "sh -c {command}"),             # Hyprland's own
+    ("foot", "--working-directory={cwd}", "sh -c {command}"),      # sway's
+    ("alacritty", "--working-directory {cwd}", "-e sh -c {command}"),  # niri's
     ("xterm", "", "-e {command}"),
 ]
 

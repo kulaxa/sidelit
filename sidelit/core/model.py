@@ -48,6 +48,7 @@ class Space:
     active: bool
     name: str = ""
     copies_pinned: bool = True  # every screen's copy is pinned (COSMIC pins per screen)
+    output: str = ""            # its screen, where each workspace is on one (Hyprland); "" where all show them
 
 
 @dataclass

@@ -8,7 +8,7 @@
 pkgname=sidelit
 pkgver=0.5.0
 pkgrel=1
-pkgdesc='A workspace sidebar for COSMIC, KDE Plasma and GNOME: one tab per workspace with its coding agent, and a daemon that keeps the layout'
+pkgdesc='A workspace sidebar for COSMIC, KDE Plasma, GNOME and Hyprland: one tab per workspace with its coding agent, and a daemon that keeps the layout'
 arch=('any')
 url='https://github.com/kulaxa/sidelit'
 license=('MIT')
@@ -19,7 +19,8 @@ optdepends=('claude-code: session titles, status, model line and usage'
             'gtk4: the GTK 4 sidebar on GNOME'
             'cosmic-comp: runs on the COSMIC desktop'
             'kwin: runs on KDE Plasma 6'
-            'gnome-shell: runs on GNOME, with the GNOME Shell extension in the package')
+            'gnome-shell: runs on GNOME, with the GNOME Shell extension in the package'
+            'hyprland: runs on Hyprland')
 # the project's earlier name
 conflicts=('claude-workspace')
 replaces=('claude-workspace')

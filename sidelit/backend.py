@@ -9,9 +9,12 @@ it: the control is hidden rather than offered as a button that fails.
 - ``cosmic``: COSMIC, over its Wayland protocols (wsclient.py).
 - ``kde``: KDE Plasma 6, over KWin's D-Bus interface and a KWin script (kwin.py).
 - ``gnome``: GNOME, through Sidelit's GNOME Shell extension (gnome.py, gnome-extension/).
+- ``hyprland``: Hyprland, over its IPC sockets (hyprland.py).
 
-The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE or GNOME);
-``SIDELIT_BACKEND=cosmic``, ``kde`` or ``gnome`` overrides it.
+The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE, GNOME or Hyprland). A
+compositor started by hand, which may not set it, is known by the socket variable it sets
+(HYPRLAND_INSTANCE_SIGNATURE). ``SIDELIT_BACKEND=cosmic``, ``kde``, ``gnome`` or ``hyprland``
+overrides it.
 """
 from __future__ import annotations
 
@@ -19,9 +22,11 @@ import os
 import sys
 from typing import Callable
 
-BACKENDS = ("cosmic", "kde", "gnome")
+BACKENDS = ("cosmic", "kde", "gnome", "hyprland")
 # desktops that name GNOME in XDG_CURRENT_DESKTOP but do not run GNOME Shell
 NOT_GNOME_SHELL = {"BUDGIE", "GNOME-FLASHBACK", "UNITY", "PANTHEON"}
+# compositors of their own: the name in XDG_CURRENT_DESKTOP, the variable with their socket
+COMPOSITORS = (("HYPRLAND", "HYPRLAND_INSTANCE_SIGNATURE", "hyprland"),)
 
 
 def chosen(env=None) -> str:
@@ -37,6 +42,13 @@ def chosen(env=None) -> str:
         return "kde"
     if "GNOME" in desktops and not desktops & NOT_GNOME_SHELL:  # (Ubuntu says "ubuntu:GNOME")
         return "gnome"
+    for name, _var, backend in COMPOSITORS:
+        if name in desktops:
+            return backend
+    if "COSMIC" not in desktops:
+        for _name, var, backend in COMPOSITORS:
+            if env.get(var):
+                return backend
     return "cosmic"
 
 
@@ -54,6 +66,9 @@ def open_client(on_change: Callable[[], None] | None = None, primary: bool = Tru
     if chosen() == "gnome":
         from sidelit.gnome import GnomeClient
         return GnomeClient(on_change, primary=primary)
+    if chosen() == "hyprland":
+        from sidelit.hyprland import HyprlandClient
+        return HyprlandClient(on_change, primary=primary)
     from sidelit.wsclient import WorkspaceClient
     return WorkspaceClient(on_change, primary=primary)
 
@@ -61,10 +76,10 @@ def open_client(on_change: Callable[[], None] | None = None, primary: bool = Tru
 WS_USAGE = """usage: sidelit ws [COMMAND]
   list                       workspaces (* you are on it, P pinned), the default
   toplevels                  every window and the workspace it is on
-  activate N                 switch to workspace N (a number from 1, or a name)
+  activate N                 switch to workspace N (a number from 1, or a name; Hyprland's own number)
   new NAME                   add a workspace
   rename N NAME
-  pin N | unpin N            (COSMIC, GNOME)
+  pin N | unpin N            (COSMIC, GNOME, Hyprland)
   move A before|after B      put workspace A next to B (COSMIC, GNOME)
   movewin TITLE N [OUTPUT]   put the windows whose title has TITLE on workspace N"""
 

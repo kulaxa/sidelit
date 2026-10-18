@@ -1,7 +1,7 @@
 """The desktop as every backend describes it to the rest of Sidelit.
 
 The daemon, the sidebar and the restore never see a compositor's own objects. Each backend
-(backend.py picks one: wsclient.py on COSMIC, kwin.py on KDE Plasma) hands out these two
+(backend.py picks one: wsclient.py on COSMIC, kwin.py on KDE Plasma, and so on) hands out these two
 shapes, extended with whatever it keeps for itself: workspaces with a stable id, a name, a
 position and whether you are on it; windows with a title, an app id, an identifier that
 stays the same while the window lives, and the process behind it where the desktop says.

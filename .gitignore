@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+.pr-pictures/
 
 # packaging artifacts, and the packaging files generated from VERSION
 dist/

@@ -91,7 +91,7 @@ def _same_app(app: str, exe: str | None, ended: str) -> bool:
 
 class Actuator(Protocol):
     def move(self, win_id: str, space: int, output: str | None) -> bool: ...
-    def pin_new_space(self) -> Space | None: ...
+    def pin_new_space(self, want: tuple = ()) -> Space | None: ...  # want: the ids it had (the desktop may bring one back)
     def pin(self, space: int) -> Space | None: ...
     def unpin(self, space: int) -> None: ...
     def activate(self, space: int) -> None: ...
@@ -466,7 +466,7 @@ class Engine:
         if self._pinned_this_step:
             return None
         self._pinned_this_step = True
-        space = self.act.pin_new_space()
+        space = self.act.pin_new_space(want=tuple(lw.ids))
         if space is None or not space.ids:
             self.say(f"engine: could not get a workspace for {lw.name or lw.id}")
             return None
@@ -1435,6 +1435,12 @@ class Engine:
             return
         self._leaving = None
         target = obs.space(index + 1) or obs.space(index - 1)
+        if space.output:
+            # each workspace is on one screen (Hyprland): the nearest on the same screen, or the
+            # emptied one stays shown there, and so stays
+            near = sorted((s for s in obs.spaces if s.output == space.output and s.index != index),
+                          key=lambda s: (abs(s.index - index), s.index < index))
+            target = near[0] if near else target
         if target is not None:
             self.act.activate(target.index)
             self.journal("left_closed", index=space.index, to=target.index)
