@@ -158,12 +158,17 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
 
 ## What it does
 
-- **Every workspace is a tab.** A workspace with an agent session (an orange stripe) shows the
-  session's own title, the model and the directory. Plain tabs (dim, italic) show what is open
-  on them. The active workspace has the cyan line.
-- **Click** a tab to switch; keyboard focus lands in the agent's terminal. Each tab shows its
-  switch shortcut (COSMIC's default Super+1…9, Super+0 for the last; on KDE, the key bound to
-  "Switch to Desktop N").
+- **Every workspace is a tab.** A workspace with agent sessions is a card with a box for each
+  session, in the order they started: its own title, the model and a state stripe, under a
+  header naming the workspace's folder (or the name you gave it). Sessions in terminals of their
+  own and in split panes or tabs of one terminal window all show. Plain tabs (dim, italic) show
+  what is open on them. The active workspace has the cyan line.
+- **Click** a tab to switch; keyboard focus lands in the session that has waited longest for
+  you, else the one you used last. Switching with the workspace's own shortcut does the same
+  when a session there needs you. **Click a box** to go to that session's terminal, and its pane
+  in tmux, WezTerm and kitty (with remote control on); Terminator offers no way to focus a pane
+  from outside, so there its window comes forward. Each tab shows its switch shortcut (COSMIC's
+  default Super+1…9, Super+0 for the last; on KDE, the key bound to "Switch to Desktop N").
 - **`+`** pins a fresh workspace (on KDE, adds a desktop) and opens a terminal in your home
   directory, or whatever the template you pick says. Start `claude` there as usual and the tab
   picks up its title within seconds.
@@ -179,15 +184,17 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   session's title always wins.
 - **Status, straight from the agent.** The hook in Sidelit's Claude Code plugin (above) makes
   every session report what it is doing as it happens: working, waiting for a permission or an
-  answer, done. That is its main thread; the subagents it runs are counted next to the model
-  (`2 subagents`), and so is a session it started itself, which never takes its tab. It also
-  says which terminal it lives in: by process ancestry for a session the daemon started, else by
-  which window had the keyboard when you submitted a prompt. Only without the plugin (or before a
+  answer, done. That is its main thread; the subagents it runs are dots beside the model, one
+  each, and so is a session it started itself, which never gets a box. It also says which
+  terminal it lives in: by process ancestry for a session the daemon started (or whose window's
+  process the desktop names), else by which window had the keyboard when you submitted a prompt;
+  and which pane, where the terminal says (Terminator, tmux, WezTerm, kitty). Only without the plugin (or before a
   session's first event) is the terminal title matched against Claude Code's list of running
   sessions (`claude agents --json`, asked every few seconds), which cannot tell two sessions with
   the same title apart. The two tool-call events run async, so the agent never waits for the hook.
-- **Yellow means the agent needs you.** A tab goes yellow and bold when its session hands back to
-  you while you are on another workspace, until you look at it. A finished turn is checked first:
+- **Yellow means the agent needs you.** A session's box goes yellow and bold, and its card glows,
+  when it hands back to you while you are not typing in its own terminal (or pane: the one whose
+  title the window shows), until you go to it. A finished turn is checked first:
   a model (Sonnet by default) reads its end (what you asked, the last tool calls, what the agent said) and says
   whether it needs you (it is done, stuck or asking) or is only waiting on something to finish,
   such as a CI pipeline, a deploy or a background job. One that only waits stays orange and
@@ -196,7 +203,7 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   scheduled check, only "I'll check the pipeline") turns yellow after 20 minutes, since it will
   only go on when you nudge it. The check takes a second or two, and the tab keeps breathing
   orange meanwhile. If it fails or takes more than a minute, the tab turns yellow anyway. A turn
-  that ends while you are on that workspace is not checked, unless it left a shell running
+  that ends while you are typing in its terminal is not checked, unless it left a shell running
   (below). The check runs `claude -p` on your subscription (no API key), with no tools and no
   session saved; one process is started ahead while a session works. Config: `check_turns`
   (false = yellow at every turn end), `check_model`. `sidelit why turn_checked` lists the
@@ -337,11 +344,11 @@ the feed only supplies the id and the link, and only plain ones (an id of letter
 
 **Reporting back.** With `report`, the daemon sends this desktop's sessions there as a POST of
 the same JSON (`{"items": [...]}`, with the same token), a couple of seconds after one changes
-and every `every` seconds anyway. One item per session tab: `id` its session, `title` its tab's
-title, `state` `waiting` while the tab is yellow, `working` while it is orange (busy, a shell
-running, waiting on CI) and `done` otherwise, `detail` the note under the title ("waiting on CI
-pipeline"), `updated` when that last changed; no `url`. Tabs of workspaces opened for an item
-are left out. A receiver that fails is logged once and tried again `every` seconds later; it
+and every `every` seconds anyway. One item per session (several on one workspace are an item
+each): `id` its session, `title` its box's title, `state` `waiting` while the box is yellow,
+`working` while it is orange (busy, a shell running, waiting on CI) and `done` otherwise,
+`detail` the note under the title ("waiting on CI pipeline"), `updated` when that last changed;
+no `url`. Sessions on workspaces opened for an item are left out. A receiver that fails is logged once and tried again `every` seconds later; it
 never holds up the daemon.
 
 ## Config

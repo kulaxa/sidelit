@@ -252,6 +252,12 @@ class Engine:
         old = self.slot_window(slot.id)
         if old and old != win.id:
             self.bind.pop(old, None)
+        if slot.state.get("more") and slot.window != win.id:
+            # a new window for a slot whose window showed several Claudes: it is the first
+            # one's; the others keep places of their own, to come back in the next restore
+            lw, _ = self.layout.find(slot.id)
+            if lw is not None:
+                self._split_claudes(lw, slot, now)
         self.bind[win.id] = slot.id
         slot.window = win.id
         slot.missed = 0
@@ -271,15 +277,31 @@ class Engine:
     def _dedupe_session(self, slot: Slot):
         """One Claude session, one slot: a missing slot for a session that is now showing
         elsewhere is superseded (else a restore would resume it twice)."""
-        if not slot.session:
+        sessions = {c["session"] for c in slot.claudes}
+        if not sessions:
             return
         bound = self.bound_slots
         for ws, other in list(self.layout.slots()):
-            if other is not slot and other.session == slot.session and other.id not in bound:
+            if other is slot or other.id in bound or not any(c["session"] in sessions for c in other.claudes):
+                continue
+            left = [c for c in other.claudes if c["session"] not in sessions]
+            if not left:
                 self.layout.remove_slot(other.id)
                 self.pending_delete.pop(other.id, None)
                 self.journal("slot_deleted", slot=other.id, why="same Claude session now in another window",
                              what=ad.adapter_of(other).describe(other))
+                continue
+            # it also kept Claudes that are not open anywhere: it stays for them, the first of
+            # them now its own
+            first, more = left[0], left[1:]
+            other.state.update(session=first["session"], claude_title=first.get("claude_title") or "")
+            if first.get("cwd"):
+                other.state["cwd"] = first["cwd"]
+            if more:
+                other.state["more"] = more
+            else:
+                other.state.pop("more", None)
+            self._mark()
 
     def _new_slot(self, win: Win, lw: Workspace, adapter: ad.Adapter, now: float, why: str) -> Slot:
         slot = Slot(id=new_id("s"), kind=adapter.name, app=win.app, title=win.title[:200],
@@ -305,10 +327,12 @@ class Engine:
         self.journal("slot_deleted", slot=slot_id, ws=lw.id if lw else None,
                      what=ad.adapter_of(slot).describe(slot), why=why)
 
-    def _session_ended(self, slot: Slot):
+    def _session_ended(self, slot: Slot, ended: list[dict] | None = None):
+        """Claudes that ended in a window that stays (all of its, or `ended`): to the recent list."""
         lw, _ = self.layout.find(slot.id)
-        self.layout.remember_recent(slot, lw, self.obs_time)
-        self.journal("claude_ended", slot=slot.id, session=slot.session)
+        self.layout.remember_recent(slot, lw, self.obs_time, ended)
+        for c in slot.claudes if ended is None else ended:
+            self.journal("claude_ended", slot=slot.id, session=c["session"])
 
     # ---- the step --------------------------------------------------------------------------
     def step(self, obs: Obs, now: float):
@@ -1185,6 +1209,25 @@ class Engine:
         self.changed = True
         return True
 
+    def _split_claudes(self, lw: Workspace, slot: Slot, now: float) -> list[Slot]:
+        """A window that showed several Claudes (split panes, tabs) comes back as a terminal
+        for each: the slot keeps the first, and each of the others gets a slot of its own
+        beside it. One open somewhere already is not resumed twice."""
+        live = {c["session"] for _, s in self.layout.slots() if s.id in self.bound_slots for c in s.claudes}
+        added = []
+        at = lw.slots.index(slot) + 1
+        for c in slot.state.pop("more", []):
+            if not isinstance(c, dict) or not c.get("session") or c["session"] in live:
+                continue
+            new = Slot(id=new_id("s"), kind=slot.kind, app=slot.app, title=c.get("claude_title") or "",
+                       output=slot.output, state={k: v for k, v in c.items() if v}, created=now, updated=now)
+            lw.slots.insert(at + len(added), new)
+            added.append(new)
+        self._mark()
+        self.journal("slots_split", slot=slot.id, into=[s.id for s in added],
+                     why="its window showed several Claudes: each comes back in a terminal of its own")
+        return added
+
     def _restore_log(self, msg: str):
         r = self.restore
         r.log.append(msg)
@@ -1203,6 +1246,12 @@ class Engine:
         bound = self.bound_slots
         if not r.planned:
             r.planned = True
+            for lw, slot in list(self.layout.slots()):
+                if slot.state.get("more") and slot.id not in bound and (r.scope is None or lw.id in r.scope) \
+                        and (r.slots is None or slot.id in r.slots):
+                    added = self._split_claudes(lw, slot, now)
+                    if r.slots is not None:
+                        r.slots |= {s.id for s in added}
             for lw, slot in self.layout.slots():
                 if slot.id in bound or (r.scope is not None and lw.id not in r.scope):
                     continue
@@ -1433,7 +1482,7 @@ class Engine:
         if entry is None:
             raise KeyError(f"no history entry {entry_id!r}")
         snap = Workspace.from_json(entry["workspace"])
-        live = {s.session for _, s in self.layout.slots() if s.session}
+        live = {c["session"] for _, s in self.layout.slots() for c in s.claudes}
         lw = self.create_workspace(now, name=snap.name, cwd=snap.cwd)
         if lw is None:
             raise RuntimeError("could not create a pinned workspace")
@@ -1441,9 +1490,12 @@ class Engine:
         for old in snap.slots:
             if old.session and old.session in live:
                 continue  # that Claude is open somewhere already
+            state = dict(old.state)
+            if state.get("more"):
+                state["more"] = [m for m in state["more"] if isinstance(m, dict) and m.get("session") not in live]
             lw.slots.append(Slot(id=new_id("s"), kind=old.kind, app=old.app, title=old.title, output=old.output,
-                                 state=dict(old.state), created=now, updated=now))
-        sessions = {s.session for s in lw.slots if s.session}
+                                 state=state, created=now, updated=now))
+        sessions = {c["session"] for s in lw.slots for c in s.claudes}
         self.layout.recent = [r for r in self.layout.recent if r.get("session") not in sessions]
         self._mark()
         self.journal("history_restored", entry=entry_id, ws=lw.id, slots=len(lw.slots))

@@ -38,7 +38,7 @@ import urllib.request
 from pathlib import Path
 
 from sidelit import config
-from sidelit.tabstate import HANDS_BACK, Attention, note
+from sidelit.tabstate import HANDS_BACK, note
 
 SOURCES_DIR = config.CONFIG_DIR / "sources"
 STATES = ("working", "waiting", "idle", "done", "failed")
@@ -207,23 +207,21 @@ def _short_error(e: Exception) -> str:
 
 
 # ---- report out ------------------------------------------------------------------------------
-def claude_items(tabs: list[dict], attention: Attention) -> list[dict]:
-    """This desktop's session tabs (the daemon's view) as report items, without "updated": one per
-    tab with a Claude, except on a workspace opened for a source's item. `waiting` while the tab
-    is yellow, `working` while it is orange, `done` otherwise."""
+def claude_items(tabs: list[dict]) -> list[dict]:
+    """This desktop's Claudes (the daemon's view) as report items, without "updated": one per
+    Claude, except on a workspace opened for a source's item. `waiting` while its box is yellow
+    (the daemon says since when it calls you), `working` while it is orange, `done` otherwise."""
     out = []
     for tab in tabs:
-        c = tab.get("claude")
-        if not c:
-            continue
-        state = c.get("state") or "done"
-        yellow = attention.update(tab["key"], state, bool(tab.get("active")))
         if tab.get("item"):
             continue  # its source has it already
-        out.append({"id": c.get("session") or tab["key"],
-                    "title": c.get("title") or tab.get("last_title") or "Session",
-                    "state": "waiting" if state == "waiting" or yellow else "working" if state in HANDS_BACK else "done",
-                    "detail": note(c) or ""})
+        for c in tab.get("claudes") or []:
+            state = c.get("state") or "done"
+            out.append({"id": c.get("session") or c.get("key") or tab["key"],
+                        "title": c.get("title") or tab.get("last_title") or "Session",
+                        "state": "waiting" if state == "waiting" or c.get("calls") else
+                                 "working" if state in HANDS_BACK else "done",
+                        "detail": note(c) or ""})
     return out
 
 
@@ -232,7 +230,7 @@ def _log(msg: str):
 
 
 class Reporter:
-    """Report out: this desktop's session tabs, POSTed to every source with a "report" URL soon
+    """Report out: this desktop's Claudes, POSTed to every source with a "report" URL soon
     after one changes, and every `every` seconds anyway (a receiver may drop a list it has not
     heard again for a while). Call update() with each new view and tick() every second, both
     on the daemon's loop; each POST runs on a thread of its own, one per source at a time, so a
@@ -241,7 +239,6 @@ class Reporter:
     def __init__(self, folder: Path = SOURCES_DIR, poster=post, clock=time.time, spawn=None, log=_log):
         self.folder, self.poster, self.clock, self.log = folder, poster, clock, log
         self.spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
-        self.attention = Attention()
         self.items: list[dict] = []
         self.changed = 0.0                        # when the items last changed
         self._since: dict[str, tuple] = {}        # item id -> (what it showed, since when)
@@ -255,7 +252,7 @@ class Reporter:
         """The tabs the daemon shows now."""
         now = self.clock()
         items, since = [], {}
-        for it in claude_items(tabs, self.attention):
+        for it in claude_items(tabs):
             shown = (it["title"], it["state"], it["detail"])
             last = self._since.get(it["id"])
             since[it["id"]] = (shown, last[1] if last and last[0] == shown else now)

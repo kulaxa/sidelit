@@ -24,6 +24,21 @@ class AttentionTest(unittest.TestCase):
         self.assertEqual(self.run_states("busy", "done", active=True), [False, False])
         self.assertEqual(self.run_states("busy", "checking", "external"), [False, False, False])
 
+    def test_it_says_since_when_it_calls(self):
+        """(going to a workspace lands on the Claude that has waited longest)"""
+        self.a.update("t", "busy", False, now=100.0)
+        self.a.update("t", "done", False, now=105.0)
+        self.a.update("t", "done", False, now=110.0)
+        self.assertEqual(self.a.since("t"), 105.0)
+        self.a.update("t", "done", True, now=111.0)  # you typed in its terminal
+        self.assertEqual(self.a.since("t"), 0.0)
+
+    def test_what_is_gone_is_forgotten(self):
+        self.run_states("busy", "done")
+        self.a.update("u", "busy", False)
+        self.a.forget({"u"})
+        self.assertEqual((set(self.a.prev), set(self.a.keys)), ({"u"}, set()))
+
     def test_clicking_the_tab_is_seeing_it(self):
         self.run_states("busy", "waiting")
         self.a.seen("t")

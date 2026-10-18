@@ -652,6 +652,134 @@ class Claudes(Base):
         self.assertEqual(sessions, ["sess-5"])
 
 
+def panes(*claudes):
+    """A terminal window showing several Claudes (split panes, tabs), as the daemon reports it."""
+    return {**claudes[0], "more": list(claudes[1:])}
+
+
+class SeveralClaudes(Base):
+    """Two or three Claudes on one workspace: in windows of their own, or sharing one."""
+
+    def window(self, *claudes, space=1):
+        return self.desk.open("terminator", "✳ " + claudes[0]["title"], space, claude=panes(*claudes))
+
+    def sessions(self):
+        return [[c["session"] for c in s.claudes] for s in self.slots()]
+
+    def test_a_window_remembers_every_claude_in_it(self):
+        self.window(claude("s1", "Pricing API"), claude("s2", "Review tests"))
+        self.engine()
+        self.settle_calm()
+        self.assertEqual(self.sessions(), [["s1", "s2"]])
+        self.assertEqual(ad.adapter_of(self.slots()[0]).describe(self.slots()[0]), "Claude 'Pricing API' and 1 more")
+
+    def test_closing_the_window_lists_each_in_recent_sessions(self):
+        w = self.window(claude("s1", "Pricing API"), claude("s2", "Review tests"))
+        self.engine()
+        self.settle_calm()
+        self.desk.close(w)
+        self.advance(eng.DELETE_GRACE_S + 1)
+        self.assertEqual([(r["session"], r["title"]) for r in self.layout.recent],
+                         [("s1", "Pricing API"), ("s2", "Review tests")])
+
+    def test_one_that_ends_while_the_window_stays_goes_to_recent_sessions(self):
+        w = self.window(claude("s1", "Pricing API"), claude("s2", "Review tests"), claude("s3", "Ask about CSV"))
+        self.engine()
+        self.settle_calm()
+        self.desk.claude[w] = panes(claude("s1", "Pricing API"), claude("s3", "Ask about CSV"))
+        self.advance(2)
+        self.assertEqual(self.sessions(), [["s1", "s3"]])
+        self.assertEqual([r["session"] for r in self.layout.recent], ["s2"])
+        # the first one ending leaves the other as the window's Claude
+        self.desk.claude[w] = claude("s3", "Ask about CSV")
+        self.advance(2)
+        self.assertEqual(self.sessions(), [["s3"]])
+        self.assertEqual([r["session"] for r in self.layout.recent], ["s1", "s2"])
+
+    def test_clear_in_one_pane_is_not_an_end(self):
+        w = self.window(claude("s1", "Pricing API"), claude("s2", "Review tests"))
+        self.engine()
+        self.settle_calm()
+        self.desk.claude[w] = panes(claude("s1", "Pricing API"), claude("s2b", "New"))
+        self.advance(2)
+        self.assertEqual((self.sessions(), self.layout.recent), ([["s1", "s2b"]], []))
+
+    def test_login_restore_brings_each_back_in_a_terminal_of_its_own(self):
+        """Three Claudes on workspace 1: two sharing a window, one in a window of its own."""
+        self.window(claude("s1", "Pricing API"), claude("s2", "Review tests"))
+        self.window(claude("s3", "Ask about CSV"))
+        self.engine()
+        self.settle_calm()
+        for w in list(self.desk.windows):  # reboot
+            self.desk.windows.pop(w)
+        self.desk.claude.clear()
+        self.e.drop_pending()
+        self.engine()
+        self.desk.spawn = True
+        self.e.start_restore(self.clock.t, "login", delay=1)
+        self.advance(60)
+        resumed = sorted(spec["command"] for spec in self.desk.launched)
+        self.assertEqual(resumed, ["claude --resume s1", "claude --resume s2", "claude --resume s3"])
+        self.assertEqual(sorted(s for ss in self.sessions() for s in ss), ["s1", "s2", "s3"])
+        self.assertEqual(len(self.e.bind), 3)  # each in its own window, all on workspace 1
+        self.assertTrue(all(d["space"] == 1 for d in self.desk.windows.values()))
+        self.assertEqual(len({lw.id for lw, _ in self.layout.slots()}), 1)
+
+    def test_a_closed_workspace_brings_each_back_from_the_history(self):
+        self.window(claude("s1", "Pricing API", "/tmp"), claude("s2", "Review tests", "/tmp"), space=2)
+        self.engine()
+        self.settle_calm()
+        lw = self.layout.ws(self.e.owner[2])
+        for wid in self.e.remove_workspace(lw.id, self.clock.t, "closed by you"):
+            self.desk.close(wid)
+        self.advance(3)
+        snap = self.layout.history[0]["workspace"]["slots"][0]
+        self.assertEqual([m["session"] for m in snap["state"]["more"]], ["s2"])
+        self.assertEqual([r["session"] for r in self.layout.recent], ["s1", "s2"])
+        self.desk.spawn = True
+        self.e.restore_from_history(self.layout.history[0]["id"], self.clock.t)
+        self.advance(40)
+        self.assertEqual(sorted(spec["command"] for spec in self.desk.launched),
+                         ["claude --resume s1", "claude --resume s2"])
+        self.assertEqual(self.layout.recent, [])
+
+    def test_one_open_somewhere_already_is_not_resumed_twice(self):
+        self.window(claude("s1", "Pricing API"), claude("s2", "Review tests"))
+        self.engine()
+        self.settle_calm()
+        for w in list(self.desk.windows):
+            self.desk.windows.pop(w)
+        self.desk.claude.clear()
+        self.e.drop_pending()
+        self.engine()
+        self.desk.open("terminator", "✳ Review tests", 2, claude=claude("s2", "Review tests"))  # you resumed it
+        self.keep(2)
+        self.advance(3)
+        self.desk.spawn = True
+        self.e.start_restore(self.clock.t, "login", delay=1)
+        self.advance(60)
+        self.assertEqual([spec["command"] for spec in self.desk.launched], ["claude --resume s1"])
+
+    def test_resuming_the_first_elsewhere_keeps_the_others_it_shared_a_window_with(self):
+        self.window(claude("s1", "Pricing API"), claude("s2", "Review tests"), claude("s3", "Ask about CSV"))
+        self.engine()
+        self.settle_calm()
+        for w in list(self.desk.windows):
+            self.desk.windows.pop(w)
+        self.desk.claude.clear()
+        self.e.drop_pending()
+        self.engine()
+        self.desk.open("terminator", "✳ Pricing API", 2, claude=claude("s1", "Pricing API"))  # you resumed it
+        self.settle_calm()
+        self.assertEqual(sorted(s for ss in self.sessions() for s in ss), ["s1", "s2", "s3"])
+        self.assertEqual(self.layout.recent, [])  # (they did not end: they were not open)
+        self.desk.spawn = True
+        self.e.start_restore(self.clock.t, "login", delay=1)
+        self.advance(60)
+        self.assertEqual(sorted(spec["command"] for spec in self.desk.launched),
+                         ["claude --resume s2", "claude --resume s3"])
+
+
 class Commands(Base):
     def test_moving_a_slot_in_the_layout_moves_the_window_and_is_not_undone(self):
         w = self.desk.open("google-chrome", "Docs - Google Chrome", 1)

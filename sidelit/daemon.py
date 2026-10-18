@@ -26,7 +26,8 @@ gi.require_version("GLib", "2.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
-from sidelit import chrome, claude, config, crashes, ipc, launch, session, sources, turncheck, version  # noqa: E402
+from sidelit import chrome, claude, config, crashes, ipc, launch, panes, session, sources, turncheck, version  # noqa: E402
+from sidelit.tabstate import Attention  # noqa: E402
 from sidelit.backend import open_client  # noqa: E402
 from sidelit.core import adapters as ad  # noqa: E402
 from sidelit.core import journal as journal_mod  # noqa: E402
@@ -67,10 +68,13 @@ class Daemon:
                                                        model=self.cfg.get("check_model") or turncheck.MODEL,
                                                        cwd=str(config.RUNTIME_DIR)),
                                      config.RUNTIME_DIR / "turns.json", journal=self._journal_turn)
-        self._unmatched: dict[str, str] = {}  # window -> state, for session tabs with no session matched
+        self._unmatched: dict[str, str] = {}  # window -> state, for Claude-titled windows with no session matched
         self._models: dict[str, tuple[float, str | None]] = {}
         self._tl: dict[str, object] = {}
+        self.attention = Attention()  # which Claudes call you back (yellow), by box key
         self._focus_pending = 0  # GLib source of a focus waiting for a workspace slide to end
+        self._active_space = None  # the workspace you were on at the last step (its layout id, else its ids)
+        self._switched_at = 0.0  # when we last switched workspace ourselves
         self._step_pending = False
         self._save_pending = False
         self._last_view = None
@@ -240,6 +244,7 @@ class Daemon:
             obs = self.observe(now)
             self.engine.ctx.known_dirs = [lw.cwd for lw in self.engine.layout.workspaces if lw.cwd]
             self.engine.step(obs, now)
+            self._landed(now)
         except Exception:
             import traceback
             traceback.print_exc()
@@ -281,9 +286,9 @@ class Daemon:
         self.detector.assign(windows, self.engine.launched_pid)
         found = {}
         for wid, w in windows.items():
-            info = self.detector.for_window(w.title, w.pid, wid)
-            if info:
-                found[wid] = info
+            infos = self.detector.claudes_for(w.title, w.pid, wid)
+            if infos:  # the first is the window's Claude to the engine; "more": the others in it
+                found[wid] = {**infos[0], "more": infos[1:]}
         focused_at = dict(getattr(self.ws, "closed_focus", {}))
         focused_at.update({tl.identifier: tl.focused_at for tl in self._tl.values() if getattr(tl, "focused_at", 0)})
         # (a reconnected extension's windows are the last connection's until it reports again)
@@ -508,7 +513,12 @@ class Daemon:
     def activate(self, index: int):
         ws = self._space(index)
         if ws is not None and not self._dry(f"activate workspace {index}"):
-            self.ws.activate(ws)
+            self._switch(ws)
+
+    def _switch(self, ws):
+        """Show a workspace. A switch of ours lands where it means to (_landed leaves it be)."""
+        self._switched_at = time.time()
+        self.ws.activate(ws)
 
     def launch(self, spec: dict) -> int | None:
         if self._dry(f"launch {spec if spec.get('type') != 'chrome_window' else {**spec, 'tabs': len(spec['tabs'])}}"):
@@ -587,34 +597,75 @@ class Daemon:
         self._models[session] = (now, model)
         return model
 
-    def _claude_on(self, obs: Obs, wins: list[Win], active: bool = False) -> dict | None:
-        """The Claude a workspace shows: its terminal's session, else a Claude-looking title."""
-        ordered = sorted(wins, key=lambda w: 0 if w.app in titles.TERMINAL_APP_IDS else 1)
-        for w in ordered:
+    def _claudes_on(self, obs: Obs, wins: list[Win], now: float) -> list[dict]:
+        """The Claudes a workspace shows, a box each, in the order they started: every session
+        its terminals show; with none, each window whose title looks like Claude's."""
+        boxes = []
+        for w in wins:
             info = obs.claude.get(w.id)
             if info:
-                state, on = info.get("status") or "done", ""
-                if self.cfg.get("check_turns", True):
-                    state, on = self.turns.state(info["session"], self.detector.hooked.get(info["session"]),
-                                                 state, active, time.time())
-                return {"session": info["session"], "title": info.get("title") or titles.bare_title(w.title) or "",
-                        "state": state, "on": on, "model": self._model(info["session"]),
-                        "agents": info.get("agents") or 0,
-                        "cwd": info.get("cwd") or "", "window": w.id, "how": info.get("how"),
-                        "hooked": bool(info.get("hooked"))}
-        for w in ordered:
-            if titles.looks_like_claude(w.title):
-                state = "busy" if titles.title_state(w.title) == "busy" else "done"
-                # no session matched to this terminal: its turns cannot be checked, and it
-                # turns yellow on its title alone. Say so, or it goes unseen.
-                if self._unmatched.get(w.id) == "busy" and state == "done" and not active \
-                        and self.cfg.get("check_turns", True):
-                    self.journal("turn_checked", title=titles.bare_title(w.title) or "", session=None,
-                                 verdict="unchecked", on="", error="no Claude session matched to this terminal", secs=0)
-                self._unmatched[w.id] = state
-                return {"session": None, "title": titles.bare_title(w.title) or "", "cwd": "", "model": None,
-                        "state": state, "window": w.id}
-        return None
+                group = [info] + list(info.get("more") or [])
+                typing = self._typing_in(w, group)
+                boxes += [self._box(c, w, c["session"] in typing, now) for c in group]
+        if not boxes:
+            for w in sorted(wins, key=lambda w: 0 if w.app in titles.TERMINAL_APP_IDS else 1):
+                if titles.looks_like_claude(w.title):
+                    boxes.append(self._unmatched_box(w, now))
+        return sorted(boxes, key=lambda b: b["started"])
+
+    @staticmethod
+    def _typing_in(w: Win, group: list[dict]) -> set[str]:
+        """The sessions of this window you are typing in: none unless it has the keyboard. With
+        several in it (split panes, tabs) the one whose title it shows, the pane with the
+        keyboard; none when it shows a shell's; all when it cannot tell (two with that title)."""
+        if not w.focused:
+            return set()
+        every = {c["session"] for c in group}
+        if len(group) == 1:
+            return every
+        if not titles.looks_like_claude(w.title):
+            return set()
+        hits = {c["session"] for c in group if c.get("title") and c["title"] == titles.bare_title(w.title)}
+        return hits if len(hits) == 1 else every
+
+    def _box(self, c: dict, w: Win, typing: bool, now: float) -> dict:
+        """A Claude's box: what it does, and since when it calls you (0: it does not)."""
+        sid = c["session"]
+        state, on = c.get("status") or "done", ""
+        if self.cfg.get("check_turns", True):
+            state, on = self.turns.state(sid, self.detector.hooked.get(sid), state, typing, now)
+        calls = self.attention.update(sid, state, typing, now=now)
+        return {"key": sid, "session": sid, "title": c.get("title") or "", "state": state, "on": on,
+                "model": self._model(sid), "agents": c.get("agents") or 0, "cwd": c.get("cwd") or "",
+                "window": w.id, "pane": c.get("pane") or {}, "started": c.get("started") or 0.0,
+                "typed": c.get("prompt_t") or 0.0, "how": c.get("how"), "hooked": bool(c.get("hooked")),
+                "typing": typing, "calls": self.attention.since(sid) if calls else 0.0}
+
+    def _unmatched_box(self, w: Win, now: float) -> dict:
+        """A window whose title looks like Claude's, with no session matched: what its title says."""
+        state = "busy" if titles.title_state(w.title) == "busy" else "done"
+        # its turns cannot be checked, and it turns yellow on its title alone. Say so, or it goes unseen.
+        if self._unmatched.get(w.id) == "busy" and state == "done" and not w.focused \
+                and self.cfg.get("check_turns", True):
+            self.journal("turn_checked", title=titles.bare_title(w.title) or "", session=None,
+                         verdict="unchecked", on="", error="no Claude session matched to this terminal", secs=0)
+        self._unmatched[w.id] = state
+        key = f"w:{w.id}"
+        calls = self.attention.update(key, state, w.focused, now=now)
+        return {"key": key, "session": None, "title": titles.bare_title(w.title) or "", "state": state, "on": "",
+                "model": None, "agents": 0, "cwd": "", "window": w.id, "pane": {}, "started": 0.0, "typed": 0.0,
+                "how": None, "hooked": False, "typing": w.focused,
+                "calls": self.attention.since(key) if calls else 0.0}
+
+    def _landing(self, boxes: list[dict]) -> dict | None:
+        """Where going to a workspace puts you: the Claude that has waited for you longest, else
+        the one you used last (its window had the keyboard last; in it, you typed into it
+        last), else the first."""
+        calling = [b for b in boxes if b.get("calls")]
+        if calling:
+            return min(calling, key=lambda b: b["calls"])
+        focused_at = self.engine.obs.focused_at if self.engine.obs is not None else {}
+        return max(boxes, key=lambda b: (focused_at.get(b["window"], 0.0), b.get("typed") or 0.0), default=None)
 
     def view(self) -> dict:
         e, obs = self.engine, self.engine.obs
@@ -623,6 +674,7 @@ class Daemon:
         total = len(obs.spaces)
         tabs = []
         bound = e.bound_slots
+        now = time.time()
         for space in sorted(obs.spaces, key=lambda s: s.index):
             lw = e.layout.ws(e.owner.get(space.index))
             wins = obs.windows_on(space.index)
@@ -632,7 +684,7 @@ class Daemon:
                 "space": space.index, "active": space.active, "pinned": space.pinned,
                 "name": lw.name if lw else "", "cwd": lw.cwd if lw else "", "item": self._item_of(lw),
                 "shortcut": self.ws.shortcut_label(ws_obj, total) if ws_obj is not None else "",
-                "claude": self._claude_on(obs, wins, bool(space.active)),
+                "claudes": self._claudes_on(obs, wins, now),
                 "windows": [{"app": w.app, "title": w.title, "slot": e.bind.get(w.id)} for w in wins],
                 "missing": [{"slot": s.id, "what": ad.adapter_of(s).describe(s), "app": s.app}
                             for s in (lw.slots if lw else []) if s.id not in bound],
@@ -642,13 +694,14 @@ class Daemon:
             if lw.id in e.primary:
                 continue
             tabs.append({"key": f"w:{lw.id}", "ws": lw.id, "space": None, "active": False, "pinned": True,
-                         "name": lw.name, "cwd": lw.cwd, "item": self._item_of(lw), "shortcut": "", "claude": None,
+                         "name": lw.name, "cwd": lw.cwd, "item": self._item_of(lw), "shortcut": "", "claudes": [],
                          "windows": [],
                          "missing": [{"slot": s.id, "what": ad.adapter_of(s).describe(s), "app": s.app}
                                      for s in lw.slots],
                          "last_title": self._last_title(lw)})
+        shown = {b["key"] for t in tabs for b in t["claudes"]}
+        self.attention.forget(shown)
         r = e.restore
-        now = time.time()
         return {
             "version": version(),
             "caps": sorted(self.ws.caps),
@@ -661,7 +714,7 @@ class Daemon:
                         "finished": r.finished_t if r and r.finished else 0},
             "pending_forget": len(e.pending_delete),
             "tabs": tabs,
-            "recent": e.layout.recent[:12],
+            "recent": [rec for rec in e.layout.recent if rec.get("session") not in shown][:12],  # (none open now)
             "history_count": len(e.layout.history),  # (the entries: the history command)
             "chrome": [{"instance": i, "profile": "/".join(c["profile"]) if c.get("profile") else None,
                         "windows": len(c.get("windows") or [])} for i, c in self.chrome.items()],
@@ -675,8 +728,10 @@ class Daemon:
         claude_slot = next((s for s in slots if s.session), None)
         title = ws.get("name") or (claude_slot.state.get("claude_title") or claude_slot.title if claude_slot else "") \
             or os.path.basename((ws.get("cwd") or "").rstrip("/")) or (ad.adapter_of(slots[0]).describe(slots[0]) if slots else "")
-        return {"id": h.get("id"), "title": title, "closed": h.get("closed"), "cwd": ws.get("cwd") or "",
-                "what": [ad.adapter_of(s).describe(s) for s in slots]}
+        # every Claude on a line of its own, those that shared a window too
+        what = [line for s in slots
+                for line in ([ad.describe_claude(c) for c in s.claudes] or [ad.adapter_of(s).describe(s)])]
+        return {"id": h.get("id"), "title": title, "closed": h.get("closed"), "cwd": ws.get("cwd") or "", "what": what}
 
     @staticmethod
     def _item_of(lw) -> dict | None:
@@ -690,9 +745,9 @@ class Daemon:
         return lw.claude.state.get("claude_title") or lw.claude.title or ""
 
     def _journal_turn(self, kind: str, **fields):
-        """A journal line about a Claude's turn, with the title its tab shows."""
+        """A journal line about a Claude's turn, with the title its box shows."""
         shown = next((c.get("title") or "" for t in (self._last_view or {}).get("tabs") or []
-                      if (c := t.get("claude")) and c.get("session") == fields.get("session")), "")
+                      for c in t.get("claudes") or [] if c.get("session") == fields.get("session")), "")
         self.journal(kind, title=shown, **fields)
 
     def _turns_in(self):
@@ -763,28 +818,74 @@ class Daemon:
         ws = self._space(index)
         if ws is None:
             return False
-        already_there = ws.active
-        self.ws.activate(ws)
+        obs = self.engine.obs
+        # land the keyboard in a Claude, not in whatever was focused last: the one that needs you
+        box = self._landing(self._claudes_on(obs, obs.windows_on(index), time.time())) if obs is not None else None
+        self._go_to(ws, box)
+        return True
+
+    def cmd_focus(self, params):
+        """A Claude's box clicked: its terminal gets the keyboard (on its workspace), and its
+        pane where the terminal lets us (panes.py)."""
+        view = self._last_view or self.view()
+        for tab in view.get("tabs") or []:
+            box = next((b for b in tab.get("claudes") or [] if b["key"] == params.get("key")), None)
+            ws = self._space(tab["space"]) if box is not None and tab.get("space") is not None else None
+            if ws is not None:
+                self._go_to(ws, box)
+                return True
+        return False
+
+    def _go_to(self, ws, box: dict | None, sliding: bool = False):
+        """Show a workspace with this Claude's terminal (and pane) in front. `sliding`: it is
+        on its way there already (asking again mid-slide could make it jump)."""
+        already_there = ws.active and not sliding
+        if not sliding:
+            self._switch(ws)
         if self._focus_pending:  # a click on another tab before the last slide ended: not that one
             GLib.source_remove(self._focus_pending)
             self._focus_pending = 0
-        obs = self.engine.obs
-        if obs is not None:
-            info = self._claude_on(obs, obs.windows_on(index))
-            tl = self._tl.get(info["window"]) if info else None
-            if tl is not None:  # land the keyboard in Claude, not in whatever was focused last
-                if already_there:
-                    self.ws.focus(tl)
-                else:
-                    self._focus_pending = GLib.timeout_add(FOCUS_AFTER_SWITCH_MS, self._focus_after_switch, ws, tl)
-        return True
+        tl = self._tl.get(box["window"]) if box else None
+        if tl is None:
+            return
+        self.attention.seen(box["key"])
+        if already_there:
+            self._focus(tl, box)
+        else:
+            self._focus_pending = GLib.timeout_add(FOCUS_AFTER_SWITCH_MS, self._focus_after_switch, ws, tl, box)
 
-    def _focus_after_switch(self, ws, tl):
+    def _focus(self, tl, box: dict | None = None):
+        self.ws.focus(tl)
+        if box and box.get("pane"):
+            panes.focus(box["pane"])
+
+    def _focus_after_switch(self, ws, tl, box=None):
         """The slide is over: focus Claude, if you are still on its workspace."""
         self._focus_pending = 0
         if ws.active and any(w is ws for w in self.ws.list()):
-            self.ws.focus(tl)
+            self._focus(tl, box)
         return False
+
+    def _landed(self, now: float):
+        """You switched workspace yourself (Super+N, the desktop's own switcher): if a Claude
+        there needs you, its terminal gets the keyboard once the slide is over, the one that
+        has waited longest first. A switch of ours lands by itself; a busy desktop (a restore,
+        screens changing) is left alone."""
+        obs = self.engine.obs
+        space = next((s for s in obs.spaces if s.active), None) if obs is not None else None
+        # which workspace, not which number: reordering or closing another one renumbers yours
+        key = (self.engine.owner.get(space.index) or space.ids or space.index) if space is not None else None
+        last, self._active_space = self._active_space, key
+        if key is None or last is None or key == last or now - self._switched_at < 2 \
+                or not self.engine.calm(now):
+            return
+        active = space.index
+        boxes = self._claudes_on(obs, obs.windows_on(active), now)
+        box = min((b for b in boxes if b.get("calls")), key=lambda b: b["calls"], default=None)
+        ws = self._space(active)
+        if box is not None and ws is not None:
+            self.journal("landed", space=active, title=box["title"], why="you switched to a workspace where a Claude needs you")
+            self._go_to(ws, box, sliding=True)
 
     def _start_on(self, lw, index: int, spec: dict, accepts, what: str, state: dict | None = None):
         now = time.time()
@@ -827,7 +928,7 @@ class Daemon:
         if lw is None:
             raise RuntimeError("could not create a pinned workspace (the compositor gave no id)")
         index = e.primary[lw.id].index
-        self.ws.activate(self._space(index))
+        self._switch(self._space(index))
         if params.get("command") is not None:
             self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": params["command"]},
                            self._terminal_accepts, "terminal")
@@ -935,7 +1036,7 @@ class Daemon:
         space = e._ensure_space(lw, now)
         if space is None:
             raise RuntimeError("could not create a pinned workspace")
-        self.ws.activate(self._space(space.index))
+        self._switch(self._space(space.index))
         if not e.start_restore(now, "reopen", delay=0, scope={lw.id}):
             raise RuntimeError("a restore is already running")
         return lw.id

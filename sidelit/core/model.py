@@ -115,6 +115,16 @@ class Slot:
     def session(self) -> str | None:
         return self.state.get("session") or None
 
+    @property
+    def claudes(self) -> list[dict]:
+        """Every Claude its window shows, {"session", "claude_title", "cwd"} each: the one
+        `session` names, then state["more"], the others in the same window (split panes, tabs)."""
+        if not self.session:
+            return []
+        first = {"session": self.session, "claude_title": self.state.get("claude_title") or "",
+                 "cwd": self.state.get("cwd") or ""}
+        return [first] + [m for m in self.state.get("more") or [] if isinstance(m, dict) and m.get("session")]
+
 
 @dataclass
 class Workspace:
@@ -231,13 +241,15 @@ class Layout:
             del self.opened_items[:-self.OPENED_ITEMS_MAX]
 
     # ---- edits
-    def remember_recent(self, slot: Slot, ws: Workspace | None, now: float):
-        if not slot.session:
-            return
-        self.recent = [r for r in self.recent if r.get("session") != slot.session]
-        self.recent.insert(0, {"session": slot.session, "title": slot.state.get("claude_title") or slot.title,
-                               "cwd": slot.state.get("cwd") or (ws.cwd if ws else ""),
-                               "workspace": (ws.name if ws else "") or "", "closed": round(now, 1)})
+    def remember_recent(self, slot: Slot, ws: Workspace | None, now: float, claudes: list[dict] | None = None):
+        """Claudes whose window closed, or that ended in it, go to the top of the recent list:
+        every one the slot's window showed, or only `claudes` of them."""
+        for c in reversed(slot.claudes if claudes is None else claudes):
+            title = c.get("claude_title") or (slot.title if c["session"] == slot.session else "")
+            self.recent = [r for r in self.recent if r.get("session") != c["session"]]
+            self.recent.insert(0, {"session": c["session"], "title": title,
+                                   "cwd": c.get("cwd") or (ws.cwd if ws else ""),
+                                   "workspace": (ws.name if ws else "") or "", "closed": round(now, 1)})
         del self.recent[self.RECENT_MAX:]
 
     def remember_workspace(self, ws: Workspace, now: float, why: str, closed_slots=()) -> dict | None:

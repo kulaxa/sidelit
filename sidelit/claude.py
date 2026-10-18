@@ -67,6 +67,23 @@ def descendants(roots: list[int], table: dict[int, tuple[int, str]]) -> set[int]
     return out
 
 
+_BOOT_TIME: list[float] = []
+
+
+def process_started(pid: int) -> float | None:
+    """When process `pid` started, in seconds since the epoch; None when it is gone."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            stat = f.read()
+        ticks = int(stat[stat.rindex(")") + 2:].split()[19])
+        if not _BOOT_TIME:
+            with open("/proc/stat") as f:
+                _BOOT_TIME.append(float(next(line.split()[1] for line in f if line.startswith("btime "))))
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+    return _BOOT_TIME[0] + ticks / os.sysconf("SC_CLK_TCK")
+
+
 def in_terminal(pid: int) -> bool:
     """Whether Claude `pid` runs in a terminal: an interactive one has it on stdin; `claude -p`,
     and an app driving Claude through the SDK, a pipe or a socket."""
@@ -316,12 +333,22 @@ BY_PID = 3      # ...or the window's own pid (compositors that report it)
 BY_FOCUS = 2    # you submitted a prompt while that terminal had the keyboard
 BY_TITLE = 1    # the terminal's title is the session's title
 FOCUS_LAG_S = 0.6  # a focus change reaches us a little after it happens
+# what names a pane (the hook's PANE_VARS), innermost first: tmux in a Terminator pane is tmux's
+PANE_KEYS = ("TMUX_PANE", "WEZTERM_PANE", "KITTY_WINDOW_ID", "TERMINATOR_UUID")
 WOKEN_MAX_S = 300  # Claude Code's list alone says it works again for at most this long
 AGENT_QUIET_S = 1800  # a subagent not heard from for this long is taken for gone (its stop lost)
 
 
+def pane_id(pane) -> str:
+    """Which pane of its terminal a Claude runs in, from what the hook recorded; "" when the
+    terminal does not say."""
+    if not isinstance(pane, dict):
+        return ""
+    return next((f"{k}={pane[k]}" for k in PANE_KEYS if pane.get(k)), "")
+
+
 class Detector:
-    """Which Claude each window shows, and what it is doing.
+    """Which Claudes each window shows, and what they are doing.
 
     Two sources. The hook of Sidelit's Claude Code plugin (plugin/hooks/hook.py, `sidelit hooks
     install`) reports every session's events as they happen, with the process ancestry the hook
@@ -331,17 +358,25 @@ class Detector:
     Claude Code's own list of running sessions (`claude agents --json`) and the status read
     from there.
 
-    A tab shows its main thread: subagents, and Claudes another Claude started (its own
-    `claude -p`, a test harness), are only counted while they work, and never take its window.
+    A window can show several Claudes: split panes or tabs of one terminal window. Each is shown
+    on the strongest kind of evidence any of them has for that window: if some run in the
+    window's own process (BY_LAUNCH, BY_PID), those; else those you typed into there (BY_FOCUS);
+    else the one whose title it shows. A Claude is shown in one window only, and in one pane
+    only the newest (one suspended under another one in the same shell is not on screen).
+
+    A box shows its main thread: subagents, and Claudes another Claude started (its own
+    `claude -p`, a test harness), are only counted while they work, and never take a window.
     Nor does a Claude with no terminal (an app driving it), whose prompts are no one typing.
 
-    `agents(now)` hands back Claude Code's list and when it was asked (AgentsPoller.poll)."""
+    `agents(now)` hands back Claude Code's list and when it was asked (AgentsPoller.poll);
+    `started(pid)` when a process started, which orders the Claudes of a window."""
 
-    def __init__(self, hook_dir: Path | None = None, ttl: float = 1.0, agents=None):
+    def __init__(self, hook_dir: Path | None = None, ttl: float = 1.0, agents=None, started=process_started):
         from sidelit import config
         self.hook_dir = Path(hook_dir) if hook_dir else config.RUNTIME_DIR / "claude"
         self.ttl = ttl
         self.agents_source = agents or AgentsPoller().poll
+        self.started_of = started
         self._at = 0.0
         self._live_at = 0.0                            # when Claude Code's list was asked
         self._quiet_at: dict[str, float] = {}          # session -> when the list last said it did not work
@@ -354,7 +389,7 @@ class Detector:
         self.window_of: dict[str, tuple] = {}          # session -> (window id, strength, evidence time)
         self.focus: list[tuple[float, str]] = []       # (when, window id) the keyboard moved
         self.focus_since = 0.0
-        self._by_window: dict[str, str] = {}
+        self._by_window: dict[str, list[str]] = {}     # window id -> the sessions it shows, oldest first
         self._load_windows()
 
     # ---- inputs
@@ -470,9 +505,12 @@ class Detector:
             if sid not in live or self.window_of[sid][0] not in windows:
                 del self.window_of[sid]
         by_title = {}
+        by_pid: dict[int, list[str]] = {}
         for wid, w in windows.items():
             if w.app in TERMINAL_APP_IDS and looks_like_claude(w.title) and title_state(w.title) != "other":
                 by_title.setdefault(bare_title(w.title) or "", []).append(wid)
+            if w.pid:
+                by_pid.setdefault(w.pid, []).append(wid)
         for sid, rec in self.hooked.items():
             if rec["windowless"]:
                 continue  # its terminal, if any, is another Claude's
@@ -481,9 +519,10 @@ class Detector:
             for wid, pid in launched_pid.items():
                 if pid in anc and wid in windows:
                     found.append((BY_LAUNCH, float(rec.get("started") or rec.get("t") or 0), wid))
-            for wid, w in windows.items():
-                if w.pid and w.pid in anc:
-                    found.append((BY_PID, float(rec.get("t") or 0), wid))
+            for pid, wids in by_pid.items():
+                # (a terminal that keeps all its windows in one process says nothing about which)
+                if pid in anc and len(wids) == 1:
+                    found.append((BY_PID, float(rec.get("t") or 0), wids[0]))
             title = transcript_title(sid, rec.get("cwd") or "")
             prompt_t = rec.get("prompt_t")
             if prompt_t:
@@ -505,18 +544,44 @@ class Detector:
             sess = self.index.get(title)
             if sess and len(wids) == 1 and sess.get("sessionId") not in self.hooked and not self._windowless(sess):
                 self._offer(sess["sessionId"], (BY_TITLE, 0.0, wids[0]))
-        # one Claude per window: the best claim wins, the newest among equals
+        # each window shows the Claudes with the strongest kind of evidence for it; a title
+        # alone names only one, the newest
         claims: dict[str, list[tuple]] = {}
         for sid, (wid, strength, t) in self.window_of.items():
             claims.setdefault(wid, []).append((strength, t, sid))
         self._by_window = {}
         for wid, cs in claims.items():
-            cs.sort(reverse=True)
-            self._by_window[wid] = cs[0][2]
-            for _, _, loser in cs[1:]:
-                self.window_of.pop(loser, None)
+            top = max(c[0] for c in cs)
+            shown = self._one_per_pane([c for c in cs if c[0] == top] if top >= BY_FOCUS else [max(cs)])
+            for _, _, sid in cs:
+                if sid not in shown:
+                    self.window_of.pop(sid, None)
+            self._by_window[wid] = sorted(shown, key=lambda s: (self._started(s), s))
         if self.window_of != before:
             self._save_windows()
+
+    def _one_per_pane(self, claims: list[tuple]) -> list[str]:
+        """The sessions of these claims, but of two in the same pane only the one heard from
+        last: the other is suspended under it (Ctrl+Z, then another claude)."""
+        newest: dict[str, tuple[float, str]] = {}
+        out = []
+        for _, _, sid in claims:
+            pane = pane_id(self.hooked.get(sid, {}).get("pane"))
+            if not pane:
+                out.append(sid)
+                continue
+            heard = float(self.hooked[sid].get("t") or 0)
+            if pane not in newest or heard > newest[pane][0]:
+                newest[pane] = (heard, sid)
+        return out + [sid for _, sid in newest.values()]
+
+    def _started(self, sid: str) -> float:
+        """When this Claude's process started (it keeps its place through /clear), else when
+        the session did."""
+        rec = self.hooked.get(sid) or {}
+        sess = next((s for s in self.sessions if s.get("sessionId") == sid), None) or {}
+        pid = int(rec.get("pid") or sess.get("pid") or 0)
+        return (self.started_of(pid) if pid else None) or float(rec.get("started") or rec.get("t") or 0)
 
     def _windowless(self, sess: dict) -> bool:
         """A session another Claude started, or one with no terminal."""
@@ -583,25 +648,38 @@ class Detector:
         return sum(1 for t in heard if self._at - float(t) < AGENT_QUIET_S) + self.inner.get(pid, 0)
 
     def for_window(self, title: str, pid: int = 0, wid: str | None = None) -> dict | None:
-        """{"session", "title", "status", "agents", "cwd", "how"} for the Claude this window shows."""
-        sid = self._by_window.get(wid) if wid else None
-        how = self.window_of.get(sid, (None, 0, 0))[1] if sid else 0
-        sess = next((s for s in self.sessions if s.get("sessionId") == sid), None) if sid else None
-        rec = self.hooked.get(sid) if sid else None
-        if sid is None:
-            # no mapping yet (first look, no hooks): the title, then the process tree
-            if looks_like_claude(title) and title_state(title) != "other":
-                sess = self.index.get(bare_title(title) or "")
-            if sess is None and pid:
-                kids = descendants([pid], self.table)
-                sess = next((s for s in self.sessions if s.get("pid") and int(s["pid"]) in kids
-                             and not self._windowless(s)), None)
-            if sess is None or sess.get("sessionId") in self.window_of:
-                return None  # (a session shown in a window we know is not also in this one)
-            sid, how = sess.get("sessionId"), BY_TITLE
+        """The first Claude this window shows (claudes_for), or None."""
+        return next(iter(self.claudes_for(title, pid, wid)), None)
+
+    def claudes_for(self, title: str, pid: int = 0, wid: str | None = None) -> list[dict]:
+        """{"session", "title", "status", "agents", "cwd", "pid", "pane", "started", "how", "hooked"}
+        for each Claude this window shows, in the order they started."""
+        sids = self._by_window.get(wid) if wid else None
+        if sids:
+            return [self._info(sid, title if len(sids) == 1 else "", self.window_of.get(sid, (None, 0, 0))[1])
+                    for sid in sids]
+        # no mapping yet (first look, no hooks): the title, then the process tree
+        sess = None
+        if looks_like_claude(title) and title_state(title) != "other":
+            sess = self.index.get(bare_title(title) or "")
+        if sess is None and pid:
+            kids = descendants([pid], self.table)
+            sess = next((s for s in self.sessions if s.get("pid") and int(s["pid"]) in kids
+                         and not self._windowless(s)), None)
+        if sess is None or sess.get("sessionId") in self.window_of:
+            return []  # (a session shown in a window we know is not also in this one)
+        return [self._info(sess["sessionId"], title, BY_TITLE)]
+
+    def _info(self, sid: str, title: str, how: int) -> dict:
+        """What a box says of a Claude. `title`: the window's, when the window shows only this
+        Claude (with several, it is the title of whichever pane has the keyboard)."""
+        sess = next((s for s in self.sessions if s.get("sessionId") == sid), None)
+        rec = self.hooked.get(sid)
         cwd = (rec or {}).get("cwd") or (sess or {}).get("cwd") or ""
         shown = bare_title(title) if looks_like_claude(title) else None
         return {"session": sid, "title": shown or transcript_title(sid, cwd) or (sess or {}).get("name") or "",
-                "status": self.status(sid), "agents": self.agents(sid), "cwd": cwd, "pid": int((rec or sess or {}).get("pid") or 0),
+                "status": self.status(sid), "agents": self.agents(sid), "cwd": cwd,
+                "pid": int((rec or sess or {}).get("pid") or 0), "pane": dict((rec or {}).get("pane") or {}),
+                "started": self._started(sid), "prompt_t": float((rec or {}).get("prompt_t") or 0),
                 "how": {BY_LAUNCH: "launch", BY_FOCUS: "focus", BY_TITLE: "title"}.get(how, "pid"),
                 "hooked": rec is not None}

@@ -223,22 +223,43 @@ def group_items(src: dict, bound: set) -> list[dict]:
     return [it for it in src["items"] if (src["key"], it["id"]) not in bound]
 
 
+def box_info(c: dict, last_title: str = "") -> dict:
+    """What a Claude's box shows: the glyph Claude puts in its terminal's title (working or
+    not), its title, the model and a note, one dot per subagent at work, and whether it calls
+    you (the daemon decides: tabstate.Attention)."""
+    state = c.get("state") or "done"
+    cls = STATE_CLASS.get(state, "idle")
+    return {"key": c.get("key") or c.get("session") or "", "session_id": c.get("session"),
+            "title": c.get("title") or last_title or "Session", "glyph": "◐" if cls == "working" else "✳",
+            "sub": " · ".join(filter(None, (c.get("model"), note(c)))) or " ", "state": state, "cls": cls,
+            "agents": int(c.get("agents") or 0), "calls": bool(c.get("calls")), "cwd": c.get("cwd") or ""}
+
+
+def folder_name(path: str | None) -> str:
+    """A directory as a card's header names it: its last part, ~ for home."""
+    if not path:
+        return ""
+    return "~" if path.rstrip("/") == str(Path.home()) else os.path.basename(path.rstrip("/")) or path
+
+
 def tab_info(tab: dict, item: dict | None = None) -> dict:
     """Everything a tab shows, from what the daemon sent for it; a workspace opened for an other
-    source's item is drawn from that `item` while its source still lists it."""
-    c = tab.get("claude")
+    source's item is drawn from that `item` while its source still lists it. A workspace with
+    Claudes is a card holding a box per Claude (`boxes`), under a header naming the workspace
+    (`head`: its name, else its folder; `head_tip` the whole path)."""
+    claudes = tab.get("claudes") or []
+    c = claudes[0] if claudes else None
     closed = tab.get("space") is None
+    boxes, head, head_tip = [], "", ""
     if item:
         title, state, sub, cwd = item["title"], item["state"], item_sub(item), None
         cls = SOURCE_STATE_CLASS.get(state, "idle")
     elif c:
-        title = c.get("title") or tab.get("last_title") or "Session"
-        state = c.get("state") or "done"
-        n = c.get("agents") or 0
-        agents = f"{n} subagent{'s' if n != 1 else ''}" if n else None
-        sub = " · ".join(filter(None, (c.get("model"), agents, note(c)))) or " "
-        cwd = c.get("cwd") or tab.get("cwd")
-        cls = STATE_CLASS.get(state)
+        boxes = [box_info(b, tab.get("last_title") or "") for b in claudes]
+        title, state, sub, cls = boxes[0]["title"], boxes[0]["state"], boxes[0]["sub"], None
+        cwd = tab.get("cwd") or c.get("cwd")
+        head = tab.get("name") or folder_name(cwd) or (f"Workspace {tab['space']}" if not closed else "Workspace")
+        head_tip = home_path(cwd)
     else:
         title = tab.get("name") or (tab.get("last_title") if closed else "") \
             or (f"Workspace {tab['space']}" if not closed else "Workspace")
@@ -258,20 +279,30 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
     if closed:  # the title stays the title; the line under it says so
         sub = " · ".join(filter(None, ("closed", sub.strip() if sub.strip() != "empty" else None)))
     return {"title": title, "sub": sub, "state": state, "cls": cls, "has_claude": bool(c or item),
-            "item": bool(item), "session_id": (c or {}).get("session"), "path": home_path(cwd), "closed": closed}
+            "item": bool(item), "session_id": (c or {}).get("session") if len(claudes) == 1 else None,
+            "path": home_path(cwd), "closed": closed, "boxes": boxes, "head": head, "head_tip": head_tip}
 
 
 def tab_classes(tab: dict, info: dict, attention: bool) -> list[tuple[str, bool]]:
-    """Every style class a tab can carry, and whether it carries it now."""
-    return [("active", bool(tab.get("active"))), ("attention", attention), ("claude", info["has_claude"]),
-            ("plain", not info["has_claude"]), ("missing", info["closed"]),
-            *((c, c == info["cls"]) for c in STATE_CLASSES)]
+    """Every style class a tab can carry, and whether it carries it now. A card of boxes is
+    "boxes", not "claude": each box carries its own state."""
+    boxes = bool(info["boxes"])
+    return [("active", bool(tab.get("active"))), ("attention", attention),
+            ("claude", info["has_claude"] and not boxes), ("boxes", boxes), ("plain", not info["has_claude"]),
+            ("missing", info["closed"]), *((c, c == info["cls"]) for c in STATE_CLASSES)]
+
+
+def box_classes(box: dict) -> list[tuple[str, bool]]:
+    """Every style class a Claude's box can carry, and whether it carries it now."""
+    return [("attention", box["calls"]), *((c, c == box["cls"]) for c in STATE_CLASSES)]
 
 
 def tab_snapshot(rows) -> list[tuple]:
     """What a redraw depends on: an unchanged snapshot needs none."""
     return [(t["key"], t.get("space"), t.get("active"), i["title"], i["sub"], i["session_id"], att,
-             i["has_claude"], i["path"], i["state"], i["cls"], t.get("shortcut")) for t, i, att in rows]
+             i["has_claude"], i["path"], i["state"], i["cls"], t.get("shortcut"), i["head"], i["head_tip"],
+             tuple((b["key"], b["title"], b["sub"], b["cls"], b["calls"], b["agents"]) for b in i["boxes"]))
+            for t, i, att in rows]
 
 
 def close_question(tab: dict) -> tuple[str, str] | None:
@@ -280,11 +311,13 @@ def close_question(tab: dict) -> tuple[str, str] | None:
     windows = tab.get("windows") or []
     if not windows:
         return None
-    c = tab.get("claude")
+    claudes = [c for c in tab.get("claudes") or [] if c.get("title")]
+    name = tab.get("name") or (claudes[0]["title"] if len(claudes) == 1 else folder_name(tab.get("cwd")))
     apps = sorted({(w.get("app") or "?").rsplit(".", 1)[-1].replace("google-", "") for w in windows})
-    return (f"Close workspace{' – ' + c['title'] if c and c.get('title') else ''}?",
-            f"Closes {len(windows)} window{'s' if len(windows) != 1 else ''} ({', '.join(apps)}). A Claude Code"
-            f" session stays in Recent sessions (right-click the header).")
+    kept = "Its Claude Code sessions stay" if len(tab.get("claudes") or []) > 1 else "A Claude Code session stays"
+    return (f"Close workspace{' – ' + name if name else ''}?",
+            f"Closes {len(windows)} window{'s' if len(windows) != 1 else ''} ({', '.join(apps)}). {kept}"
+            f" in Recent sessions (right-click the header).")
 
 
 # A menu, for either toolkit: entries are (label, callback), (label, None) for a line that only
@@ -546,8 +579,10 @@ class SidebarLogic:
         for tab in self.state.get("tabs") or []:
             bound = tab.get("item")
             info = tab_info(tab, self._items.get((bound["source"], bound["id"])) if bound else None)
-            # a Claude handing back to you, an item starting to wait for you (tabstate.py)
-            attention = self._attention.update(tab["key"], info["state"], bool(tab.get("active")), item=info["item"])
+            if info["item"]:  # an item starting to wait for you (tabstate.py)
+                attention = self._attention.update(tab["key"], info["state"], bool(tab.get("active")), item=True)
+            else:  # a Claude handing back to you: the daemon says which
+                attention = any(b["calls"] for b in info["boxes"])
             rows.append((tab, info, attention))
         if bound_items(self.state.get("tabs") or []) != self._bound:
             self._draw_sources()  # an item got its own workspace, or lost it
@@ -575,17 +610,20 @@ class SidebarLogic:
     def can_reorder(self) -> bool:
         return "move" in (self.state.get("caps") or [])  # a desktop that cannot reorder: no drop indicator
 
-    def tab_menu(self, tab: dict) -> list:
+    def tab_menu(self, tab: dict, box: dict | None = None) -> list:
+        """A card's menu; on one of its Claudes' boxes, its Fork is that Claude's."""
         info = tab_info(tab)
         where = self._where(tab)
-        cwd = (tab.get("claude") or {}).get("cwd") or tab.get("cwd") or str(Path.home())
+        cwd = (box or {}).get("cwd") or tab.get("cwd") or next(
+            (c.get("cwd") for c in tab.get("claudes") or [] if c.get("cwd")), "") or str(Path.home())
+        session = (box or {}).get("session_id") or info["session_id"]
         items = []
         if not info["closed"]:
             items.append(("Open terminal here", lambda: self.send("terminal", **where)))
         items.append(("New session in this directory", lambda: self.send(
             "new", cwd=cwd, after=tab.get("ws"), command=f"{login_shell()} -i -c 'claude; exec {login_shell()} -i'")))
-        if info["session_id"]:
-            items.append(("Fork session", lambda: self.fork(tab, info["session_id"])))
+        if session:
+            items.append(("Fork session", lambda: self.fork(tab, session)))
         if not info["closed"]:
             for app in self.cfg.get("web_apps") or []:
                 if isinstance(app, dict) and app.get("url"):
@@ -638,6 +676,13 @@ class SidebarLogic:
                       url=item["url"], folder=item.get("folder"))
             return
         self.send("activate", **self._where(tab))
+
+    def on_box_clicked(self, tab: dict, box: dict):
+        """A Claude's box: its terminal (and pane, where the terminal lets us) gets the keyboard."""
+        if tab.get("space") is None:
+            self.on_tab_clicked(tab)
+            return
+        self.send("focus", key=box["key"])
 
     def fork(self, tab: dict, session_id: str):
         self.send("fork", session=session_id, **({"ws": tab["ws"]} if tab.get("ws") else {}))

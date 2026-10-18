@@ -118,10 +118,15 @@ class CommonTest(unittest.TestCase):
 
     def test_closing_asks_only_when_there_are_windows(self):
         self.assertIsNone(sidebar_common.close_question({"windows": []}))
-        q, detail = sidebar_common.close_question({"claude": {"title": "Fix"},
+        q, detail = sidebar_common.close_question({"claudes": [{"title": "Fix"}],
                                                    "windows": [{"app": "google-chrome"}, {"app": "x.Terminator"}]})
         self.assertEqual(q, "Close workspace – Fix?")
         self.assertIn("2 windows (Terminator, chrome)", detail)
+        self.assertIn("A Claude Code session stays", detail)
+        q, detail = sidebar_common.close_question({"cwd": "/src/pricing", "claudes": [{"title": "A"}, {"title": "B"}],
+                                                   "windows": [{"app": "terminator"}, {"app": "terminator"}]})
+        self.assertEqual(q, "Close workspace – pricing?")
+        self.assertIn("Its Claude Code sessions stay", detail)
 
     def test_history_lines_and_search(self):
         title, sub, needle, _ = sidebar_common.history_lines(
@@ -146,7 +151,7 @@ class CommonTest(unittest.TestCase):
                 self.sent.append((method, params))
 
         ui = Fake()
-        tab = {"space": 3, "claude": {"title": "T", "session": "s1", "cwd": "/w"},
+        tab = {"space": 3, "claudes": [{"title": "T", "session": "s1", "cwd": "/w"}],
                "missing": [{"slot": "m1", "what": "chrome 'Docs'"}]}
         entries = ui.tab_menu(tab)
         labels = [e[0] for e in entries if e is not sidebar_common.SEPARATOR]
@@ -155,6 +160,50 @@ class CommonTest(unittest.TestCase):
         self.assertIn(sidebar_common.SEPARATOR, entries)
         dict(e for e in entries if e is not sidebar_common.SEPARATOR)["Open terminal here"]()
         self.assertEqual(ui.sent[-1], ("terminal", {"space": 3}))
+        # with two Claudes, the card's menu forks the one whose box you right-clicked
+        two = {**tab, "claudes": tab["claudes"] + [{"title": "U", "session": "s2", "cwd": "/v"}]}
+        self.assertNotIn("Fork session", [e[0] for e in ui.tab_menu(two) if e is not sidebar_common.SEPARATOR])
+        box = sidebar_common.tab_info(two)["boxes"][1]
+        dict(e for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR)["Fork session"]()
+        self.assertEqual(ui.sent[-1], ("fork", {"session": "s2"}))
+
+    def test_a_workspace_with_claudes_is_a_box_each(self):
+        tab = {"space": 2, "ws": "w1", "cwd": "/src/pricing", "active": False, "claudes": [
+            {"key": "s1", "session": "s1", "title": "Pricing API", "state": "busy", "model": "Opus 5.5", "agents": 2},
+            {"key": "s2", "session": "s2", "title": "Review tests", "state": "done", "model": "Sonnet 5.5",
+             "calls": 1000.0},
+            {"key": "s3", "session": "s3", "title": "Deploy", "state": "external", "on": "prod deploy",
+             "model": "Haiku 5.5"}]}
+        info = sidebar_common.tab_info(tab)
+        self.assertEqual((info["head"], info["head_tip"]), ("pricing", "/src/pricing"))
+        self.assertEqual([(b["glyph"], b["title"], b["sub"], b["cls"], b["agents"], b["calls"]) for b in info["boxes"]], [
+            ("◐", "Pricing API", "Opus 5.5", "working", 2, False),  # subagents are dots, not words
+            ("✳", "Review tests", "Sonnet 5.5", "idle", 0, True),
+            ("✳", "Deploy", "Haiku 5.5 · waiting on prod deploy", "shell", 0, False)])
+        classes = dict(sidebar_common.tab_classes(tab, info, True))
+        self.assertTrue(classes["boxes"] and classes["attention"])
+        self.assertFalse(classes["claude"] or classes["working"])  # each box carries its own state
+        self.assertEqual(dict(sidebar_common.box_classes(info["boxes"][1]))["attention"], True)
+        # a name you gave it heads the card instead of the folder
+        self.assertEqual(sidebar_common.tab_info({**tab, "name": "Billing"})["head"], "Billing")
+        # one Claude: one box, the same card
+        one = sidebar_common.tab_info({**tab, "claudes": tab["claudes"][:1]})
+        self.assertEqual((len(one["boxes"]), one["session_id"]), (1, "s1"))
+
+    def test_a_box_click_goes_to_its_claude_and_the_card_lands_where_needed(self):
+        class Fake(sidebar_common.SidebarLogic):
+            def __init__(self):
+                self.cfg, self.state, self.sent, self._items = {}, {}, [], {}
+                self._attention = sidebar_common.Attention()
+
+            def send(self, method, **params):
+                self.sent.append((method, params))
+
+        ui = Fake()
+        tab = {"key": "w:w1", "space": 2, "ws": "w1", "claudes": [{"key": "s1"}, {"key": "s2"}]}
+        ui.on_box_clicked(tab, sidebar_common.tab_info(tab)["boxes"][1])
+        ui.on_tab_clicked(tab)
+        self.assertEqual(ui.sent, [("focus", {"key": "s2"}), ("activate", {"ws": "w1"})])
 
     def test_a_package_install_updates_with_its_own_package_tool(self):
         with mock.patch.object(sidebar_common, "checkout_root", return_value=None), \

@@ -42,7 +42,8 @@ class TrackerTest(unittest.TestCase):
         self.d = self.detector()
 
     def detector(self):
-        return claude.Detector(hook_dir=self.hook_dir, agents=lambda now: (list(self.live.values()), now))
+        return claude.Detector(hook_dir=self.hook_dir, agents=lambda now: (list(self.live.values()), now),
+                               started=lambda pid: None)
 
     def tearDown(self):
         claude.PROJECTS = self._saved
@@ -244,6 +245,103 @@ class TrackerTest(unittest.TestCase):
         self.listed("s9", CLAUDE_PID, "idle", name="Deploy")
         self.assertEqual(self.look({"A": term("A", "✳ Deploy")}, 110.0)["A"]["status"], "done")
 
+    # ---- several Claudes in one window, several on one workspace
+    def pane(self, sid, pid, t, started, term=TERM_PID, uuid=None, **extra):
+        """A Claude in a pane of the terminal process `term`: its own shell under it."""
+        self.table.update({pid: (pid - 1, "claude"), pid - 1: (term, "zsh")})
+        self.hook(sid, extra.pop("state", "done"), t, pid=pid, started=started, ancestors=[pid, pid - 1, term, 1],
+                  pane={"TERMINATOR_UUID": uuid or f"urn:uuid:{sid}"}, **extra)
+
+    def sessions(self, seen, wid):
+        return [c["session"] for c in seen[wid]]
+
+    def look_all(self, windows, now, launched=None):
+        self.d.refresh(now, force=True, table=self.table)
+        self.d.assign(windows, launched or {})
+        return {wid: self.d.claudes_for(w.title, w.pid, wid) for wid, w in windows.items()}
+
+    def test_split_panes_of_a_terminal_we_started_show_every_claude(self):
+        """Two Claudes in one Terminator window: both run in its process. In the order they started."""
+        self.pane("s2", 702, 101.0, started=95.0)
+        self.pane("s1", 602, 100.0, started=90.0)
+        seen = self.look_all({"A": term("A", "✳ Review tests")}, 102.0, launched={"A": TERM_PID})
+        self.assertEqual(self.sessions(seen, "A"), ["s1", "s2"])
+        self.assertEqual([c["how"] for c in seen["A"]], ["launch", "launch"])
+        self.assertEqual(seen["A"][1]["pane"], {"TERMINATOR_UUID": "urn:uuid:s2"})
+        self.assertEqual(self.d.for_window("✳ Review tests", 0, "A")["session"], "s1")
+
+    def test_each_claude_of_a_window_has_its_own_title(self):
+        """(the window's title is only the one in the pane with the keyboard)"""
+        folder = claude.PROJECTS / claude.project_slug("/tmp")
+        folder.mkdir(parents=True)
+        for sid, title in (("s1", "Pricing API"), ("s2", "Review tests")):
+            (folder / f"{sid}.jsonl").write_text(json.dumps({"type": "ai-title", "aiTitle": title}) + "\n")
+        self.pane("s1", 602, 100.0, started=90.0)
+        self.pane("s2", 702, 101.0, started=95.0)
+        seen = self.look_all({"A": term("A", "✳ Review tests")}, 102.0, launched={"A": TERM_PID})
+        self.assertEqual([c["title"] for c in seen["A"]], ["Pricing API", "Review tests"])
+
+    def test_three_claudes_on_one_workspace(self):
+        """A window with two panes, and a terminal of its own you typed into."""
+        self.pane("s1", 602, 100.0, started=90.0)
+        self.pane("s2", 702, 101.0, started=95.0)
+        self.d.note_focus(99.0, "B")
+        self.pane("s3", 802, 103.0, started=92.0, term=301, prompt_t=103.0)
+        a, b = term("A", "✳ Pricing API"), term("B", "✳ Ask about the CSV format")
+        seen = self.look_all({"A": a, "B": b}, 104.0, launched={"A": TERM_PID})
+        self.assertEqual((self.sessions(seen, "A"), self.sessions(seen, "B")), (["s1", "s2"], ["s3"]))
+        self.assertEqual(seen["B"][0]["how"], "focus")
+
+    def test_two_sessions_in_one_window_you_typed_into(self):
+        """A terminal that keeps every window in one process (a Terminator you opened yourself):
+        the panes you typed into are told apart by the keyboard."""
+        self.d.note_focus(99.0, "A")
+        self.pane("s1", 602, 100.0, started=90.0, prompt_t=100.0)
+        self.pane("s2", 702, 110.0, started=95.0, prompt_t=110.0)
+        seen = self.look_all({"A": term("A", "✳ Claude Code"), "B": term("B", "alex@laptop: ~")}, 111.0)
+        self.assertEqual((self.sessions(seen, "A"), seen["B"]), (["s1", "s2"], []))
+
+    def test_a_title_alone_does_not_add_a_second_claude(self):
+        """A fork has its parent's title: a window showing it is not where the fork runs."""
+        folder = claude.PROJECTS / claude.project_slug("/tmp")
+        folder.mkdir(parents=True)
+        for sid in ("s1", "s2"):
+            (folder / f"{sid}.jsonl").write_text(json.dumps({"type": "ai-title", "aiTitle": "Fix tests"}) + "\n")
+        self.pane("s1", 602, 100.0, started=90.0)
+        self.pane("s2", 702, 101.0, started=95.0, term=999)  # in a terminal whose window we do not see
+        self.table[999] = (1, "terminator")
+        seen = self.look_all({"A": term("A", "✳ Fix tests")}, 102.0, launched={"A": TERM_PID})
+        self.assertEqual(self.sessions(seen, "A"), ["s1"])
+
+    def test_one_claude_per_pane(self):
+        """Ctrl+Z on one Claude, then another in the same shell: only the one you see."""
+        self.pane("s1", 602, 100.0, started=90.0, uuid="urn:uuid:p1")
+        self.pane("s2", 702, 120.0, started=110.0, uuid="urn:uuid:p1")
+        self.pane("s3", 802, 105.0, started=100.0, uuid="urn:uuid:p2")
+        seen = self.look_all({"A": term("A", "✳ X")}, 121.0, launched={"A": TERM_PID})
+        self.assertEqual(self.sessions(seen, "A"), ["s3", "s2"])
+
+    def test_a_process_shared_by_two_windows_says_nothing(self):
+        """GNOME Terminal and Konsole keep all their windows in one process: on KDE every window
+        has its pid, so that pid does not say which window a Claude is in."""
+        self.pane("s1", 602, 100.0, started=90.0)
+        a, b = term("A", "alex@laptop: ~", pid=TERM_PID), term("B", "alex@laptop: ~", pid=TERM_PID)
+        self.assertEqual(self.look_all({"A": a, "B": b}, 101.0), {"A": [], "B": []})
+        seen = self.look_all({"A": a}, 102.0)  # one window of its own: that one
+        self.assertEqual(self.sessions(seen, "A"), ["s1"])
+
+    def test_a_box_keeps_its_place_through_clear(self):
+        """Claudes are in the order their processes started: /clear starts a new session, not a new Claude."""
+        self.d = claude.Detector(hook_dir=self.hook_dir, agents=lambda now: ([], now),
+                                 started=lambda pid: {602: 50.0, 702: 60.0}.get(pid))
+        self.pane("s1", 602, 100.0, started=90.0)
+        self.pane("s2", 702, 101.0, started=95.0)
+        self.assertEqual(self.sessions(self.look_all({"A": term("A", "✳ X")}, 102.0, {"A": TERM_PID}), "A"), ["s1", "s2"])
+        self.hook("s1b", "done", 110.0, pid=602, started=110.0, ancestors=[602, 601, TERM_PID, 1],
+                  pane={"TERMINATOR_UUID": "urn:uuid:s1"})  # /clear in the first pane
+        seen = self.look_all({"A": term("A", "✳ X")}, 111.0, {"A": TERM_PID})
+        self.assertEqual(self.sessions(seen, "A"), ["s1b", "s2"])
+
     def test_mapping_survives_a_daemon_restart(self):
         a, b = term("A", "✳ Fix tests"), term("B", "✳ Fix tests")
         self.d.note_focus(100.0, "B")
@@ -277,6 +375,17 @@ class HookScriptTest(unittest.TestCase):
                                    capture_output=True, env=env, timeout=5)
                 self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
 
+
+    def test_the_pane_claude_runs_in_is_recorded(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = {**os.environ, "SIDELIT_HOME": home, "TERMINATOR_UUID": "urn:uuid:abc", "TMUX_PANE": "%3"}
+            env.pop("KITTY_WINDOW_ID", None)
+            subprocess.run([sys.executable, "-I", os.path.join(ROOT, "plugin", "hooks", "hook.py")],
+                           input=json.dumps({"session_id": "x1", "hook_event_name": "SessionStart"}), text=True,
+                           capture_output=True, env=env, timeout=5)
+            rec = json.loads((Path(home) / "claude" / "x1.json").read_text())
+            self.assertEqual((rec["pane"]["TERMINATOR_UUID"], rec["pane"]["TMUX_PANE"]), ("urn:uuid:abc", "%3"))
+            self.assertEqual(claude.pane_id(rec["pane"]), "TMUX_PANE=%3")  # tmux inside Terminator: tmux's pane
 
     def test_a_background_task_waking_claude_is_not_you_typing(self):
         """(else the terminal that had the keyboard then would be taken for this Claude's)"""

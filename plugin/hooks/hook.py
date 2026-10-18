@@ -6,7 +6,9 @@ the plugin) for SessionStart, UserPromptSubmit, PreToolUse, PostToolUse (these t
 fire on every tool call), PermissionRequest, Notification, Stop, StopFailure, SubagentStart,
 SubagentStop and SessionEnd. Claude runs it with the event as JSON on stdin; it writes the
 session's state to $XDG_RUNTIME_DIR/sidelit/claude/<session>.json (so a daemon restart loses
-nothing) and nudges the daemon over its socket.
+nothing) and nudges the daemon over its socket. With the state go the process ancestry and,
+where the terminal says it, the pane Claude runs in (PANE_VARS): several Claudes can share one
+terminal window.
 
 The state is the main thread's: a subagent's events (they carry its agent_id) only keep
 the list of subagents running, with when each was last heard from, except a permission it asks
@@ -31,6 +33,10 @@ WAITING = {"permission_prompt", "elicitation_dialog"}
 # Claude up. They come as UserPromptSubmit too, while the keyboard may be anywhere.
 NOT_TYPED = ("<task-notification>", "Another Claude session sent a message")
 SAID_MAX = 6000  # characters of Claude's last message kept with the turn's end
+# what tells one pane of a terminal window from another (split panes, tabs), where the terminal
+# says it, and where to reach the terminal that can focus that pane from outside
+PANE_VARS = ("TERMINATOR_UUID", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET",
+             "TMUX_PANE", "TMUX")
 
 
 def runtime_dir() -> str:
@@ -96,6 +102,9 @@ def main() -> int:
     if claude_pid:
         rec["pid"] = claude_pid
         rec["ancestors"] = chain
+    pane = {k: os.environ[k][:200] for k in PANE_VARS if os.environ.get(k)}
+    if pane:
+        rec["pane"] = pane
     agents = rec.get("agents") if isinstance(rec.get("agents"), dict) else {}
     agent = event.get("agent_id")
     if agent or name in ("SubagentStart", "SubagentStop"):

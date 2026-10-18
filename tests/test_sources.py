@@ -13,7 +13,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from sidelit import sources  # noqa: E402
-from sidelit.tabstate import Attention  # noqa: E402
 
 
 def write(folder: Path, name: str, data):
@@ -174,19 +173,20 @@ class Polling(unittest.TestCase):
         self.assertEqual(self.poller.poll(), [])
 
 
-def tab(key, state=None, title="Fix tests", active=False, session=None, on="", item=None):
-    """A tab as the daemon's view has it; state None: no Claude on it."""
-    c = {"session": session or f"sess-{key}", "title": title, "state": state, "on": on, "model": "claude-x"} \
-        if state else None
-    return {"key": key, "active": active, "claude": c, "item": item, "last_title": ""}
+def claude(key, state, title="Fix tests", on="", calls=0.0):
+    """A Claude's box as the daemon's view has it."""
+    return {"key": key, "session": key, "title": title, "state": state, "on": on, "model": "claude-x", "calls": calls}
+
+
+def tab(key, state=None, title="Fix tests", active=False, session=None, on="", item=None, calls=0.0, more=()):
+    """A tab as the daemon's view has it; state None: no Claude on it. `more`: other Claudes on it."""
+    first = [claude(session or f"sess-{key}", state, title, on, calls)] if state else []
+    return {"key": key, "active": active, "claudes": first + list(more), "item": item, "last_title": ""}
 
 
 class ClaudeItems(unittest.TestCase):
-    def setUp(self):
-        self.attention = Attention()
-
     def items(self, *tabs):
-        return sources.claude_items(list(tabs), self.attention)
+        return sources.claude_items(list(tabs))
 
     def test_the_tab_colour_picks_the_state(self):
         got = self.items(tab("a", "busy"), tab("b", "checking"), tab("c", "shell"), tab("d", "external", on="CI pipeline"),
@@ -199,18 +199,17 @@ class ClaudeItems(unittest.TestCase):
         self.assertEqual(got[5]["detail"], "")
         self.assertNotIn("url", got[0])
 
-    def test_a_claude_that_hands_back_while_you_are_elsewhere_waits_until_you_go_there(self):
-        self.items(tab("a", "busy"))
-        self.assertEqual(self.items(tab("a", "checking"))[0]["state"], "working")
-        self.assertEqual(self.items(tab("a", "done"))[0]["state"], "waiting")   # the turn check: it needs you
-        self.assertEqual(self.items(tab("a", "done"))[0]["state"], "waiting")
-        self.assertEqual(self.items(tab("a", "done", active=True))[0]["state"], "done")
+    def test_a_claude_that_calls_you_is_waiting(self):
+        """(the daemon says which Claudes call you: tabstate.Attention)"""
+        self.assertEqual(self.items(tab("a", "done", calls=1000.0))[0]["state"], "waiting")
         self.assertEqual(self.items(tab("a", "done"))[0]["state"], "done")
 
-    def test_one_that_ends_while_you_watch_or_only_waits_does_not(self):
-        self.items(tab("a", "busy", active=True), tab("b", "busy"))
-        got = self.items(tab("a", "done", active=True), tab("b", "external", on="prod deploy"))
-        self.assertEqual([i["state"] for i in got], ["done", "working"])
+    def test_every_claude_of_a_workspace_is_an_item_of_its_own(self):
+        got = self.items(tab("a", "busy", more=[claude("sess-a2", "done", "Review tests", calls=1000.0),
+                                               claude("sess-a3", "external", "Deploy", on="prod deploy")]))
+        self.assertEqual([(i["id"], i["title"], i["state"]) for i in got], [
+            ("sess-a", "Fix tests", "working"), ("sess-a2", "Review tests", "waiting"), ("sess-a3", "Deploy", "working")])
+        self.assertEqual(got[2]["detail"], "waiting on prod deploy")
 
     def test_tabs_opened_for_a_source_item_are_left_out(self):
         got = self.items(tab("a", "busy", item={"source": "jobs", "id": "j1"}), tab("b", "busy"))

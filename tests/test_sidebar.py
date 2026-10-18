@@ -66,19 +66,21 @@ class HistoryPanelTest(unittest.TestCase):
 
 @unittest.skipIf(sidebar is None, "needs GTK 3 and gtk-layer-shell")
 class TabInfoTest(unittest.TestCase):
-    def sub(self, **claude):
-        return sidebar.tab_info({"space": 1, "claude": {"title": "Fix tests", "model": "Opus 5.5", **claude}})["sub"]
+    def box(self, **claude):
+        tab = {"space": 1, "claudes": [{"key": "s1", "title": "Fix tests", "model": "Opus 5.5", **claude}]}
+        return sidebar.tab_info(tab)["boxes"][0]
 
-    def test_subagents_are_counted_under_the_main_threads_model(self):
-        self.assertEqual(self.sub(state="busy"), "Opus 5.5")
-        self.assertEqual(self.sub(state="busy", agents=1), "Opus 5.5 · 1 subagent")
-        self.assertEqual(self.sub(state="waiting", agents=3), "Opus 5.5 · 3 subagents · waiting for you")
+    def test_subagents_are_dots_beside_the_main_threads_model(self):
+        self.assertEqual((self.box(state="busy")["sub"], self.box(state="busy")["agents"]), ("Opus 5.5", 0))
+        self.assertEqual((self.box(state="busy", agents=1)["sub"], self.box(state="busy", agents=1)["agents"]),
+                         ("Opus 5.5", 1))
+        self.assertEqual(self.box(state="waiting", agents=3)["sub"], "Opus 5.5 · waiting for you")
 
     ITEM = {"id": "j1", "title": "Port the login screen", "state": "waiting", "detail": "Allow",
             "url": "https://jobs.example.test/job/j1", "updated": 0}
 
     def test_a_workspace_opened_for_an_item_is_drawn_from_it(self):
-        tab = {"space": 2, "ws": "w1", "name": "Port the login", "claude": None, "item": {"source": "jobs", "id": "j1"},
+        tab = {"space": 2, "ws": "w1", "name": "Port the login", "claudes": [], "item": {"source": "jobs", "id": "j1"},
                "windows": [{"app": "chrome-jobs.example.test__job_j1-Default"}]}
         info = sidebar.tab_info(tab, self.ITEM)
         self.assertEqual((info["title"], info["sub"], info["cls"]), ("Port the login screen", "waiting for you · Allow", "waiting"))
@@ -88,7 +90,7 @@ class TabInfoTest(unittest.TestCase):
             self.assertEqual(sidebar.tab_info(tab, {**self.ITEM, "state": state})["cls"], cls)
         # listed in its source's group only while it has no workspace of its own
         src = {"key": "jobs", "items": [self.ITEM, {**self.ITEM, "id": "j2"}]}
-        bound = sidebar.bound_items([tab, {"space": 1, "claude": None}])
+        bound = sidebar.bound_items([tab, {"space": 1, "claudes": []}])
         self.assertEqual(bound, {("jobs", "j1")})
         self.assertEqual([i["id"] for i in sidebar.group_items(src, bound)], ["j2"])
         self.assertEqual([i["id"] for i in sidebar.group_items({**src, "key": "other"}, bound)], ["j1", "j2"])

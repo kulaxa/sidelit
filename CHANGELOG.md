@@ -18,6 +18,16 @@ update. The reasoning belongs in the commit message.
   per-model weekly bar is gone.
 - Running sessions are read from `claude agents --json`, Claude Code's supported list, instead of
   its internal files; a status-line script's files are no longer read.
+- Every Claude on a workspace shows, not only the first: a workspace with Claudes is a card with a
+  box for each (title, model, its own state stripe), whether they run in terminals of their own
+  or in split panes or tabs of one. Subagents at work are dots in their Claude's box. Click a box
+  to go to that Claude's terminal (and its pane in tmux, WezTerm and kitty; Terminator cannot
+  focus a pane from outside, so there the window comes forward).
+- A Claude now calls you (yellow) whenever you are not typing in its own terminal, not only when
+  you are on another workspace. Clicking a workspace, or switching to it with its Super+N, lands
+  on the Claude that has waited longest for you, else the one you used last.
+- A restore brings back every Claude a workspace had (several sharing one window come back in a
+  terminal each); Recent sessions and the closed-workspace history list each of them.
 
 ## [0.5.0] - 2026-10-17
 

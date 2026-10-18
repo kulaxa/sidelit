@@ -38,7 +38,8 @@ class Ctx:
     known_dirs: list = field(default_factory=list)      # directories Claudes run in, for folder names
     resume_command: Callable[[str, str], str] | None = None   # (session, cwd) -> shell command
     ignored: set = field(default_factory=set)            # config ignore_apps
-    on_session_ended: Callable[[Slot], None] | None = None
+    # (slot, the Claudes of its window that ended: Slot.claudes entries; None: all of them)
+    on_session_ended: Callable[..., None] | None = None
     browser: dict = field(default_factory=dict)          # window id -> {"instance", "window", "tabs", "profile"}
     browser_online: set = field(default_factory=set)     # extension instances connected now
     # processes that ended since a time, and whether a crash would be among them (a crash reporter
@@ -105,11 +106,13 @@ class Adapter:
 
 
 class TerminalAdapter(Adapter):
-    """Terminals, and the Claude running in one. A terminal is one slot whether or not a
+    """Terminals, and the Claudes running in one. A terminal is one slot whether or not a
     Claude runs in it; state["session"] is the Claude it shows (resumed on restore),
-    state["cwd"] the directory (from the Claude, or from a `user@host: dir` prompt title),
-    state["command"] what it was started to run, if that is how it comes back (an other
-    source's item opened in a terminal: its own command resumes it, not a bare `claude`)."""
+    state["more"] the other Claudes in the same window (split panes, tabs: each comes back in
+    a terminal of its own, Engine._split_claudes), state["cwd"] the directory (from the Claude,
+    or from a `user@host: dir` prompt title), state["command"] what it was started to run, if
+    that is how it comes back (an other source's item opened in a terminal: its own command
+    resumes it, not a bare `claude`)."""
     name = "terminal"
     launch_mode = "slot"
     launch_after = 0.0
@@ -130,11 +133,25 @@ class TerminalAdapter(Adapter):
         st = slot.state
         claude = ctx.claude_of(win)
         if claude:
+            had = slot.claudes
             for key, value in (("session", claude.get("session")), ("claude_title", claude.get("title")),
                                ("cwd", claude.get("cwd"))):
                 if value and st.get(key) != value:
                     st[key] = value
                     changed = True
+            more = [{"session": c["session"], "claude_title": c.get("title") or "", "cwd": c.get("cwd") or ""}
+                    for c in claude.get("more") or [] if c.get("session")]
+            if more != (st.get("more") or []):
+                if more:
+                    st["more"] = more
+                else:
+                    st.pop("more", None)
+                changed = True
+            now_shown = {c["session"] for c in slot.claudes}
+            # fewer Claudes than before: the ones gone ended (one taking another's place is
+            # /clear or /resume in the same Claude)
+            if len(now_shown) < len(had) and ctx.on_session_ended:
+                ctx.on_session_ended(slot, [c for c in had if c["session"] not in now_shown])
             if st.pop("no_claude_since", None) is not None:
                 changed = True
             return changed
@@ -151,7 +168,7 @@ class TerminalAdapter(Adapter):
             elif calm and now - since >= CLAUDE_GONE_S:
                 if ctx.on_session_ended:
                     ctx.on_session_ended(slot)
-                for key in ("session", "claude_title", "no_claude_since"):
+                for key in ("session", "claude_title", "no_claude_since", "more"):
                     st.pop(key, None)
                 if prompt:
                     st["cwd"] = prompt
@@ -194,8 +211,14 @@ class TerminalAdapter(Adapter):
 
     def describe(self, slot):
         if slot.session:
-            return f"Claude {slot.state.get('claude_title') or slot.session[:8]!r}"
+            n = len(slot.claudes) - 1
+            return describe_claude(slot.claudes[0]) + (f" and {n} more" if n else "")
         return f"terminal in {slot.state.get('cwd') or '?'}"
+
+
+def describe_claude(c: dict) -> str:
+    """A Claude of a slot (Slot.claudes) in a line."""
+    return f"Claude {c.get('claude_title') or c['session'][:8]!r}"
 
 
 class FilesAdapter(Adapter):
