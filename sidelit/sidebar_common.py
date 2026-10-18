@@ -14,6 +14,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -23,7 +24,7 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-from sidelit import config, sources, version as local_version
+from sidelit import config, gnome, sources, version as local_version
 from sidelit.claude import load_json, login_shell
 from sidelit.tabstate import Attention, note
 
@@ -382,15 +383,30 @@ class SidebarLogic:
     def _screens_changed(self, reason: str):
         """Start over on the screen the config picks. Re-mapping a live layer surface onto a
         changing output hung GTK inside a compositor round-trip; a fresh process maps its
-        sidebar through the ordinary startup path. Nothing is lost: the daemon has it all."""
+        sidebar through the ordinary startup path. Nothing is lost: the daemon has it all.
+
+        On GNOME the extension places the window: it is only told the screen again."""
+        if gnome.hosted() and reason != "menu":
+            if not self._restart_pending:
+                self._restart_pending = True
+                GLib.timeout_add_seconds(1, self._replace_on_gnome)
+            return
         if self._restart_pending:
             return
         self._restart_pending = True
         print(f"sidebar: screens changed ({reason}); restarting in 3 s", file=sys.stderr, flush=True)
         GLib.timeout_add_seconds(3, self._restart_self)
 
+    def _replace_on_gnome(self):
+        self._restart_pending = False
+        self._place_on_gnome()
+        return False
+
     def _restart_self(self):
         sys.stderr.flush()
+        if gnome.hosted():  # GNOME Shell started this process and starts the next one
+            os.kill(os.getpid(), signal.SIGTERM)
+            return False
         os.execv(sys.executable, [sys.executable, "-m", "sidelit", "sidebar"])
 
     # ---- footer -------------------------------------------------------------------------

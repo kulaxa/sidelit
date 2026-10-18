@@ -12,6 +12,9 @@ Type=simple
 ExecStart=@BINDIR@/sidelit sidebar
 EnvironmentFile=-%t/sidelit/session.env
 Restart=always
+# 4: not here. On GNOME the GNOME Shell extension runs the sidebar instead
+RestartPreventExitStatus=4
+SuccessExitStatus=4
 # only our own process: what the daemon starts runs in scopes of its own (launch.py), and
 # nothing it ever reopened may die with it
 KillMode=process

@@ -17,6 +17,7 @@ jobs:
       # (one file per `sh -n`: it reads only its first argument as the script)
       - run: for f in bin/sidelit bin/sidelit-open bin/sidelit-hook bin/sidelit-chrome-host debian/sidelit.postrm; do sh -n "$f"; done
       - run: python -m json.tool chrome-extension/manifest.json > /dev/null
+      - run: python -m json.tool gnome-extension/metadata.json > /dev/null
       - run: for f in get.sh install.sh uninstall.sh package.sh PKGBUILD sidelit.install; do bash -n "$f"; done
       - run: test "$(cat VERSION)" = "$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md)"
       - run: test "$(cat VERSION)" = "$(sed -n 's/^pkgver=//p' PKGBUILD)"
@@ -37,7 +38,8 @@ jobs:
       - run: claude plugin test plugin
 
   # the slim image has no PyGObject: the tests that need GLib and a bus run here, among them the
-  # KDE backend against a fake KWin on a private session bus
+  # KDE and GNOME backends against a fake KWin and a fake GNOME Shell on a private session bus
+  # (and, with the runner's Node, whether the GNOME Shell extension's JavaScript parses)
   test-glib:
     name: Tests with GLib and D-Bus
     runs-on: ubuntu-latest
@@ -103,10 +105,15 @@ jobs:
       # the image is debian, so this exercises the dpkg-deb path of package.sh
       - run: ./package.sh deb
       - run: dpkg-deb --info dist/*.deb && dpkg-deb --contents dist/*.deb
+      - run: dpkg-deb --contents dist/*.deb | grep -q 'gnome-shell/extensions/sidelit@kulaxa.github.io/metadata.json'
+      # the GNOME Shell extension as extensions.gnome.org takes an upload
+      - run: ./package.sh gnome-extension && python -m zipfile -l dist/*.shell-extension.zip
       - uses: actions/upload-artifact@v4
         with:
           name: deb
-          path: dist/*.deb
+          path: |
+            dist/*.deb
+            dist/*.shell-extension.zip
 
   arch:
     name: Build the Arch package
@@ -155,4 +162,4 @@ jobs:
           cp dist/*.pkg.tar.zst dist/sidelit-latest-any.pkg.tar.zst
           echo "$version" > dist/sidelit_latest_version.txt
           gh release create "v$version" --target "$GITHUB_SHA" --title "v$version" --notes-file notes.md --latest \
-            dist/*.deb dist/*.pkg.tar.zst dist/sidelit_latest_version.txt
+            dist/*.deb dist/*.pkg.tar.zst dist/*.shell-extension.zip dist/sidelit_latest_version.txt

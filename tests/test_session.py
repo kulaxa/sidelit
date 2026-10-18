@@ -47,6 +47,20 @@ class OncePerCompositor(unittest.TestCase):
             self.assertEqual(comp.pid, 4708)
             self.assertAlmostEqual(comp.age, 900.0)
 
+    def test_gnome_shell_is_gnomes_compositor(self):
+        with tempfile.TemporaryDirectory() as proc:
+            Path(proc, "uptime").write_text("1000.00 5000.00\n")
+            tick = os.sysconf("SC_CLK_TCK")
+            # (its calendar server's name is cut to 15 characters, as /proc/<pid>/comm has it)
+            for pid, comm, start in (("2100", "gnome-shell", 990 * tick), ("2200", "gnome-shell-cal", 995 * tick)):
+                Path(proc, pid).mkdir()
+                Path(proc, pid, "comm").write_text(comm + "\n")
+                fields = ["S"] + ["0"] * 18 + [str(start)] + ["0"] * 10
+                Path(proc, pid, "stat").write_text(f"{pid} ({comm}) " + " ".join(fields))
+            comp = session.compositor(proc)
+            self.assertEqual(comp.pid, 2100)
+            self.assertTrue(session.needs_restore(comp, Path(proc, "restored")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,22 +8,30 @@ desktopdir="$HOME/.local/share/applications"
 autostartdir="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
 
 fail=0
-# COSMIC or KDE Plasma 6, on Wayland: say so now rather than fail at the first start
+# COSMIC, KDE Plasma 6 or GNOME, on Wayland: say so now rather than fail at the first start
 desktop=${XDG_CURRENT_DESKTOP:-unknown}
-[[ ":$desktop:" == *:COSMIC:* || ":$desktop:" == *:KDE:* ]] ||
-    echo "! Sidelit runs on COSMIC and KDE Plasma 6, not on $desktop: it will not start here"
+gnome=0
+[ "$(PYTHONPATH="$repo" python3 -c 'from sidelit.backend import chosen; print(chosen())' 2>/dev/null)" = gnome ] && gnome=1
+[[ ":$desktop:" == *:COSMIC:* || ":$desktop:" == *:KDE:* || $gnome == 1 ]] ||
+    echo "! Sidelit runs on COSMIC, KDE Plasma 6 and GNOME, not on $desktop: it will not start here"
 [[ ${XDG_SESSION_TYPE:-} == wayland ]] ||
-    echo "! the sidebar is a Wayland layer-shell surface, and this session is ${XDG_SESSION_TYPE:-not Wayland}"
+    echo "! the sidebar needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}"
 if ! python3 -c "import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk" &>/dev/null; then
     echo "✗ python3 GTK bindings missing. Install with 'sudo apt install python3-gi gir1.2-gtk-3.0'."
     fail=1
 fi
-if ! python3 -c "import gi; gi.require_version('GtkLayerShell','0.1'); from gi.repository import GtkLayerShell" &>/dev/null; then
-    echo "✗ gtk-layer-shell bindings missing. Install with 'sudo apt install gir1.2-gtklayershell-0.1'."
-    fail=1
-fi
-if ! PYTHONPATH="$repo" python3 -c "from sidelit import sidebar4; raise SystemExit(sidebar4.layer_shell_paths() is None)" &>/dev/null; then
-    echo "! gtk4-layer-shell not found: the GTK 3 sidebar runs (see \"The GTK 4 sidebar\" in the README for the smooth one)"
+if [[ $gnome == 1 ]]; then
+    # GNOME has no layer shell: its extension docks a plain GTK 4 window (GTK 3 if need be)
+    python3 -c "import gi; gi.require_version('Gtk','4.0')" &>/dev/null ||
+        echo "! GTK 4's python bindings missing: the GTK 3 sidebar runs. For the smooth one: 'sudo apt install gir1.2-gtk-4.0'"
+else
+    if ! python3 -c "import gi; gi.require_version('GtkLayerShell','0.1'); from gi.repository import GtkLayerShell" &>/dev/null; then
+        echo "✗ gtk-layer-shell bindings missing. Install with 'sudo apt install gir1.2-gtklayershell-0.1'."
+        fail=1
+    fi
+    if ! PYTHONPATH="$repo" python3 -c "from sidelit import sidebar4; raise SystemExit(sidebar4.layer_shell_paths() is None)" &>/dev/null; then
+        echo "! gtk4-layer-shell not found: the GTK 3 sidebar runs (see \"The GTK 4 sidebar\" in the README for the smooth one)"
+    fi
 fi
 if ! command -v claude &>/dev/null; then
     echo "! claude CLI not found on PATH. The sidebar runs, but the session features need Claude Code."
@@ -45,6 +53,33 @@ for unit in "$repo"/data/systemd/*.service; do
 done
 systemctl --user daemon-reload 2>/dev/null || echo "! systemctl --user is not available; the launcher falls back to background processes"
 
+# GNOME: the extension that gives the daemon GNOME's workspaces and windows and runs the
+# sidebar, linked from this checkout (a git pull updates it too) and turned on
+gnome_uuid=sidelit@kulaxa.github.io
+gnome_ext="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$gnome_uuid"
+gnome_new=0
+if [[ $gnome == 1 ]]; then
+    mkdir -p "$(dirname "$gnome_ext")"
+    [[ -e $gnome_ext || -L $gnome_ext ]] || gnome_new=1
+    ln -sfn "$repo/gnome-extension" "$gnome_ext"
+    if gnome-extensions enable "$gnome_uuid" 2>/dev/null; then
+        echo "  GNOME Shell extension: on"
+    else
+        # GNOME finds a new extension at the next login: have it turned on by then
+        enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo "@as []")
+        if [[ $enabled != *"'$gnome_uuid'"* ]]; then
+            if [[ $enabled == "@as []" || $enabled == "[]" ]]; then
+                enabled="['$gnome_uuid']"
+            else
+                enabled="${enabled%]}, '$gnome_uuid']"
+            fi
+            gsettings set org.gnome.shell enabled-extensions "$enabled" 2>/dev/null || true
+        fi
+        gnome_new=1
+        echo "  GNOME Shell extension: installed and turned on; GNOME loads it at your next login"
+    fi
+fi
+
 # every Claude Code session reports its status and window through Sidelit's Claude Code plugin,
 # installed with Claude Code's own `claude plugin` commands
 if command -v claude &>/dev/null; then
@@ -55,7 +90,11 @@ fi
 # Chrome windows and their tabs, through the companion extension
 "$bindir/sidelit" chrome install 2>/dev/null | sed 's/^/  /' || true
 echo "✓ installed: $bindir/sidelit -> $repo"
-echo "  starts at login; start now with: sidelit start"
+if [[ $gnome_new == 1 ]]; then
+    echo "  on GNOME: log out and back in once, so GNOME loads Sidelit's extension; then it starts by itself"
+else
+    echo "  starts at login; start now with: sidelit start"
+fi
 echo "  logs: sidelit log   ·   why something happened: sidelit why TEXT"
 echo "  update later with: git -C $repo pull"
 echo "  links on the current workspace: set Terminator's custom_url_handler and \$BROWSER to $bindir/sidelit-open (see README)"

@@ -1,6 +1,8 @@
 """The GTK 4 sidebar's window (see sidebar4.py, which loads gtk4-layer-shell first).
 
 Only drawing and input live here; what the sidebar does is sidebar_common.SidebarLogic.
+On GNOME there is no layer shell: the window is a plain one, which Sidelit's GNOME Shell
+extension runs and docks on the left (gnome.py).
 """
 from __future__ import annotations
 
@@ -9,9 +11,12 @@ import sys
 
 import gi
 
+from sidelit import gnome
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-gi.require_version("Gtk4LayerShell", "1.0")
+if not gnome.hosted():
+    gi.require_version("Gtk4LayerShell", "1.0")
 gi.require_version("Pango", "1.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GLib  # noqa: E402
@@ -20,7 +25,11 @@ from gi.repository import GLib  # noqa: E402
 # (it has to be set before GTK initialises)
 GLib.set_prgname("sidelit")
 from gi.repository import Gdk, GdkPixbuf, Gio, Gtk, Pango  # noqa: E402
-from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
+
+if gnome.hosted():
+    LayerShell = None
+else:
+    from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
@@ -440,6 +449,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
         width = int(self.cfg["width"])
         self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
+        if not layer:
+            self.set_decorated(False)  # GNOME's extension docks it: no title bar
         if layer:
             LayerShell.init_for_window(self)
             LayerShell.set_layer(self, LayerShell.Layer.TOP)
@@ -587,6 +598,12 @@ class Sidebar(Gtk.Window, SidebarLogic):
         if self._pick_monitor(str(self.cfg.get("monitor", "leftmost"))) is not self._monitor:
             self._screens_changed("screens rearranged")
 
+    def _place_on_gnome(self):
+        """Tell GNOME's extension which screen the sidebar goes on."""
+        self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
+        connector = (self._monitor.get_connector() or "") if self._monitor is not None else ""
+        gnome.place_sidebar(connector)
+
     def _on_close_request(self, *_):
         """The compositor closes a layer surface whose output vanished."""
         self._screens_changed("surface closed")
@@ -603,6 +620,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
     def _on_history_clicked(self, button):
         """Closed workspaces, newest first, in a panel that scrolls and searches (HistoryPanel);
         picking one brings it back with its windows. The list is asked for now, not pushed."""
+        if gnome.hosted():  # GNOME's dock gets the keyboard only when it asks: the search needs it
+            gnome.focus_sidebar()
         pop = Gtk.Popover()
         pop.add_css_class("cw-pop")
         pop.add_css_class("cw-history-pop")
@@ -1081,11 +1100,14 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
 def main(fall_back):
     """Run the sidebar; `fall_back(why)` restarts as the GTK 3 one when there is no layer shell."""
-    if not LayerShell.is_supported():
+    hosted = gnome.hosted()
+    if not hosted and not LayerShell.is_supported():
         fall_back("the compositor has no layer shell for GTK 4")
     loop = GLib.MainLoop()
-    win = Sidebar()
+    win = Sidebar(layer=not hosted)
     win.present()
+    if hosted:
+        win._place_on_gnome()
     renderer = win.get_renderer()  # `sidelit log` says which sidebar runs, and how it draws
     print(f"sidebar: GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}, "
           f"{type(renderer).__name__ if renderer else 'no renderer yet'}", file=sys.stderr, flush=True)

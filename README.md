@@ -1,6 +1,6 @@
 # Sidelit
 
-A sidebar for COSMIC and KDE Plasma where every workspace is a tab, and the coding agent working
+A sidebar for COSMIC, KDE Plasma and GNOME where every workspace is a tab, and the coding agent working
 on it shows its status there: working, waiting for you, done. Each agent keeps its terminal,
 its browser and whatever else it needs on a workspace of its own, and Sidelit keeps that layout:
 windows go back where they belong after a screen change, a crash or a login, and the sessions
@@ -15,6 +15,11 @@ that were open come back resumed. You look after agents, not windows.
   remove it, so there is no pinning, and KWin cannot reorder its desktops, so tabs cannot be
   dragged. The shortcut on each tab is whatever "Switch to Desktop N" is bound to in KDE's
   shortcuts (Ctrl+F1… out of the box).
+- **GNOME 46 to 51** (Ubuntu 24.04 and 26.04, Debian 13, Fedora Workstation, Zorin): with
+  Sidelit's GNOME Shell extension turned on (see [On GNOME](#on-gnome)). Everything works as
+  on COSMIC; the sidebar is hidden in the overview, like every window. With GNOME's setting
+  "workspaces on the primary display only" (the default), windows on other screens are on
+  every workspace, so they belong to none of the tabs.
 
 Other desktops are planned.
 
@@ -39,19 +44,21 @@ or, with wget:
 wget -qO- https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash
 ```
 
-Run it in a terminal on your desktop (COSMIC or KDE Plasma 6, on Wayland). It installs the few
-packages Sidelit needs (asking for your password once), puts Sidelit in `~/.local/share/sidelit`
-and starts it; from then on it starts at every login. Run the same line again to update. It
-knows Ubuntu, Pop!_OS, Debian, Fedora, Arch (and EndeavourOS, CachyOS, Manjaro) and openSUSE;
-what it did is in `~/.cache/sidelit-install.log`, and `~/.local/share/sidelit/uninstall.sh`
-takes it out again.
+Run it in a terminal on your desktop (COSMIC, KDE Plasma 6 or GNOME, on Wayland). It installs
+the few packages Sidelit needs (asking for your password once), puts Sidelit in
+`~/.local/share/sidelit` and starts it; from then on it starts at every login. Run the same line
+again to update. It knows Ubuntu, Pop!_OS, Debian, Fedora, Arch (and EndeavourOS, CachyOS,
+Manjaro) and openSUSE; what it did is in `~/.cache/sidelit-install.log`, and
+`~/.local/share/sidelit/uninstall.sh` takes it out again. On GNOME, see [On GNOME](#on-gnome)
+for the one thing left after it.
 
 ### Other ways to install
 
-Sidelit needs COSMIC or KDE Plasma 6 on Wayland, Python 3.10 or later with GTK 3 and
-gtk-layer-shell (the packages pull them in), and the `claude` CLI for the session features.
-Nothing is compiled: the Wayland client is pure Python, in the tree, and on KDE it talks to KWin
-over D-Bus.
+Sidelit needs COSMIC, KDE Plasma 6 or GNOME 46 or later on Wayland, Python 3.10 or later with
+GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the layer
+shell), and the `claude` CLI for the session features. Nothing is compiled: the Wayland client
+is pure Python, in the tree, on KDE it talks to KWin over D-Bus, and on GNOME to its own GNOME
+Shell extension, which is JavaScript.
 
 **Ubuntu, Pop!_OS, Debian:** the .deb from the latest release:
 
@@ -86,6 +93,21 @@ and the Chrome bridge.
 package do not mix: to go from a package to the line, remove the package first.
 
 Or build the packages yourself: `./package.sh deb` or `./package.sh arch` (into `dist/`).
+
+### On GNOME
+
+The packages and `install.sh` install Sidelit's GNOME Shell extension. Then:
+
+1. Install Sidelit, any way above. On Ubuntu and Debian, GTK 4 for Python comes with the
+   package (`gir1.2-gtk-4.0`); on Fedora: `sudo dnf install python3-gobject gtk4`.
+2. **Log out and back in.** GNOME looks for new extensions only when you log in.
+3. **Turn the extension on**: open the **Extensions** app and switch on **Sidelit**, or run
+   `gnome-extensions enable sidelit@kulaxa.github.io`. (`install.sh` turns it on for you.)
+4. Run `sidelit start` once (and `sidelit hooks install`, as above). The sidebar appears on the
+   left within a few seconds; from then on it starts at every login.
+
+If no sidebar appears, `sidelit status` says whether the extension is running. To take Sidelit
+off the screen, `sidelit stop`, or switch the extension off.
 
 ### The GTK 4 sidebar (optional)
 
@@ -190,7 +212,8 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   when a session there needs you. **Click a box** to go to that session's terminal, and its pane
   in tmux, WezTerm and kitty (with remote control on); Terminator offers no way to focus a pane
   from outside, so there its window comes forward. Each tab shows its switch shortcut (COSMIC's
-  default Super+1…9, Super+0 for the last; on KDE, the key bound to "Switch to Desktop N").
+  default Super+1…9, Super+0 for the last; on KDE, the key bound to "Switch to Desktop N"; on
+  GNOME, the key bound to "Switch to workspace N").
 - **`+`** pins a fresh workspace (on KDE, adds a desktop) and opens a terminal in your home
   directory, or whatever the template you pick says. Start `claude` there as usual and the tab
   picks up its title within seconds.
@@ -201,8 +224,8 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   KDE, the desktop is removed once its windows have closed). A session that was there stays in
   *Recent sessions*. A kept workspace that is not on the desktop shows as "closed – click to
   reopen": one click brings it and its windows back.
-- **Drag** a tab onto another to reorder the workspaces themselves (COSMIC; KWin cannot reorder
-  its desktops). **Double-click** (or right-click → Rename) to name a plain workspace; a
+- **Drag** a tab onto another to reorder the workspaces themselves (COSMIC and GNOME; KWin
+  cannot reorder its desktops). **Double-click** (or right-click → Rename) to name a plain workspace; a
   session's title always wins.
 - **Status, straight from the agent.** The hook in Sidelit's Claude Code plugin (above) makes
   every session report what it is doing as it happens: working, waiting for a permission or an
@@ -423,7 +446,8 @@ few session variables systemd lacks, such as the input method):
   `$XDG_RUNTIME_DIR/sidelit/daemon.sock` and sends a command for everything you do. It keeps
   nothing, so it can crash or restart without losing anything. What it does is
   `sidebar_common.py`; the drawing is GTK 4 (`sidebar4.py` picks it and loads gtk4-layer-shell,
-  `sidebar4_ui.py` draws) or, without gtk4-layer-shell, GTK 3 (`sidebar.py`).
+  `sidebar4_ui.py` draws) or, without gtk4-layer-shell, GTK 3 (`sidebar.py`). On GNOME the
+  extension runs it instead of systemd (its log is in the journal as `sidelit-sidebar`).
 
 The engine (`sidelit/core/`, pure Python, tested against a fake desktop in `tests/`):
 
@@ -453,10 +477,17 @@ a small KWin script it loads, which calls the daemon (bus name `io.github.kulaxa
 every window whenever one opens, closes, gets the keyboard or changes its title, desktop or
 screen. A KWin script cannot be called, so focusing, closing and moving a window are each a
 script run once. `sidelit ws` and `sidelit open` get a single report on a bus name of their own,
-so they never take the daemon's. `backend.py` picks the client for the desktop
-(`XDG_CURRENT_DESKTOP`; `SIDELIT_BACKEND=cosmic|kde` overrides it): every client has the same
-interface (`model.py` has the shapes), and what one cannot do is left out of its `caps`, so the
-sidebar hides those controls.
+so they never take the daemon's. On GNOME, `gnome.py` talks to Sidelit's GNOME Shell extension
+(`gnome-extension/`, uuid `sidelit@kulaxa.github.io`): `desktop.js` exports
+`io.github.kulaxa.Sidelit.Shell` at `/io/github/kulaxa/Sidelit` on GNOME Shell's own bus
+connection (`GetState`, a `Changed` signal, and the workspace and window actions), and
+`sidebar.js` starts the sidebar while the daemon holds `io.github.kulaxa.sidelit`, the way
+Desktop Icons NG runs its window: GNOME then knows that window as its own and makes it a dock
+(every workspace, above windows, out of the overview, the dash and Alt+Tab), and an invisible
+strip at the left edge, counted like the top bar, keeps windows beside it. `backend.py` picks
+the client for the desktop (`XDG_CURRENT_DESKTOP`; `SIDELIT_BACKEND=cosmic|kde|gnome` overrides
+it): every client has the same interface (`model.py` has the shapes), and what one cannot do is
+left out of its `caps`, so the sidebar hides those controls.
 
 Session state comes from Sidelit's Claude Code plugin (each session's events, and the usage
 limits), from `claude agents --json` (Claude Code's list of running sessions, which its docs
@@ -479,6 +510,31 @@ workspace the layout lets go (forgotten, or emptied) leaves its desktop alone, a
 it from the sidebar removes the desktop, once its windows have gone. A window on all desktops
 belongs to none of them. The windows' pids come with them, which helps match a terminal to its
 Claude session.
+
+GNOME notes: GNOME lets no app see or arrange other windows, and has no place for a panel like
+the sidebar, so Sidelit's GNOME Shell extension does both: it lists the workspaces and windows
+for the daemon and switches, keeps and moves them when it asks, and it runs the sidebar, docked
+on the left of every workspace with that strip kept free (beside Ubuntu's dock when that is on
+the left). `sidelit stop` makes it take the sidebar away and free the strip. It stays on while
+the screen is locked, so the workspaces Sidelit keeps are still there when you come back, and
+changes nothing then. An empty workspace disappears unless Sidelit keeps it (it keeps each one
+you work on, as on COSMIC); with a fixed number of workspaces (Settings → Multitasking), '+'
+adds one at the end and closing one removes it. Workspace names live in Sidelit's tabs only;
+GNOME shows none. The shortcut on a tab is GNOME's own (Super+Home for the first, Super+End for
+the last, out of the box; others under Settings → Keyboard → Shortcuts → Navigation). GNOME on
+X11 (46 to 49 still offer it) runs the daemon but not the sidebar.
+
+Inside, GNOME drops an empty workspace (dynamic workspaces) unless it is the one you are on
+or the empty one it keeps at the end; a workspace Sidelit keeps is pinned in the extension, which
+makes GNOME's check see it as busy. With a fixed number of workspaces nothing is dropped, so
+`pin` is not in `caps` and '+' adds a workspace. Workspace ids are the extension's, and last
+while it runs, also while the screen is locked (it stays on then, and refuses every action);
+turned off and on, it numbers its workspaces anew and the client gives each one back the id it
+had, by position and the windows on it. Window ids are GNOME's own and the pids come with them.
+The extension uses GNOME Shell internals in two places, both checked against GNOME 46, 48, 50
+and 51: the workspace tracker's `_checkWorkspaces` (to keep pinned workspaces) and the layout
+manager's tracked chrome (to put the sidebar beside a dock already on the left). Each GNOME
+release (every six months) needs the extension's `shell-version` raised after a check.
 
 ## Moving from Claude Workspace
 
@@ -523,10 +579,15 @@ Sidelit is Claude Workspace under a new name. To move over:
 ## Packaging
 
 `package.sh` owns the installed layout (`/usr/bin/sidelit`, `/usr/share/sidelit/`,
-`/usr/lib/systemd/user/`, `/usr/share/applications/`, `/etc/xdg/autostart/`); `debian/rules`
+`/usr/lib/systemd/user/`, `/usr/share/gnome-shell/extensions/sidelit@kulaxa.github.io/`,
+`/usr/share/applications/`, `/etc/xdg/autostart/`); `debian/rules`
 and `PKGBUILD` both call it. CI (GitHub Actions, `.github/workflows/ci.yml`) runs the tests and
 builds the .deb and the Arch package on every push and, when `VERSION` is bumped on main, cuts a
 `v<version>` GitHub release with both attached.
+
+The GNOME Shell extension keeps to extensions.gnome.org's rules (JavaScript only, no binaries,
+MIT licensed): `./package.sh gnome-extension` builds the zip to upload there, and each release
+carries it too.
 
 ## Tests
 
@@ -536,14 +597,20 @@ python3 -m unittest discover -s tests
 
 The engine against a fake desktop that behaves like cosmic-comp where it matters: closing
 windows (one, a logout cascade, an app crash, a tray app), moving them, unplugging and
-replugging a screen, daemon restarts, a login restore. The KDE backend against a fake KWin on a
-private session bus (skipped without PyGObject and `dbus-daemon`). To watch the real daemon
+replugging a screen, daemon restarts, a login restore. The KDE backend against a fake KWin, and
+the GNOME backend against a fake GNOME Shell with the extension, each on a private session bus
+(skipped without PyGObject and `dbus-daemon`). To watch the real daemon
 decide without letting it act, run a second one in dry-run mode on a copy of your config:
 `SIDELIT_HOME=/tmp/sidelit-test SIDELIT_DRY_RUN=1 python3 -m sidelit daemon`.
 
 On a real KWin (a KDE session you can spare, or a headless `kwin_wayland --virtual` with a
 private session bus), `tests/kwin_live.py` checks the KDE backend and `tests/kwin_daemon_live.py`
-a test daemon on it; both open and close windows and desktops of their own.
+a test daemon on it; both open and close windows and desktops of their own. On a real GNOME
+Shell with the extension (a session you can spare, or `gnome-shell --headless` with a private
+session bus), `tests/gnome_live.py --sidebar` checks the GNOME backend and the docked sidebar,
+`tests/gnome_daemon_live.py` a test daemon (with `--real`, in a throwaway session only, it
+clicks and types into the sidebar the extension runs), and `tests/gnome_restore_live.py` a
+login restore.
 
 ## Licence
 

@@ -13,7 +13,7 @@ from pathlib import Path
 TERMINAL_APP_IDS = {
     "terminator", "kitty", "Alacritty", "foot", "org.wezfurlong.wezterm", "com.mitchellh.ghostty",
     "cosmic-term", "com.system76.CosmicTerm",       # COSMIC's
-    "org.gnome.Terminal",                           # GNOME's
+    "org.gnome.Terminal", "org.gnome.Ptyxis", "org.gnome.Console",  # GNOME's (Ptyxis since Ubuntu 25.10, Fedora 41)
     "org.kde.konsole", "konsole", "org.kde.yakuake",  # KDE's
 }
 FILE_MANAGERS = {"com.system76.CosmicFiles", "org.gnome.Nautilus", "nautilus", "org.kde.dolphin",

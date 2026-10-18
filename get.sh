@@ -30,7 +30,7 @@ fail() {
 tilde() { printf '%s' "${1/#"$HOME"/\~}"; }
 
 # ---- the desktop ------------------------------------------------------------------------------
-# Sets `desktop` (cosmic, kde) and `desktop_name`, or stops with what is wrong.
+# Sets `desktop` (cosmic, kde, gnome) and `desktop_name`, or stops with what is wrong.
 check_desktop() {
     local current=${XDG_CURRENT_DESKTOP:-}
     case ":${current^^}:" in
@@ -40,12 +40,13 @@ check_desktop() {
                 fail "Sidelit needs KDE Plasma 6, and this is Plasma ${KDE_SESSION_VERSION}."
             desktop=kde desktop_name="KDE Plasma"
             ;;
-        # GNOME support is being built. Once it is in, this line becomes
-        # `desktop=gnome desktop_name=GNOME`; the rest is ready: GTK 4 is then a required package,
-        # and the end of a first install says to log out and in once.
-        *:GNOME:*) fail "Sidelit runs on COSMIC and KDE Plasma 6; GNOME support is on its way." ;;
-        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC or KDE Plasma 6)." ;;
-        *) fail "Sidelit runs on COSMIC and KDE Plasma 6, not on $current." ;;
+        # (these name GNOME too, but run a shell of their own: sidelit/backend.py, NOT_GNOME_SHELL)
+        *:BUDGIE:* | *:GNOME-FLASHBACK:* | *:UNITY:* | *:PANTHEON:*)
+            fail "Sidelit runs on COSMIC, KDE Plasma 6 and GNOME, not on $current." ;;
+        # on GNOME, GTK 4 is a required package, and a first install ends with logging out and in
+        *:GNOME:*) desktop=gnome desktop_name=GNOME ;;
+        ::) fail "No desktop session found: run this in a terminal on your desktop (COSMIC, KDE Plasma 6 or GNOME)." ;;
+        *) fail "Sidelit runs on COSMIC, KDE Plasma 6 and GNOME, not on $current." ;;
     esac
     [ "${XDG_SESSION_TYPE:-}" = wayland ] || [ -n "${WAYLAND_DISPLAY:-}" ] ||
         fail "Sidelit needs a Wayland session, and this one is ${XDG_SESSION_TYPE:-not Wayland}: pick the Wayland session at the login screen."

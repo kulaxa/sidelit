@@ -3,6 +3,8 @@
 #   sidelit-daemon    keeps the layout (~/.config/sidelit/layout.json) and puts windows
 #                     back; owns the connection to the compositor
 #   sidelit-sidebar   the sidebar, a view of the daemon
+# On GNOME, Sidelit's GNOME Shell extension runs the sidebar while the daemon runs, and the
+# sidebar's log is in the journal as sidelit-sidebar.
 #
 #   sidelit [start]          start both (no-op if running; also what the autostart entry runs)
 #   sidelit stop|restart|status
@@ -68,6 +70,33 @@ rundir="${XDG_RUNTIME_DIR:-/tmp}/sidelit"
 mkdir -p "$rundir"
 units="sidelit-daemon.service sidelit-sidebar.service"
 log="${XDG_CACHE_HOME:-$HOME/.cache}/sidelit.log"
+
+on_gnome() {
+    [ "$(python3 -c 'from sidelit.backend import chosen; print(chosen())' 2>/dev/null)" = gnome ]
+}
+
+# the units to start: on GNOME the extension runs the sidebar, so only the daemon
+start_units() {
+    if on_gnome; then echo sidelit-daemon.service; else echo "$units"; fi
+}
+
+# the journal of both: on GNOME the sidebar's lines are GNOME Shell's, as sidelit-sidebar
+journal() {
+    if on_gnome; then
+        journalctl --user "$@" _SYSTEMD_USER_UNIT=sidelit-daemon.service + SYSLOG_IDENTIFIER=sidelit-sidebar
+    else
+        journalctl --user "$@" -u sidelit-daemon -u sidelit-sidebar
+    fi
+}
+
+# On GNOME nothing shows until the extension runs: say so, and how
+gnome_hint() {
+    on_gnome || return 0
+    python3 -c 'from sidelit.gnome import extension_running as r; raise SystemExit(0 if r() else 1)' 2>/dev/null && return 0
+    echo "sidelit: Sidelit's GNOME Shell extension is not running, so there is no sidebar yet. Turn it on:"
+    echo "  gnome-extensions enable sidelit@kulaxa.github.io   (or in the Extensions app)"
+    echo "  Just installed? Log out and back in once first: GNOME finds new extensions at login."
+}
 
 have_units() {
     command -v systemctl >/dev/null 2>&1 && systemctl --user cat sidelit-daemon.service >/dev/null 2>&1
@@ -137,14 +166,15 @@ case ${1-start} in
         if have_units; then
             no_test_units
             [ -f "$rundir/sidebar.pid" ] && stop_legacy
-            systemctl --user start $units
+            systemctl --user start $(start_units)
             echo "sidelit: started (logs: sidelit log)"
         else
             bg_start daemon
             sleep 0.5
-            bg_start sidebar
+            on_gnome || bg_start sidebar
             echo "sidelit: started without systemd units (log $log; install.sh sets them up)"
         fi
+        gnome_hint
         ;;
     stop)
         if have_units; then systemctl --user stop $units; fi
@@ -157,27 +187,34 @@ case ${1-start} in
         if have_units; then
             no_test_units
             stop_legacy
-            systemctl --user restart $units
+            systemctl --user restart $(start_units)
             echo "sidelit: restarted"
+            gnome_hint
         else
             "$0" stop; sleep 0.3; exec "$0" start
         fi
         ;;
     status)
         if have_units; then
-            systemctl --user --no-pager status $units 2>/dev/null | grep -E '^\S|Active:' || true
+            systemctl --user --no-pager status $(start_units) 2>/dev/null | grep -E '^\S|Active:' || true
+            on_gnome && echo "sidebar: run by Sidelit's GNOME Shell extension while the daemon runs"
+            gnome_hint
             echo
-            journalctl --user --no-pager -n 20 -u sidelit-daemon -u sidelit-sidebar 2>/dev/null || true
+            journal --no-pager -n 20 2>/dev/null || true
         else
             for p in daemon sidebar; do
-                if bg_running $p; then echo "$p: running (pid $(cat "$rundir/$p.pid"))"; else echo "$p: not running"; fi
+                if [ $p = sidebar ] && on_gnome; then
+                    echo "sidebar: run by Sidelit's GNOME Shell extension while the daemon runs"
+                    gnome_hint
+                elif bg_running $p; then echo "$p: running (pid $(cat "$rundir/$p.pid"))"; else echo "$p: not running"; fi
             done
             [ -f "$log" ] && tail -n 20 "$log"
         fi
         ;;
     log)
         if have_units; then
-            exec journalctl --user -f -n 50 -u sidelit-daemon -u sidelit-sidebar
+            journal -f -n 50
+            exit $?
         fi
         exec tail -n 50 -f "$log"
         ;;

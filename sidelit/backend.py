@@ -8,9 +8,10 @@ it: the control is hidden rather than offered as a button that fails.
 
 - ``cosmic``: COSMIC, over its Wayland protocols (wsclient.py).
 - ``kde``: KDE Plasma 6, over KWin's D-Bus interface and a KWin script (kwin.py).
+- ``gnome``: GNOME, through Sidelit's GNOME Shell extension (gnome.py, gnome-extension/).
 
-The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE);
-``SIDELIT_BACKEND=cosmic`` or ``kde`` overrides it.
+The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE or GNOME);
+``SIDELIT_BACKEND=cosmic``, ``kde`` or ``gnome`` overrides it.
 """
 from __future__ import annotations
 
@@ -18,7 +19,9 @@ import os
 import sys
 from typing import Callable
 
-BACKENDS = ("cosmic", "kde")
+BACKENDS = ("cosmic", "kde", "gnome")
+# desktops that name GNOME in XDG_CURRENT_DESKTOP but do not run GNOME Shell
+NOT_GNOME_SHELL = {"BUDGIE", "GNOME-FLASHBACK", "UNITY", "PANTHEON"}
 
 
 def chosen(env=None) -> str:
@@ -30,7 +33,11 @@ def chosen(env=None) -> str:
             raise RuntimeError(f"unknown SIDELIT_BACKEND={override!r} (use {' or '.join(BACKENDS)})")
         return override
     desktops = {part.strip().upper() for part in (env.get("XDG_CURRENT_DESKTOP") or "").split(":")}
-    return "kde" if "KDE" in desktops else "cosmic"
+    if "KDE" in desktops:
+        return "kde"
+    if "GNOME" in desktops and not desktops & NOT_GNOME_SHELL:  # (Ubuntu says "ubuntu:GNOME")
+        return "gnome"
+    return "cosmic"
 
 
 def open_client(on_change: Callable[[], None] | None = None, primary: bool = True):
@@ -38,11 +45,15 @@ def open_client(on_change: Callable[[], None] | None = None, primary: bool = Tru
 
     ``on_change`` is called whenever the desktop changes. ``primary`` is for the long-running
     daemon; a one-shot command passes False, for a backend that holds something only one
-    process may (on KDE, the bus name the window reports go to).
+    process may (on KDE, the bus name the window reports go to; on GNOME, the one the
+    extension runs the sidebar for, and the daemon waits there until the extension is on).
     """
     if chosen() == "kde":
         from sidelit.kwin import KWinClient
         return KWinClient(on_change, primary=primary)
+    if chosen() == "gnome":
+        from sidelit.gnome import GnomeClient
+        return GnomeClient(on_change, primary=primary)
     from sidelit.wsclient import WorkspaceClient
     return WorkspaceClient(on_change, primary=primary)
 
@@ -53,8 +64,8 @@ WS_USAGE = """usage: sidelit ws [COMMAND]
   activate N                 switch to workspace N (a number from 1, or a name)
   new NAME                   add a workspace
   rename N NAME
-  pin N | unpin N            (COSMIC)
-  move A before|after B      put workspace A next to B (COSMIC)
+  pin N | unpin N            (COSMIC, GNOME)
+  move A before|after B      put workspace A next to B (COSMIC, GNOME)
   movewin TITLE N [OUTPUT]   put the windows whose title has TITLE on workspace N"""
 
 # how many arguments each command takes, at least

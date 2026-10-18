@@ -42,14 +42,15 @@ class WhichBackend(unittest.TestCase):
         self.assertEqual(backend.chosen({"XDG_CURRENT_DESKTOP": "plasma:KDE"}), "kde")
         self.assertEqual(backend.chosen({"XDG_CURRENT_DESKTOP": "COSMIC"}), "cosmic")
         # anything else gets COSMIC's client, which says plainly that it cannot connect
-        self.assertEqual(backend.chosen({"XDG_CURRENT_DESKTOP": "ubuntu:GNOME"}), "cosmic")
+        # (GNOME has its own: test_gnome.py)
+        self.assertEqual(backend.chosen({"XDG_CURRENT_DESKTOP": "Hyprland"}), "cosmic")
         self.assertEqual(backend.chosen({}), "cosmic")
 
     def test_sidelit_backend_overrides_it(self):
         self.assertEqual(backend.chosen({"XDG_CURRENT_DESKTOP": "COSMIC", "SIDELIT_BACKEND": "kde"}), "kde")
         self.assertEqual(backend.chosen({"XDG_CURRENT_DESKTOP": "KDE", "SIDELIT_BACKEND": " Cosmic "}), "cosmic")
         with self.assertRaises(RuntimeError):
-            backend.chosen({"SIDELIT_BACKEND": "gnome"})
+            backend.chosen({"SIDELIT_BACKEND": "hyprland"})
 
     def test_ws_usage(self):
         with mock.patch.object(backend, "open_client") as opened, mock.patch("sys.stderr"):

@@ -19,17 +19,26 @@ import signal
 
 import gi
 
+from sidelit import gnome
+
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Pango", "1.0")
 gi.require_version("GdkPixbuf", "2.0")
-gi.require_version("GtkLayerShell", "0.1")
+if not gnome.hosted():
+    gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import GLib  # noqa: E402
 
 # our dialogs are windows too; with this app id the daemon knows them and leaves them out
 # (it has to be set before GTK initialises, which importing Gtk does)
 GLib.set_prgname("sidelit")
-from gi.repository import Gdk, GdkPixbuf, Gtk, GtkLayerShell, Pango  # noqa: E402
+from gi.repository import Gdk, GdkPixbuf, Gtk, Pango  # noqa: E402
+
+# on GNOME there is no layer shell: Sidelit's GNOME Shell extension docks the plain window
+if gnome.hosted():
+    GtkLayerShell = None
+else:
+    from gi.repository import GtkLayerShell  # noqa: E402
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402,F401 (names the tests and older callers use)
@@ -355,22 +364,25 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self._init_logic()
 
         width = int(self.cfg["width"])
-        GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
-        GtkLayerShell.set_namespace(self, "sidelit")
-        for edge in (GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM):
-            GtkLayerShell.set_anchor(self, edge, True)
-        GtkLayerShell.set_exclusive_zone(self, width)
         self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
-        if self._monitor is not None:
-            GtkLayerShell.set_monitor(self, self._monitor)
+        if GtkLayerShell is not None:
+            GtkLayerShell.init_for_window(self)
+            GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
+            GtkLayerShell.set_namespace(self, "sidelit")
+            for edge in (GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM):
+                GtkLayerShell.set_anchor(self, edge, True)
+            GtkLayerShell.set_exclusive_zone(self, width)
+            if self._monitor is not None:
+                GtkLayerShell.set_monitor(self, self._monitor)
+            GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
+        else:
+            self.set_decorated(False)  # GNOME's extension docks it: no title bar
         disp = Gdk.Display.get_default()
         disp.connect("monitor-added", lambda *_: self._screens_changed("monitor added"))
         disp.connect("monitor-removed", lambda *_: self._screens_changed("monitor removed"))
         for i in range(disp.get_n_monitors()):
             disp.get_monitor(i).connect("notify::geometry", self._on_geometry_changed)
         self.connect("delete-event", self._on_delete)
-        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
         self.set_default_size(width, 600)
         self.set_size_request(width, -1)
 
@@ -522,10 +534,18 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self._screens_changed("surface closed")
         return True
 
+    def _place_on_gnome(self):
+        """Tell GNOME's extension the sidebar is there. GTK 3 does not know a screen's
+        connector name, so it goes on the leftmost screen."""
+        self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
+        gnome.place_sidebar("")
+
     # ---- history ----------------------------------------------------------------------------
     def _on_history_clicked(self, button):
         """Closed workspaces, newest first, in a panel that scrolls and searches (HistoryPanel);
         picking one brings it back with its windows. The list is asked for now, not pushed."""
+        if gnome.hosted():  # GNOME's dock gets the keyboard only when it asks: the search needs it
+            gnome.focus_sidebar()
         pop = Gtk.Popover(relative_to=button, position=Gtk.PositionType.BOTTOM)
         pop.get_style_context().add_class("cw-history-pop")
 
@@ -1071,6 +1091,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
 def main():
     win = Sidebar()
     win.show_all()
+    if gnome.hosted():
+        win._place_on_gnome()
 
     def stop(*_):
         """SIGTERM (systemd) or Ctrl+C: leave the main loop, and die anyway 3 s later, so a

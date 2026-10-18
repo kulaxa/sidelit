@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=Sidelit
-Comment=A workspace sidebar for COSMIC and KDE Plasma: one tab per workspace, with its agent's status
+Comment=A workspace sidebar for COSMIC, KDE Plasma and GNOME: one tab per workspace, with its agent's status
 Exec=sidelit start
 Terminal=false
 Icon=utilities-terminal
 Categories=System;Utility;
-Keywords=sidelit;workspace;cosmic;kde;plasma;sidebar;agent;
+Keywords=sidelit;workspace;cosmic;kde;plasma;gnome;sidebar;agent;

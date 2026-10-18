@@ -8,7 +8,9 @@ swells its card and slides the cards below it out of the way smoothly, text and 
 
 It needs gtk4-layer-shell (the GTK 4 build of gtk-layer-shell), which has to be loaded before
 libwayland-client: `main()` restarts the process once with it in LD_PRELOAD. Without it, or
-when the compositor has no layer shell, `sidelit sidebar` runs the GTK 3 sidebar.
+when the compositor has no layer shell, `sidelit sidebar` runs the GTK 3 sidebar. On GNOME,
+which has no layer shell, Sidelit's GNOME Shell extension runs the sidebar as a plain window
+and docks it (gnome.py): GTK 4 alone is enough there.
 
 - click a tab .......... switch to that workspace (a closed one is reopened)
 - double-click ......... rename it; drag it to reorder (COSMIC)
@@ -24,7 +26,7 @@ import sys
 import sysconfig
 from pathlib import Path
 
-from sidelit import config
+from sidelit import config, gnome
 
 LIB = "libgtk4-layer-shell.so.0"
 TYPELIB = "Gtk4LayerShell-1.0.typelib"
@@ -51,9 +53,18 @@ def choice() -> str:
     return wanted if wanted in ("gtk4", "gtk3", "auto") else "auto"
 
 
+def gtk4_available() -> bool:
+    """Are GTK 4's Python bindings installed (without loading them)?"""
+    import gi
+    return "4.0" in gi.Repository.get_default().enumerate_versions("Gtk")
+
+
 def should_run() -> bool:
-    """Run this sidebar rather than the GTK 3 one: not turned off, and gtk4-layer-shell found."""
-    return choice() != "gtk3" and layer_shell_paths() is not None
+    """Run this sidebar rather than the GTK 3 one: not turned off, and gtk4-layer-shell found
+    (on GNOME, where nothing needs the layer shell, GTK 4 itself)."""
+    if choice() == "gtk3":
+        return False
+    return gtk4_available() if gnome.hosted() else layer_shell_paths() is not None
 
 
 def _exec_sidebar(env: dict):
@@ -86,7 +97,8 @@ def _ensure_preloaded():
 
 
 def main():
-    _ensure_preloaded()
+    if not gnome.hosted():
+        _ensure_preloaded()
     # GTK 4.14's default renderer (ngl) handed frames to COSMIC unevenly, and the hover felt
     # choppy; the older GL renderer paced them evenly and felt smooth (cairo glitched under
     # the transforms). Where "gl" is gone (GTK 4.18+) GTK falls back to its default.
@@ -95,7 +107,8 @@ def main():
         import gi
         gi.require_version("Gtk", "4.0")
         gi.require_version("Gdk", "4.0")
-        gi.require_version("Gtk4LayerShell", "1.0")
+        if not gnome.hosted():
+            gi.require_version("Gtk4LayerShell", "1.0")
     except (ImportError, ValueError) as e:
         _fall_back(str(e))
     from sidelit import sidebar4_ui

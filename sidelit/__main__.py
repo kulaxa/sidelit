@@ -106,6 +106,12 @@ def main(argv=None):
         from sidelit.daemon import main as daemon_main
         return daemon_main()
     if cmd in ("sidebar", "--foreground", "-F"):
+        from sidelit import backend, gnome
+        if backend.chosen() == "gnome" and not gnome.hosted():
+            # GNOME Shell runs the sidebar itself (the extension); the unit takes 4 as "not here"
+            print("sidelit sidebar: on GNOME, Sidelit's GNOME Shell extension runs the sidebar "
+                  "while the daemon runs (sidelit start)", file=sys.stderr)
+            return 4
         # the GTK 4 sidebar when gtk4-layer-shell is there (config "sidebar"), else GTK 3
         from sidelit import sidebar4
         if sidebar4.should_run():

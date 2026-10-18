@@ -6,6 +6,11 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- GNOME (46 to 51, on Wayland): Sidelit runs there with its own GNOME Shell extension, which
+  the packages and `install.sh` install. Turn it on once: log out and back in, then switch on
+  Sidelit in the Extensions app (or `gnome-extensions enable sidelit@kulaxa.github.io`). The
+  sidebar stays docked on the left of every workspace, beside Ubuntu's dock, and workspaces you
+  work on are kept as on COSMIC; tabs can be dragged to reorder them.
 - One line installs Sidelit on Ubuntu, Pop!_OS, Debian, Fedora, Arch and openSUSE, and the same
   line again updates it: `curl -fsSL https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash`.
   It installs the few packages Sidelit needs with the distribution's own package manager (asking
