@@ -1,4 +1,4 @@
-"""Sidelit: a workspace sidebar for COSMIC, KDE Plasma, GNOME and Hyprland, one tab per workspace."""
+"""Sidelit: a workspace sidebar for Linux desktops, one tab per workspace."""
 import os
 
 

@@ -196,7 +196,9 @@ class AgainstFakeHyprland(unittest.TestCase):
         c = self.client()
         tl = next(t for t in c.toplevels.values() if t.address == a)
         self.assertEqual((tl.app_id, tl.title, tl.pid, tl.output), ("kitty", "✳ Claude Code", 777, "DP-1"))
-        self.assertEqual(tl.identifier, self.fake.windows[a]["stable"])  # Hyprland's stable id, not the address
+        # Hyprland's stable id, not the address, after this Hyprland's token: each Hyprland
+        # numbers its windows the same way from its start
+        self.assertEqual(tl.identifier, f"{c.token}-{self.fake.windows[a]['stable']}")
         self.assertEqual(c.workspace_of(tl).id, "1")
         self.assertEqual(c.copy_ids_of(tl), frozenset({"1"}))
         self.assertTrue(tl.focused)
@@ -205,6 +207,20 @@ class AgainstFakeHyprland(unittest.TestCase):
         self.assertIsNone(c.workspace_of(mixer))  # a scratchpad's window is on no workspace
         self.assertEqual(c.output_names(), {"DP-1", "HDMI-A-1"})
         self.assertEqual(c.shortcut_label(c.workspaces["1"], 2), "")  # (no binds)
+
+    def test_window_ids_are_this_hyprlands(self):
+        a = self.fake.open_window("kitty", "one", ws=1)
+        c = self.client()
+        again = FakeHyprland(self.run_dir, lua=self.LUA, signature="abc123_1792338343_2")  # (the next login's)
+        self.addCleanup(again.stop)
+        b = again.open_window("kitty", "one", ws=1)
+        other = hyprland.HyprlandClient(None, primary=False, env={**self.env, "HYPRLAND_INSTANCE_SIGNATURE": again.signature},
+                                        state_dir=self.state_dir)
+        self.clients.append(other)
+        self.assertEqual(self.fake.windows[a]["stable"], again.windows[b]["stable"])
+        mine = next(t for t in c.toplevels.values() if t.address == a)
+        theirs = next(t for t in other.toplevels.values() if t.address == b)
+        self.assertNotEqual(mine.identifier, theirs.identifier)
 
     def test_a_title_comes_from_the_event_alone(self):
         a = self.fake.open_window(title="⠋ Claude Code")
@@ -315,6 +331,11 @@ class AgainstFakeHyprland(unittest.TestCase):
         ws = c.create("Workspace", want=("2", "cb8061aa"))  # 2 is in use; the other is not Hyprland's
         self.assertEqual(ws.id, "6")
         self.assertEqual(c.create().id, "8")  # (7 is your config's)
+
+    def test_create_brings_back_the_number_it_had_last(self):
+        c = self.client()
+        # (a kept workspace that came back as 9 once, its 4 being taken then: 9 is where it was last)
+        self.assertEqual(c.create("Workspace", want=("4", "9")).id, "9")
 
     def test_a_workspace_your_config_puts_on_a_screen_stays_there(self):
         self.fake.config_rule("3", persistent=None, monitor="HDMI-A-1")

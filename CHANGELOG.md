@@ -6,6 +6,11 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- niri: Sidelit runs there too. The tabs are niri's workspaces, screen by screen; the ones you
+  work on are kept by a name (`sidelit-1`, `sidelit-2`…) and come back under it after a login.
+  Tabs can be dragged to reorder them, onto another screen too, and show Mod+1…9 on the screen
+  you are on. In niri's own session Sidelit starts by itself; started any other way, add
+  `spawn-at-startup "sidelit" "start"` to `~/.config/niri/config.kdl`.
 - Codex: its sessions get a box of their own, marked ◆ (Claude Code's keep ✳), with their
   state, title and model, the same "needs you" check (through `codex exec`), fork, and resume
   after a login; Codex's usage limits sit at the bottom under its name, Claude Code's under

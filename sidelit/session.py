@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-COMPOSITORS = ("cosmic-comp", "kwin_wayland", "gnome-shell", "Hyprland",
+COMPOSITORS = ("cosmic-comp", "kwin_wayland", "gnome-shell", "Hyprland", "niri",
                # X11 window managers (x11.py): Cinnamon's is cinnamon itself, Xfce's xfwm4, MATE's marco
                "cinnamon", "xfwm4", "marco", "openbox", "metacity", "budgie-wm", "fluxbox", "icewm")
 FRESH_S = 600   # a compositor younger than this has just started: we are part of its start-up

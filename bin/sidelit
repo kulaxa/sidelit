@@ -103,7 +103,7 @@ have_units() {
 }
 
 # Session variables the systemd user manager lacks, for the apps the daemon starts (and, on
-# Hyprland, for the daemon itself: where the compositor's socket is; on X11, for the daemon and
+# Hyprland and niri, for the daemon itself: where the compositor's socket is; on X11, for the daemon and
 # the sidebar: the X display and its key). An allow-list: whatever else is in this shell (API
 # keys and the like) stays out.
 write_session_env() {
@@ -115,7 +115,7 @@ write_session_env() {
              XDG_SEAT XDG_VTNR SSH_AUTH_SOCK GTK_IM_MODULE QT_IM_MODULE XMODIFIERS CLUTTER_IM_MODULE \
              QT_QPA_PLATFORM QT_QPA_PLATFORMTHEME QT_AUTO_SCREEN_SCALE_FACTOR QT_ENABLE_HIGHDPI_SCALING \
              GDK_BACKEND MOZ_ENABLE_WAYLAND _JAVA_AWT_WM_NONREPARENTING XCURSOR_THEME XCURSOR_SIZE \
-             HYPRLAND_INSTANCE_SIGNATURE SIDELIT_BACKEND CLAUDE_CONFIG_DIR; do
+             HYPRLAND_INSTANCE_SIGNATURE NIRI_SOCKET SIDELIT_BACKEND CLAUDE_CONFIG_DIR; do
         eval "val=\${$v-}"
         [ -n "$val" ] || continue
         printf '%s="%s"\n' "$v" "$(printf '%s' "$val" | sed 's/\\/\\\\/g; s/"/\\"/g')" >> "$tmp"

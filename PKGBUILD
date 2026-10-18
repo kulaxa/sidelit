@@ -8,7 +8,7 @@
 pkgname=sidelit
 pkgver=0.5.0
 pkgrel=1
-pkgdesc='A workspace sidebar for COSMIC, KDE Plasma, GNOME, Hyprland and X11 desktops: one tab per workspace with its coding agent, and a daemon that keeps the layout'
+pkgdesc='A workspace sidebar for COSMIC, KDE Plasma, GNOME, Hyprland, niri and X11 desktops: one tab per workspace with its coding agent, and a daemon that keeps the layout'
 arch=('any')
 url='https://github.com/kulaxa/sidelit'
 license=('MIT')
@@ -22,6 +22,7 @@ optdepends=('claude-code: session titles, status, model line and usage'
             'kwin: runs on KDE Plasma 6'
             'gnome-shell: runs on GNOME, with the GNOME Shell extension in the package'
             'hyprland: runs on Hyprland'
+            'niri: runs on niri'
             'cinnamon: runs on Cinnamon, on X11'
             'xfwm4: runs on Xfce, on X11 (as on other window managers that keep the EWMH hints)'
             'marco: runs on MATE, on X11')

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
@@ -474,8 +475,10 @@ class Engine:
         if space is None or not space.ids:
             self.say(f"engine: could not get a workspace for {lw.name or lw.id}")
             return None
-        lw.ids = [i for i in space.ids if self.layout.owner_of_id(i) in (None, lw)] + \
-                 [i for i in lw.ids if i not in space.ids]
+        # (newest last, as ids are learnt: a desktop that brings a workspace back under an id it
+        # had goes by the last one)
+        lw.ids = [i for i in lw.ids if i not in space.ids] + \
+                 [i for i in space.ids if self.layout.owner_of_id(i) in (None, lw)]
         self.primary[lw.id] = space
         self.owner[space.index] = lw.id
         self._mark()
@@ -1082,6 +1085,7 @@ class Engine:
         if self._restore_order(now):
             return  # windows go home once the workspaces stand where they belong
         needs_space: list[Workspace] = []
+        bound = self.bound_slots
         for wid, sid in list(self.bind.items()):
             win = obs.windows.get(wid)
             if win is None or win.space is None:
@@ -1098,6 +1102,8 @@ class Engine:
                 continue
             self._no_primary_since.pop(lw.id, None)
             want_out = slot.output if slot.output and slot.output in obs.outputs else None
+            if target.output:
+                want_out = self._home_screen(lw, target, obs, bound)
             wrong_ws = win.space != target.index
             wrong_out = bool(want_out) and bool(win.output) and win.output != want_out
             if not (wrong_ws or wrong_out):
@@ -1132,6 +1138,23 @@ class Engine:
             self.act.unpin(space.index)
             self.journal("unpinned", index=space.index, ws=lw_id, why="leftover copy of a kept workspace")
 
+    def _home_screen(self, lw: Workspace, space: Space, obs: Obs, bound: set) -> str | None:
+        """The screen a workspace belongs on, where each workspace is on one screen (Hyprland,
+        niri, sway): the one most of its open windows were kept on (or, with none open, after a
+        login, most of its slots), of those plugged in. Its windows go there together. A window
+        not open says nothing once others are: the recorder follows only open ones when you move
+        a workspace. On a tie, where it is now: moving it to each window's screen in turn would
+        never end."""
+        slots = [s for s in lw.slots if s.id in bound] or lw.slots
+        votes = Counter(s.output for s in slots if s.output and s.output in obs.outputs)
+        if not votes:
+            return None
+        most = max(votes.values())
+        tops = sorted(o for o, n in votes.items() if n == most)
+        if space.output in tops:
+            return space.output
+        return tops[0] if len(tops) == 1 else None
+
     def _restore_order(self, now: float) -> bool:
         """Soon after a screen change, put the workspaces back in the layout's order: COSMIC keeps
         a list per screen, and an unplug or replug can leave them in another order than the one
@@ -1146,12 +1169,23 @@ class Engine:
         wanted = [lw.id for lw in self.layout.workspaces if lw.id in self.primary]
         if live == wanted or self._order_tries >= ORDER_TRIES:
             return False
-        k = next(i for i, (a, b) in enumerate(zip(live, wanted)) if a != b)
-        src, dst = self.primary[wanted[k]].index, self.primary[live[k]].index
+        # where each workspace is on one screen (Hyprland, niri), each screen's own order: a
+        # workspace is never moved to another screen to stand in line
+        pair = None
+        for screen in sorted({self.primary[i].output for i in live}):
+            here_live = [i for i in live if self.primary[i].output == screen]
+            here_wanted = [i for i in wanted if self.primary[i].output == screen]
+            k = next((n for n, (a, b) in enumerate(zip(here_live, here_wanted)) if a != b), None)
+            if k is not None:
+                pair = (here_wanted[k], here_live[k])
+                break
+        if pair is None:
+            return False
+        src, dst = self.primary[pair[0]].index, self.primary[pair[1]].index
         self._order_tries += 1
         self._order_wait = now + 1.0  # (the move changes the workspaces: SPACES_SETTLE_S holds us longer)
         ok = move_space(src, dst)
-        self.journal("reordered", ws=wanted[k], frm=src, to=dst, why=self.disturb_reason or "screens changed", ok=ok)
+        self.journal("reordered", ws=pair[0], frm=src, to=dst, why=self.disturb_reason or "screens changed", ok=ok)
         if not ok:
             self._order_tries = ORDER_TRIES  # this desktop cannot reorder: leave it be
             return False

@@ -26,6 +26,7 @@ workspaces by their numbers, so "move" is not in caps.
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 import socket
@@ -35,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from sidelit import config, model
+from sidelit import config, model, procs
 
 REQUEST_TIMEOUT_S = 2.0
 CREATE_WAIT_S = 1.0   # a workspace pinned under a Lua config appears on Hyprland's next refresh
@@ -69,7 +70,7 @@ class Space(model.Workspace):  # a Hyprland workspace: proxy is Hyprland's numbe
 
 
 @dataclass
-class Window(model.Toplevel):  # identifier: Hyprland's stable id (its address before Hyprland had one)
+class Window(model.Toplevel):  # identifier: this Hyprland's token and its stable id (address before Hyprland had one)
     address: str = ""         # "0x...": what dispatchers select it by, and events name
     workspace: int | None = None  # Hyprland's number of its workspace; None on a scratchpad or pinned to all
     output: str = ""          # the screen it is on
@@ -111,16 +112,6 @@ def _bringable(ref: str) -> bool:
     return ref.isdigit() and 0 < int(ref) <= MAX_NUMBER
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def _lock(d: Path) -> tuple[int | None, str]:
     """(pid, Wayland display) from a Hyprland's lock file; pid None when that Hyprland has gone
     (0 when the file does not say)."""
@@ -129,7 +120,7 @@ def _lock(d: Path) -> tuple[int | None, str]:
         pid, display = int(lines[0]), (lines[1] if len(lines) > 1 else "")
     except (OSError, ValueError, IndexError):
         return 0, ""
-    return (pid if _alive(pid) else None), display
+    return (pid if procs.alive(pid) else None), display
 
 
 def instance_dir(env=None) -> Path:
@@ -216,6 +207,10 @@ class HyprlandClient:
         self.primary = primary
         self.dir = instance_dir(env)
         self.signature = self.dir.name
+        # Hyprland numbers its windows' stable ids the same way from each start: a window's
+        # identifier is this Hyprland's token and its stable id, so a window after the next
+        # login is never taken for one from before
+        self.token = hashlib.sha1(self.signature.encode()).hexdigest()[:8]
         self.workspaces: dict[str, Space] = {}  # by Sidelit's id (ws_ref)
         self.toplevels: dict[str, Window] = {}  # by identifier
         self.screens: list[Screen] = []
@@ -530,7 +525,7 @@ class HyprlandClient:
             if not isinstance(item, dict) or not item.get("address") or item.get("mapped") is False:
                 continue
             address = str(item["address"])
-            wid = str(item.get("stableId") or address)
+            wid = f"{self.token}-{item.get('stableId') or address}"
             seen.add(wid)
             tl = self.toplevels.get(wid)
             if tl is None:
@@ -749,7 +744,8 @@ class HyprlandClient:
             # that is not plugged in: Hyprland would make neither now)
             return _bringable(r) and r not in live and r not in self._theirs \
                 and (r not in self._bound or self._screen(self._bound[r]) is not None)
-        ref = next((str(r) for r in want if can_make(str(r))), None)
+        # (the layout learns a workspace's ids as it goes: the last one is the one it had last)
+        ref = next((str(r) for r in reversed(want) if can_make(str(r))), None)
         if ref is None:
             def numbers(refs):
                 return {int(r) for r in refs if _bringable(r) and not r.startswith("name:")}

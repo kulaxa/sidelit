@@ -115,9 +115,8 @@ class Daemon:
         if absorb:
             self.engine.absorb_until = now + 15.0
 
-        fd = self.ws.fd()
-        if fd >= 0:  # COSMIC pumps a Wayland fd; a backend without one wakes us through on_change
-            GLib.io_add_watch(fd, GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self._on_wayland)
+        self._watching = None
+        self._watch()
         GLib.timeout_add(1000, self._tick)
         for sig in (signal.SIGTERM, signal.SIGINT):
             GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, self._on_term)
@@ -179,7 +178,45 @@ class Daemon:
         return False
 
     # ---- the loop ----------------------------------------------------------------------------
-    def _on_wayland(self, fd, cond):
+    def _watch(self) -> bool:
+        """Watch the compositor connection the backend pumps. COSMIC pumps a Wayland fd; a backend
+        without one wakes us through on_change. One that makes its event connection again (niri
+        and sway drop a reader that falls behind) counts them (`connections`): the newest one is
+        watched, even on the old one's fd number. True when the watch changed. One that lost its
+        connection and could not make it again has gone: the daemon stops, and systemd starts
+        it again once the compositor is back."""
+        key = (self.ws.fd(), getattr(self.ws, "connections", 0))
+        if self._watching is not None and key == self._watching[:2]:
+            return False
+        if key[0] < 0 and key[1]:
+            say("compositor connection lost, and not made again")
+            self.exit_code = 1
+            self.shutdown()
+        if self._watching is not None and self._watching[2]:
+            GLib.source_remove(self._watching[2])  # (now, not later: its fd may be closed already)
+        source = 0
+        if key[0] >= 0:
+            source = GLib.io_add_watch(key[0], GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR,
+                                       lambda fd, cond, key=key: self._on_wayland(fd, cond, key))
+        self._watching = (*key, source)
+        return True
+
+    def _on_wayland(self, fd, cond, key=None):
+        if key is not None and key != self._watching[:2]:
+            return False  # a connection the backend has replaced
+        connections = getattr(self.ws, "connections", 0)
+        if cond & (GLib.IO_HUP | GLib.IO_ERR) and connections:
+            # a backend that makes its connection again: it says whether the compositor has gone
+            try:
+                self.ws.pump()
+            except Exception as e:  # noqa: BLE001
+                say(f"compositor connection lost: {e}")
+                self.exit_code = 1
+                self.shutdown()
+                return False
+            if getattr(self.ws, "connections", 0) != connections:
+                self._watch()
+                return False
         if cond & (GLib.IO_HUP | GLib.IO_ERR):
             try:  # the compositor says why before it hangs up: read that first
                 self.ws.pump()
@@ -198,7 +235,7 @@ class Daemon:
             self.exit_code = 1
             self.shutdown()
             return False
-        return True
+        return not self._watch()
 
     def _schedule_step(self):
         if not self._step_pending:
@@ -297,10 +334,12 @@ class Daemon:
         except Exception:
             import traceback
             traceback.print_exc()
+            self._watch()  # (one that failed may have lost the backend's event connection)
             return
         if self.engine.dirty:
             self._save_soon()
         self._push()
+        self._watch()  # (an action may have made the backend's event connection again)
 
     def observe(self, now: float) -> Obs:
         # where copies of an index disagree, the one the layout knows represents it
@@ -500,6 +539,8 @@ class Daemon:
             return True
         if a is None or b is None or a.coords == b.coords or "move" not in self.ws.caps:
             return False
+        if getattr(a, "monitor", "") != getattr(b, "monitor", ""):
+            return False  # (where each workspace is on one screen, putting it back in order never moves it to another)
         self.ws.move(a, b, before=True)
         return True
 

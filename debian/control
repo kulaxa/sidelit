@@ -15,7 +15,7 @@ Depends: python3 (>= 3.10),
  gir1.2-gtklayershell-0.1,
  python3-xlib
 Recommends: terminator, gir1.2-gtk-4.0
-Suggests: cosmic-comp, kwin-wayland, gnome-shell, hyprland, cinnamon, xfwm4, marco, gir1.2-gtk4layershell-1.0, libgtk4-layer-shell0
+Suggests: cosmic-comp, kwin-wayland, gnome-shell, hyprland, niri, cinnamon, xfwm4, marco, gir1.2-gtk4layershell-1.0, libgtk4-layer-shell0
 Conflicts: claude-workspace
 Replaces: claude-workspace
 Description: workspace sidebar for Linux desktops, one tab per workspace
@@ -35,8 +35,8 @@ Description: workspace sidebar for Linux desktops, one tab per workspace
  On COSMIC it uses the ext-workspace and cosmic toplevel protocols, through a
  pure-Python Wayland client in the package; on KDE Plasma 6, KWin's D-Bus
  interface and a KWin script; on GNOME (46 and later, Wayland), a GNOME Shell
- extension in the package, which each user turns on once; on Hyprland, its IPC
- sockets; on X11 desktops (Cinnamon, as on Linux Mint, Xfce, MATE and other
+ extension in the package, which each user turns on once; on Hyprland and niri,
+ their IPC sockets; on X11 desktops (Cinnamon, as on Linux Mint, Xfce, MATE and other
  window managers that keep the EWMH hints), the window manager's hints through
  python-xlib, with the sidebar as a dock window. Nothing is compiled.
  The session features need the claude or the codex CLI. This package replaces

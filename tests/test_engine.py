@@ -1190,5 +1190,26 @@ class History(Base):
         self.assertEqual(again.history, self.layout.history)
 
 
+class OrderOnScreensOfTheirOwn(unittest.TestCase):
+    """Soon after a screen change, where each workspace is on one screen (Hyprland, niri): each
+    screen's workspaces are put back in the layout's order, and none is moved to another screen
+    to stand in line."""
+
+    def order(self, live: dict) -> list:
+        """`live`: layout workspace -> (its place, its screen), the layout's order being a, b, c."""
+        from sidelit.core.model import Space
+        moves = []
+        act = type("Act", (), {"move_space": lambda self, src, dst: moves.append((src, dst)) or True})()
+        e = Engine(Layout(workspaces=[Workspace(id=w, ids=[w]) for w in "abc"]), act, now=1000.0)
+        e.primary = {w: Space(index=i, ids=frozenset({w}), pinned=True, active=False, output=out) for w, (i, out) in live.items()}
+        e.outputs_changed_at = 1000.0
+        e._restore_order(1001.0)
+        return moves
+
+    def test_a_screen_in_its_own_order(self):
+        self.assertEqual(self.order({"a": (2, "DP-1"), "b": (1, "HDMI-A-1"), "c": (3, "DP-1")}), [])
+        self.assertEqual(self.order({"a": (3, "DP-1"), "b": (1, "HDMI-A-1"), "c": (2, "DP-1")}), [(3, 2)])
+
+
 if __name__ == "__main__":
     unittest.main()

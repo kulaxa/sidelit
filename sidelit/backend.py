@@ -10,13 +10,15 @@ it: the control is hidden rather than offered as a button that fails.
 - ``kde``: KDE Plasma 6, over KWin's D-Bus interface and a KWin script (kwin.py).
 - ``gnome``: GNOME, through Sidelit's GNOME Shell extension (gnome.py, gnome-extension/).
 - ``hyprland``: Hyprland, over its IPC sockets (hyprland.py).
+- ``niri``: niri, over its IPC socket (niri.py).
 - ``x11``: an X11 session with a window manager that keeps the EWMH hints: Cinnamon (Linux
   Mint), Xfce, MATE, Openbox and the like (x11.py).
 
-The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE, GNOME or Hyprland). A
-compositor started by hand, which may not set it, is known by the socket variable it sets
-(HYPRLAND_INSTANCE_SIGNATURE). An X11 session (XDG_SESSION_TYPE=x11) of any other desktop gets
-``x11``. ``SIDELIT_BACKEND=cosmic``, ``kde``, ``gnome``, ``hyprland`` or ``x11`` overrides it.
+The session's XDG_CURRENT_DESKTOP picks one (COSMIC unless it names KDE, GNOME, Hyprland or
+niri). A compositor started by hand, which may not set it, is known by the socket variable it
+sets (HYPRLAND_INSTANCE_SIGNATURE, NIRI_SOCKET). An X11 session (XDG_SESSION_TYPE=x11) of any
+other desktop gets ``x11``. ``SIDELIT_BACKEND=cosmic``, ``kde``, ``gnome``, ``hyprland``,
+``niri`` or ``x11`` overrides it.
 """
 from __future__ import annotations
 
@@ -24,11 +26,11 @@ import os
 import sys
 from typing import Callable
 
-BACKENDS = ("cosmic", "kde", "gnome", "hyprland", "x11")
+BACKENDS = ("cosmic", "kde", "gnome", "hyprland", "niri", "x11")
 # desktops that name GNOME in XDG_CURRENT_DESKTOP but do not run GNOME Shell
 NOT_GNOME_SHELL = {"BUDGIE", "GNOME-FLASHBACK", "UNITY", "PANTHEON"}
 # compositors of their own: the name in XDG_CURRENT_DESKTOP, the variable with their socket
-COMPOSITORS = (("HYPRLAND", "HYPRLAND_INSTANCE_SIGNATURE", "hyprland"),)
+COMPOSITORS = (("HYPRLAND", "HYPRLAND_INSTANCE_SIGNATURE", "hyprland"), ("NIRI", "NIRI_SOCKET", "niri"))
 
 
 def chosen(env=None) -> str:
@@ -83,6 +85,9 @@ def open_client(on_change: Callable[[], None] | None = None, primary: bool = Tru
     if chosen() == "hyprland":
         from sidelit.hyprland import HyprlandClient
         return HyprlandClient(on_change, primary=primary)
+    if chosen() == "niri":
+        from sidelit.niri import NiriClient
+        return NiriClient(on_change, primary=primary)
     if chosen() == "x11":
         from sidelit.x11 import X11Client
         return X11Client(on_change, primary=primary)
@@ -96,8 +101,8 @@ WS_USAGE = """usage: sidelit ws [COMMAND]
   activate N                 switch to workspace N (a number from 1, or a name; Hyprland's own number)
   new NAME                   add a workspace
   rename N NAME
-  pin N | unpin N            (COSMIC, GNOME, Hyprland)
-  move A before|after B      put workspace A next to B (COSMIC, GNOME)
+  pin N | unpin N            (COSMIC, GNOME, Hyprland, niri)
+  move A before|after B      put workspace A next to B (COSMIC, GNOME, niri)
   movewin TITLE N [OUTPUT]   put the windows whose title has TITLE on workspace N"""
 
 # how many arguments each command takes, at least
@@ -116,6 +121,14 @@ def cli(args: list[str]) -> int:
     except RuntimeError as exc:
         print(f"sidelit ws: {exc}", file=sys.stderr)
         return 1
+    # the ids the layout knows, as the daemon tells its client: a new workspace is not given one
+    # that belongs to a kept workspace not on the desktop now
+    from sidelit import config
+    from sidelit.procs import load_json
+    layout = load_json(config.LAYOUT, {})
+    layout = layout if isinstance(layout, dict) else {}
+    client.preferred_ids = {str(i) for ws in layout.get("workspaces") or [] if isinstance(ws, dict)
+                            for i in ws.get("ids") or []}
     try:
         return _ws_command(client, cmd, rest)
     except LookupError as missing:
