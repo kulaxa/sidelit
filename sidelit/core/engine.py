@@ -204,6 +204,7 @@ class Engine:
         self.spaces_changed_at = float("-inf")
         self._mixed = False                              # an index holds copies of two kept workspaces
         self._retired: dict[str, float] = {}             # ids of workspaces you closed: never learnt again
+        self._closing: dict[int, tuple[int, float]] = {}  # index you closed -> (workspaces then, until when)
         self._order_tries = 0
         self._order_wait = 0.0
         self.obs_time = now
@@ -941,6 +942,18 @@ class Engine:
                 slot.output = win.output
                 self._mark()
 
+    def closed_empty(self, space: Space, now: float) -> bool:
+        """A workspace you closed whose windows have all gone: the desktop drops it in a moment
+        (COSMIC takes seconds), and until then it is not one to show. Not once a window is on it
+        again, or it was kept again, or it is still there a while later (it stays, then).
+        By index, as unpinned it has no ids (COSMIC); once the count of workspaces changes,
+        it has gone or the others moved, and the index is no longer its."""
+        if self.obs is None:
+            return False
+        count = len(self.obs.spaces)
+        self._closing = {i: (n, t) for i, (n, t) in self._closing.items() if t > now and n == count}
+        return space.index in self._closing and space.index not in self.owner and not self.obs.windows_on(space.index)
+
     # ---- recorder: new windows and workspaces (calm only) -----------------------------------
     def _is_extra(self, index: int | None) -> bool:
         """A further copy of a kept workspace (what COSMIC appends when a screen is unplugged)."""
@@ -1509,6 +1522,7 @@ class Engine:
         if space is not None:
             wins += [w.id for w in (self.obs.windows_on(space.index) if self.obs else []) if w.id not in wins]
             self.no_register[space.index] = now + NO_REGISTER_S
+            self._closing[space.index] = (len(self.obs.spaces) if self.obs else 0, now + NO_REGISTER_S)
             self.act.unpin(space.index)
         for i in lw.ids:
             self._retired[i] = now

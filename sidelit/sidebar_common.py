@@ -381,6 +381,15 @@ def box_classes(box: dict) -> list[tuple[str, bool]]:
     return [("attention", box["calls"]), *((c, c == box["cls"]) for c in STATE_CLASSES)]
 
 
+def box_room() -> tuple[str, str]:
+    """The text a Claude's box always has room for, whatever its own is: two title lines, each
+    with every agent's mark (the tallest glyphs a title starts with), and the model line. So
+    every box is as tall as the next, and so is every card with one Claude, a short title or not."""
+    marks = "".join(dict.fromkeys(m for a in agents.every() for m in a.marks if m))
+    line = f"{marks} x".strip()
+    return f"{line}\n{line}", "x"
+
+
 def tab_snapshot(rows) -> list[tuple]:
     """What a redraw depends on: an unchanged snapshot needs none."""
     return [(t["key"], t.get("space"), t.get("active"), i["title"], i["sub"], i["session_id"], att,

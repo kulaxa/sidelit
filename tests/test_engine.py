@@ -846,6 +846,17 @@ class ClosingWorkspaces(Base):
         self.assertFalse(any(w["space"] == 3 for w in self.desk.windows.values()))
         self.assertEqual(self.desk.windows[wins[1]]["space"], 2)
 
+    def test_an_emptied_workspace_is_not_shown_while_the_desktop_drops_it(self):
+        """COSMIC takes seconds to drop it: the sidebar leaves it out once its windows are gone."""
+        wins = self.three()
+        self.close_workspace(2, close_windows=False)
+        self.assertFalse(self.e.closed_empty(self.e.obs.space(2), self.clock.t))  # its window is still closing
+        self.desk.close(wins[1])
+        self.e.obs = self.desk.obs()  # (the active one stays until you are taken off it)
+        self.assertTrue(self.e.closed_empty(self.e.obs.space(2), self.clock.t))
+        self.assertFalse(self.e.closed_empty(self.e.obs.space(1), self.clock.t))
+        self.assertFalse(self.e.closed_empty(self.e.obs.space(2), self.clock.t + eng.NO_REGISTER_S + 1))  # it stayed
+
     def test_a_window_that_will_not_close_keeps_you_there(self):
         """An app asking about unsaved work: you stay to answer it."""
         self.three()

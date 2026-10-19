@@ -48,7 +48,7 @@ else:
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402,F401 (names the tests and older callers use)
     FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items, box_classes,
-    close_question, countdown, day_label, group_items, history_lines, item_sub, matches, tab_classes, tab_info,
+    box_room, close_question, countdown, day_label, group_items, history_lines, item_sub, matches, tab_classes, tab_info,
     tab_snapshot, usage_level,
 )
 
@@ -111,7 +111,9 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
    after the model, in the box's colour. The other windows are a line of small dimmed icons
    under the well, a browser's tab count and what is unread beside them in dim grey; they come
    up while the pointer is on the card, so at a glance only a Claude's colour stands out. An
-   icon's title shows on hover. */
+   icon's title shows on hover. A box has room for a two-line title whatever its own (in_room),
+   and a card with a Claude keeps the icons' line without icons, so every card with one Claude
+   is as tall as the next. A card without a Claude is as small as its header. */
 .cw-tab.card > .cw-card {{ padding: 6px; }}
 .cw-tab.card.attention > .cw-card {{ border-color: rgba(255,214,10,0.35);
   box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
@@ -119,7 +121,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-card-name {{ color: rgba(255,255,255,0.94); font-size: 14px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
 .cw-tab.missing .cw-card-name {{ color: rgba(235,235,245,0.45); }}
 .cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; }}
-.cw-apps {{ padding: 5px 4px 0; }}
+.cw-apps {{ padding: 5px 4px 0; min-height: 18px; }}
 .cw-app {{ border-radius: 6px; padding: 2px 3px; opacity: 0.45; -gtk-icon-effect: dim; }}
 .cw-tab:hover .cw-app, .cw-tab.active .cw-app {{ opacity: 0.9; -gtk-icon-effect: none; }}
 .cw-app-hit:hover > .cw-app {{ background-color: rgba(255,255,255,0.12); opacity: 1; }}
@@ -292,6 +294,23 @@ def hoverable(w: Gtk.EventBox) -> Gtk.EventBox:
     w.connect("enter-notify-event", _on_enter)
     w.connect("leave-notify-event", _on_leave)
     return w
+
+
+def in_room(content: Gtk.Widget) -> Gtk.Stack:
+    """`content` in a Claude's box's room (box_room): a stack is as tall as its tallest page,
+    and its other page is that much text, never shown."""
+    title, sub = box_room()
+    ghost = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+    for text, cls in ((title, "cw-box-name"), (sub, "cw-box-sub")):
+        lbl = Gtk.Label(label=text, xalign=0)
+        lbl.get_style_context().add_class(cls)
+        ghost.pack_start(lbl, False, False, 0)
+    stack = Gtk.Stack(vhomogeneous=True, hhomogeneous=False)
+    stack.add(ghost)
+    stack.add(content)
+    stack.show_all()  # (a page becomes the shown one only once it is visible itself)
+    stack.set_visible_child(content)
+    return stack
 
 
 def card(w: Gtk.Widget) -> Gtk.Widget:
@@ -981,7 +1000,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             hit = self._make_app(w, app)
             row.pack_start(hit, False, False, 0)
             w.cw_apps.append(hit)
-        row.set_no_show_all(not info["apps"])
+        row.set_no_show_all(not (info["apps"] or info["boxes"]))  # (a card with a Claude keeps the line)
         card.pack_start(row, False, False, 0)
         w.cw_note = note
         w.cw_box_keys, w.cw_app_keys = [b["key"] for b in info["boxes"]], [a["key"] for a in info["apps"]]
@@ -1052,7 +1071,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         pill = Gtk.Box()
         pill.get_style_context().add_class("cw-pill")
         row.pack_start(pill, False, False, 0)
-        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, valign=Gtk.Align.CENTER)
         name = Gtk.Label(label=f"{box['glyph']} {box['title']}", xalign=0)
         name.set_line_wrap(True)
         name.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -1070,7 +1089,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         meta.pack_start(dots, False, False, 0)
         col.pack_start(name, False, False, 0)
         col.pack_start(meta, False, False, 0)
-        row.pack_start(col, True, True, 0)
+        row.pack_start(in_room(col), True, True, 0)  # (a one-line title takes as much height as two)
         if box["session_id"]:
             fork = Gtk.Button()
             fork.set_image(fork_icon())

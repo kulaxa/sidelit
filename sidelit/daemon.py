@@ -793,6 +793,8 @@ class Daemon:
         bound = e.bound_slots
         now = time.time()
         for space in sorted(obs.spaces, key=lambda s: s.index):
+            if e.closed_empty(space, now):  # (gone the moment its windows are, not when the desktop drops it)
+                continue
             lw = e.layout.ws(e.owner.get(space.index))
             wins = obs.windows_on(space.index)
             ws_obj = self._ws_by_index.get(space.index)

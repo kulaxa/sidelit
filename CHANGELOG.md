@@ -12,6 +12,12 @@ update. The reasoning belongs in the commit message.
   sessions at work flickering like candles and the ones that need you in potion green. Pick
   Default or Halloween to keep one all year, or put a CSS file of your own in
   `~/.config/sidelit/themes/`. The settings also put windows back and restart the sidebar.
+- Every workspace card with a session is the same height, whatever its title's length and whether
+  other apps are on it: a session's box always has room for a two-line title, and the line of app
+  icons is kept on a card without any. A card with more sessions is a box taller for each; one
+  without a session stays as small as its name.
+- A workspace you close leaves the sidebar as soon as its windows are gone, instead of standing
+  there "empty" for the seconds COSMIC takes to drop it.
 - The workspace history opens in the sidebar itself, in place of the workspaces, instead of a
   panel hanging off it: cards like the workspaces', the last three days with "Show older" for
   the rest, and ← or Esc to go back.
