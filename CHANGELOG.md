@@ -14,6 +14,7 @@ update. The reasoning belongs in the commit message.
   or number); otherwise its first session's title says what it is about. The folder name and the
   shortcut chip are gone from the card: hover it for its folder and shortcut. Subagents are
   small blocks right after the model.
+- The sidebar is headed "Sidelit", with Sidelit's new mark, instead of "Workspaces".
 - OpenCode, both OpenCode 1 (its releases since September 2026) and 2: its sessions get a box
   of their own, marked ◎, with their state, title and model, the same "needs you" check
   (through `opencode run`, on the model your OpenCode uses), fork, and resume after a login.

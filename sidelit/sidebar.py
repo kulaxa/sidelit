@@ -45,7 +45,7 @@ else:
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402,F401 (names the tests and older callers use)
-    FORK_ICON_SVG, SEPARATOR, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items, box_classes,
+    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items, box_classes,
     close_question, countdown, day_label, group_items, history_lines, item_sub, matches, tab_classes, tab_info,
     tab_snapshot, usage_level,
 )
@@ -225,6 +225,18 @@ def _fork_pixbuf():
     except Exception:
         return None
     return loader.get_pixbuf()
+
+
+def logo(size: int = 22) -> Gtk.Widget:
+    """Sidelit's mark; nothing where GdkPixbuf cannot read SVG (the name alone)."""
+    try:
+        loader = GdkPixbuf.PixbufLoader.new_with_type("svg")
+        loader.set_size(size, size)
+        loader.write(LOGO_SVG)
+        loader.close()
+    except Exception:
+        return Gtk.Box()
+    return Gtk.Image.new_from_pixbuf(loader.get_pixbuf())
 
 
 def fork_icon() -> Gtk.Image:
@@ -447,9 +459,13 @@ class Sidebar(Gtk.Window, SidebarLogic):
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header.get_style_context().add_class("cw-header")
         header.set_margin_bottom(2)
-        title = Gtk.Label(label="Workspaces", xalign=0)
+        mark = logo()
+        mark.set_margin_start(16)
+        mark.set_valign(Gtk.Align.CENTER)
+        header.pack_start(mark, False, False, 0)
+        title = Gtk.Label(label="Sidelit", xalign=0)
         title.get_style_context().add_class("cw-header-title")
-        title.set_margin_start(16)
+        title.set_margin_start(8)
         title.set_margin_top(14)
         title.set_margin_bottom(10)
         header.pack_start(title, True, True, 0)

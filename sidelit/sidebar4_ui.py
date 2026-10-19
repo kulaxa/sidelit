@@ -33,7 +33,7 @@ else:
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
-    FORK_ICON_SVG, SEPARATOR, SOURCE_STATE_CLASS, SidebarLogic, box_classes, close_question, countdown, day_label,
+    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, SOURCE_STATE_CLASS, SidebarLogic, box_classes, close_question, countdown, day_label,
     history_lines, item_sub, matches, tab_classes, tab_snapshot, usage_level,
 )
 
@@ -267,6 +267,20 @@ def app_icon(app: str, size: int = 16) -> Gtk.Image:
     icon = app_entry(app)[0]
     image = Gtk.Image.new_from_gicon(icon) if icon is not None else \
         Gtk.Image.new_from_icon_name("application-x-executable-symbolic")
+    image.set_pixel_size(size)
+    return image
+
+
+def logo(size: int = 22) -> Gtk.Widget:
+    """Sidelit's mark, drawn at twice its size so it stays sharp on a scaled screen."""
+    try:
+        loader = GdkPixbuf.PixbufLoader.new_with_type("svg")
+        loader.set_size(size * 2, size * 2)
+        loader.write(LOGO_SVG)
+        loader.close()
+        image = Gtk.Image.new_from_paintable(Gdk.Texture.new_for_pixbuf(loader.get_pixbuf()))
+    except Exception:  # (no SVG loader: the name alone)
+        return Gtk.Box()
     image.set_pixel_size(size)
     return image
 
@@ -527,9 +541,13 @@ class Sidebar(Gtk.Window, SidebarLogic):
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header.add_css_class("cw-header")
         header.set_margin_bottom(2)
-        title = label("Workspaces", "cw-header-title")
+        mark = logo()
+        mark.set_margin_start(16)
+        mark.set_valign(Gtk.Align.CENTER)
+        header.append(mark)
+        title = label("Sidelit", "cw-header-title")
         title.set_hexpand(True)
-        title.set_margin_start(16)
+        title.set_margin_start(8)
         title.set_margin_top(14)
         title.set_margin_bottom(10)
         header.append(title)

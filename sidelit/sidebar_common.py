@@ -53,6 +53,27 @@ SOURCE_STATE_CLASS = {"working": "working", "waiting": "waiting", "idle": "idle"
 SOURCE_STATE_NOTE = {"working": "working", "waiting": "waiting for you", "done": "done", "failed": "failed"}
 STATE_CLASSES = sorted(set(STATE_CLASS.values()) | set(SOURCE_STATE_CLASS.values()))
 
+# Sidelit's mark, at the top of the sidebar: a panel lit from its side (in the orange of a
+# session at work), its light falling on the list beside it
+LOGO_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+ <defs>
+  <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="#ffd60a"/>
+   <stop offset="1" stop-color="#ff9f0a"/>
+  </linearGradient>
+  <linearGradient id="spill" x1="0" y1="0" x2="1" y2="0">
+   <stop offset="0" stop-color="#ffb340" stop-opacity="0.45"/>
+   <stop offset="1" stop-color="#ffb340" stop-opacity="0"/>
+  </linearGradient>
+ </defs>
+ <rect x="2" y="2" width="44" height="44" rx="11" fill="#2c2c30" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.5"/>
+ <rect x="15" y="9" width="24" height="30" rx="4" fill="url(#spill)"/>
+ <rect x="9" y="9" width="6" height="30" rx="3" fill="url(#lit)"/>
+ <rect x="20" y="14" width="16" height="4" rx="2" fill="#ffffff" fill-opacity="0.85"/>
+ <rect x="20" y="22" width="12" height="4" rx="2" fill="#ffffff" fill-opacity="0.5"/>
+ <rect x="20" y="30" width="14" height="4" rx="2" fill="#ffffff" fill-opacity="0.3"/>
+</svg>"""
+
 FORK_ICON_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
  <g fill="none" stroke="#9a9a9a" stroke-width="1.5">
   <circle cx="4" cy="3.5" r="1.75"/>
