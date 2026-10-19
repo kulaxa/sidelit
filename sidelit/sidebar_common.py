@@ -338,8 +338,8 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
     workspace is a card: a box per Claude (`boxes`), then an icon per other window (`apps`). A
     header names it (`head`) only when you named it or it has no Claude: else its first Claude's
     title says what it is about, once (`title` is that name either way). A line under the
-    header only when there is nothing else to say (`sub`: empty, closed). Its folder and
-    shortcut show on hover (`tip`)."""
+    header only when there is nothing else to say (`sub`: empty, closed). Its folder shows on
+    hover (`tip`)."""
     claudes = tab.get("claudes") or []
     c = claudes[0] if claudes else None
     closed = tab.get("space") is None
@@ -357,7 +357,7 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
         state, cls = "other", None
         sub = "" if boxes or apps else "empty"
         cwd = tab.get("cwd") or (c or {}).get("cwd")
-        tip = "\n".join(filter(None, (home_path(cwd), tab.get("shortcut"), closed and "Closed: click to reopen it")))
+        tip = "\n".join(filter(None, (home_path(cwd), closed and "Closed: click to reopen it")))
     if closed:  # the title stays the title; the line under it says so
         n = len(tab.get("missing") or [])
         sub = " · ".join(filter(None, ("closed", f"{n} window{'s' if n != 1 else ''} to reopen" if n else None)))

@@ -249,6 +249,10 @@ button.cw-setting.picked:hover {{ background-color: rgba(48,104,130,0.92); }}
 .cw-theme-pic {{ border-radius: 6px; }}
 .cw-setting-check {{ color: #64d2ff; }}
 .cw-setting-icon {{ color: rgba(235,235,245,0.6); }}
+/* Tooltips are cards too, not the system's black box */
+tooltip.background {{ background-color: rgba(44,44,50,0.97); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; padding: 6px 9px; box-shadow: none; }}
+tooltip, tooltip * {{ font-family: {FONT}; font-size: 12px; color: rgba(255,255,255,0.92); text-shadow: none; }}
 """
 
 _FORK_TEXTURE = None
@@ -762,7 +766,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.history = HistoryPanel(self._pick_history, lambda: self._show_history(False))
         self.views.add_named(self.history, "history")
         self.settings = SettingsPanel(self._pick_theme, [
-            ("Put windows back on their workspaces", "view-refresh-symbolic", lambda: self.send("reapply")),
+            ("Put windows back", "view-refresh-symbolic", lambda: self.send("reapply")),
             ("Reopen missing windows", "window-restore-symbolic", lambda: self.send("restore")),
             ("Restart sidebar", "system-reboot-symbolic", lambda: self._screens_changed("settings")),
         ])
@@ -1216,20 +1220,21 @@ class Sidebar(Gtk.Window, SidebarLogic):
         col.append(name)
         col.append(meta)
         bw.append(in_room(col))  # (a one-line title takes as much height as two)
+        # close (when the card has no header to hold it) at the top, fork right under it
+        icons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.START)
+        if closes:
+            icons.append(self._close_button(w))
         if box["session_id"]:
             fork = Gtk.Button()
             fork.set_child(fork_icon(14))
             fork.set_has_frame(False)
             fork.set_focus_on_click(False)
-            fork.set_valign(Gtk.Align.CENTER)
             fork.set_tooltip_text("Fork this session into a new workspace")
             fork.add_css_class("cw-icon")
             fork.connect("clicked", lambda *_: self.fork(w.cw_tab, box["session_id"]))
-            bw.append(fork)
-        if closes:  # (the card has no header to hold it)
-            close = self._close_button(w)
-            close.set_valign(Gtk.Align.START)
-            bw.append(close)
+            icons.append(fork)
+        if icons.get_first_child() is not None:
+            bw.append(icons)
         bw.cw_name, bw.cw_sub, bw.cw_dots, bw.cw_box = name, sub, dots, box
         return bw
 

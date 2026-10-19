@@ -193,6 +193,7 @@ HALLOWEEN_CSS = """
   box-shadow: 0 0 14px -2px rgba(166,255,77,0.25); }
 
 .cw-usage { background-color: rgba(46,30,56,0.86); }
+tooltip.background { background-color: rgba(34,20,44,0.97); border-color: rgba(191,90,242,0.35); }
 /* the jack-o'-lantern heads the usage, the ghost is the new workspace's icon (one line each:
    without the images, css() drops them whole) */
 .usage-agent { padding-left: 19px; background-image: url("{images}/pumpkin.svg"); background-repeat: no-repeat; background-position: left center; background-size: 14px 14px; }

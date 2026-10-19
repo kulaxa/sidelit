@@ -6,6 +6,8 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- Tooltips are rounded dark cards like the rest of the sidebar (purple in Halloween's theme)
+  instead of the system's black box, and a session's fork button sits right under its ×.
 - Themes, picked in the new settings (the gear at the top of the sidebar), each with a small
   picture of it. In the two weeks up to October 31 the sidebar dresses up for Halloween: a
   cobweb and its spider, bats across the moon, a jack-o'-lantern, usage bars of dripping blood,
@@ -27,7 +29,7 @@ update. The reasoning belongs in the commit message.
   colour while the pointer is on the card, so at a glance only the sessions' states stand out.
   Click an icon to bring that window forward. A card is headed only by a name you give it (or, without sessions, its name
   or number); otherwise its first session's title says what it is about. The folder name and the
-  shortcut chip are gone from the card: hover it for its folder and shortcut. Subagents are
+  shortcut chip are gone from the card: hover it for its folder. Subagents are
   small blocks right after the model.
 - The sidebar is headed "Sidelit", with Sidelit's new mark, instead of "Workspaces".
 - OpenCode, both OpenCode 1 (its releases since September 2026) and 2: its sessions get a box
