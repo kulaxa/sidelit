@@ -60,6 +60,7 @@ DEFAULT_TERMINAL = _default_terminal()
 # follows the first coding agent's step.
 #   {"type": "claude"}                   a terminal with `claude` in it
 #   {"type": "codex"}                    a terminal with `codex` in it
+#   {"type": "opencode"}                 a terminal with `opencode` in it
 #   {"type": "terminal"}                 a terminal; with "command": …, running that
 #   {"type": "app", "exec": …}           any other program, as a command line
 # An "exec" line may use {cwd}, the workspace's directory, and {browser}, the default browser
@@ -97,10 +98,12 @@ DEFAULT_CONFIG = {
     # before a session's tab turns yellow, a model reads the end of its turn: a session that only
     # waits (CI, a deploy, a background job) stays orange, "waiting on CI pipeline". Each agent's
     # turns are read through that agent: Claude Code's by check_model, Codex's by
-    # check_model_codex ("": the model your Codex is set to)
+    # check_model_codex, OpenCode's by check_model_opencode (as provider/model; "": the model
+    # your Codex or OpenCode is set to)
     "check_turns": True,
     "check_model": "claude-sonnet-5-5",
     "check_model_codex": "",
+    "check_model_opencode": "",
 }
 
 

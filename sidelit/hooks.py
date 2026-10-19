@@ -259,9 +259,10 @@ def main(argv: list[str]) -> int:
         return 1
     code = 0
     # (taking it out, and putting right what an older Sidelit left, is for every agent: one that
-    # is gone from PATH may still have Sidelit's leftovers)
+    # is gone from PATH may still have Sidelit's leftovers; OpenCode's is a file, taken out
+    # without OpenCode)
     for agent in agents.every() if cmd in ("uninstall", "upgrade") else found:
-        if cmd == "uninstall" and agent not in found and agent.name != "claude":
+        if cmd == "uninstall" and agent not in found and agent.name not in ("claude", "opencode"):
             continue
         try:
             if cmd == "install":
@@ -273,7 +274,8 @@ def main(argv: list[str]) -> int:
                 for line in agent.upgrade():
                     print(line if line.startswith(" ") else f"sidelit: {line}")
             elif cmd == "uninstall":
-                for line in agent.uninstall() or [f"Sidelit's {agent.label} plugin was not installed"]:
+                quiet = agent not in found and agent.name != "claude"  # (no word of an agent you do not have)
+                for line in agent.uninstall() or ([] if quiet else [f"Sidelit's {agent.label} plugin was not installed"]):
                     print(f"✓ {line}")
             else:
                 ok, said = agent.status()

@@ -74,6 +74,7 @@ class Shortcuts(unittest.TestCase):
 
 
 class TheSidebarOnGnome(unittest.TestCase):
+    @unittest.skipIf(gnome is None, "needs GLib")
     def test_outside_gnome_shell_it_is_not_needed(self):
         """systemd's unit started it, or someone by hand: on GNOME the extension runs the sidebar."""
         from sidelit import __main__ as entry
@@ -89,6 +90,7 @@ class TheSidebarOnGnome(unittest.TestCase):
         self.assertIn("RestartPreventExitStatus=4", unit)
         self.assertIn("SuccessExitStatus=4", unit)
 
+    @unittest.skipIf(gnome is None, "needs GLib")
     def test_gtk4_is_enough_when_hosted(self):
         from sidelit import sidebar4
         with mock.patch.dict(os.environ, {"SIDELIT_HOSTED": "gnome", "SIDELIT_SIDEBAR": "auto"}), \

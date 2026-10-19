@@ -1,5 +1,5 @@
-"""The coding agents Sidelit follows, behind one interface: Claude Code (claude.py) and Codex
-(codex.py).
+"""The coding agents Sidelit follows, behind one interface: Claude Code (claude.py), Codex
+(codex.py) and OpenCode (opencode.py).
 
 The daemon, the detector (detect.py), the turn checker (turncheck.py), restore, fork and the
 sidebar ask an agent's adapter, never the agent itself. Each adapter provides:
@@ -11,7 +11,8 @@ sidebar ask an agent's adapter, never the agent itself. Each adapter provides:
    per agent) that turns the agent's events into Sidelit's states (working, waiting for you,
    done, ended; the subagents at work; the turn's last words) and writes them, a file per
    session, to the adapter's `hook_dir`. `resolve()` finds the process showing a session when
-   the hook could not see it (Codex's shared background server runs its hooks)
+   the hook could not see it (Codex's and OpenCode 2's shared servers run their hooks:
+   TerminalClients)
 4. its live sessions, where the agent lists them itself: `live_sessions()`
 5. a session's title and model: `title()`, `model()`; and what its terminal's title says,
    for telling which window shows it: `title_key()`, `window_key()`, `owns_title()`
@@ -25,7 +26,12 @@ its agent can.
 """
 from __future__ import annotations
 
+import json
+import os
+import time
 from pathlib import Path
+
+from sidelit.procs import ancestors, cmdline, load_json, process_started
 
 
 class Agent:
@@ -168,14 +174,108 @@ class Agent:
         return self.marks[1 if working else 0]
 
 
+class TerminalClients:
+    """For an agent whose sessions run in a server of its own, which also runs the hook (Codex's
+    shared background server, OpenCode 2's): the hook cannot tell which terminal shows a session
+    and writes pid 0 and "server". resolve() gives such a record the agent's process in a terminal
+    that shows it: the one started for that session (its id on the command line, as a resume
+    has it), else the one in the session's folder that started last before the session did. That
+    one may have quit since (the server keeps a session a while after you quit it, without a
+    word): the processes seen are remembered, also across a daemon restart (a file in the hook
+    folder), and a session whose own has quit is left without one, so it is gone.
+
+    The agent says which of its processes are such clients: `clients(table)`, and where each
+    works: `folder_of(pid)`."""
+    FILE = "processes.seen"
+    STARTED_SLACK_S = 5.0     # a client may be seen to start this long after its first session
+    MEMORY_S = 7 * 86400      # one that quit is remembered this long after (its sessions are gone)
+
+    def __init__(self, agent: Agent, started=process_started):
+        self.agent = agent
+        self.started_of = started
+        # clients seen -> (started, folder, args, last seen running)
+        self.seen: dict[int, tuple[float, str, list[str], float]] | None = None
+        self.live: set[int] = set()  # (those running at the last look)
+
+    def resolve(self, records: list[dict], table: dict):
+        pending = [r for r in records if not r.get("pid") and r.get("server")]
+        now = time.time()
+        if self.seen is None:  # (what an earlier daemon saw: one that quit before this one started)
+            seen = load_json(self.agent.hook_dir / self.FILE, {})
+            self.seen = {int(p): (float(v[0]), str(v[1]), list(v[2]), float(v[3])) for p, v in seen.items()
+                         if isinstance(v, list) and len(v) == 4} if isinstance(seen, dict) else {}
+        live = self.live = set(self.agent.clients(table))
+        changed = False
+        for p in live:
+            known = self.seen.get(p)
+            started = self.started_of(p) or 0.0
+            if known is None or abs(known[0] - started) > 1:  # (a pid used again is another process)
+                self.seen[p] = (started, self.agent.folder_of(p), cmdline(p), now)
+                changed = True
+            else:
+                self.seen[p] = (*known[:3], now)
+        for p in [p for p, v in self.seen.items() if p not in live and now - v[3] > self.MEMORY_S]:
+            del self.seen[p]
+            changed = True
+        if changed:
+            try:
+                self.agent.hook_dir.mkdir(parents=True, exist_ok=True)
+                tmp = self.agent.hook_dir / (self.FILE + ".tmp")
+                tmp.write_text(json.dumps({str(p): list(v) for p, v in self.seen.items()}))
+                tmp.replace(self.agent.hook_dir / self.FILE)
+            except OSError:
+                pass
+        for rec in pending:
+            sid = rec["session"]
+            pid = next((p for p in live if sid in self.seen[p][2]), 0)
+            if not pid:
+                # (two in one folder: a session belongs to the one that started last before it
+                # did; one started later is newer than the session)
+                where = os.path.realpath(rec.get("cwd") or "/")
+                when = float(rec.get("started") or rec.get("t") or 0)
+                before = [p for p, (start, folder, _, _) in self.seen.items()
+                          if folder == where and start <= when + self.STARTED_SLACK_S]
+                pid = max(before, key=lambda p: self.seen[p][0], default=0)
+            if pid in live:
+                rec["pid"] = pid
+                rec["ancestors"] = ancestors(pid, table)
+                pane = pane_of(pid)
+                if pane:
+                    rec["pane"] = pane
+
+
+def pane_of(pid: int) -> dict:
+    """The pane a process runs in, from its own environment (a server's hook only has the server's)."""
+    from sidelit.detect import PANE_KEYS  # (detect.py imports this module)
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            env = dict(v.split(b"=", 1) for v in f.read().split(b"\0") if b"=" in v)
+    except OSError:
+        return {}
+    keys = set(PANE_KEYS) | {"KITTY_LISTEN_ON", "WEZTERM_UNIX_SOCKET", "TMUX"}
+    return {k: env[k.encode()].decode("utf-8", "replace")[:200] for k in sorted(keys) if env.get(k.encode())}
+
+
+def turn_from_record(rec: dict, who: str) -> dict | None:
+    """last_turn() from what the plugin kept of the turn in the session's record (what you asked,
+    the tool calls, the agent's last message), for an agent whose transcript Sidelit does not
+    read. `who`: how the judge reads the agent's own words ("Codex")."""
+    events = [("tool", t) for t in rec.get("tools") or [] if isinstance(t, str)]
+    if isinstance(rec.get("said"), str) and rec["said"].strip():
+        events.append((who, rec["said"].strip()))
+    if not events:
+        return None
+    return {"asked": rec.get("asked") or "", "events": events, "cut": False, "wakes": False}
+
+
 _ALL: list[Agent] = []
 
 
 def every() -> list[Agent]:
     """Every agent Sidelit knows, installed or not."""
     if not _ALL:
-        from sidelit import claude, codex
-        _ALL.extend([claude.ClaudeCode(), codex.Codex()])
+        from sidelit import claude, codex, opencode
+        _ALL.extend([claude.ClaudeCode(), codex.Codex(), opencode.OpenCode()])
     return _ALL
 
 

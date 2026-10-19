@@ -35,9 +35,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sidelit.agents import Agent
+from sidelit.agents import Agent, TerminalClients, turn_from_record
 from sidelit.core.titles import bare_title
-from sidelit.procs import ancestors, cmdline, cwd_of, in_terminal, load_json, process_started, shell_command
+from sidelit.procs import cmdline, cwd_of, in_terminal, load_json, process_started, shell_command
 
 CODEX_HOME = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 MARKETPLACE = "sidelit"
@@ -46,9 +46,6 @@ PLUGIN = f"sidelit@{MARKETPLACE}"
 PLUGIN_FILES = (".codex-plugin/plugin.json", "hooks/codex.json", "hooks/hook.py")
 # arguments that make a codex process something other than a session in a terminal
 NOT_A_SESSION = {"app-server", "exec", "e", "review", "mcp-server", "exec-server", "proxy"}
-STARTED_SLACK_S = 5.0     # a codex process may be seen to start this long after its first session
-TUI_MEMORY_S = 7 * 86400  # a codex process that quit is remembered this long after (its sessions are gone)
-TUIS_FILE = "processes.seen"  # (in the hook folder: what a daemon restart must not forget)
 OFFERED_FILE = "codex-plugin-offered"  # (in ~/.config/sidelit: sidelit start put the plugin in once)
 NAMES_EVERY_S = 60.0      # how often the names of live sessions are asked for
 RPC_TIMEOUT_S = 15.0
@@ -285,13 +282,10 @@ class Codex(Agent):
     def __init__(self, hook_dir: Path | None = None, server=AppServer, started=process_started):
         super().__init__(hook_dir)
         self.server = server
-        self.started_of = started
         self._names: dict[str, tuple[str | None, str | None]] = {}  # session -> (name, first prompt) as Codex has them
         self._asked_at: dict[str, float] = {}  # session -> when Codex was last asked for its name
         self._asking = False
-        # codex processes in a terminal seen -> (started, folder, args, last seen running)
-        self._tuis: dict[int, tuple[float, str, list[str], float]] | None = None
-        self._live: set[int] = set()  # (those running at the last look)
+        self.terminals = TerminalClients(self, started)  # (the codex processes in terminals)
 
     def binary(self):
         return codex_binary()
@@ -357,7 +351,7 @@ class Codex(Agent):
         return ["refreshed Codex's copy of Sidelit's plugin"] + [f"  ✓ {line}" for line in install_plugin()]
 
     # ---- which process shows a session
-    def sessions_in_terminals(self, table: dict) -> list[int]:
+    def clients(self, table: dict) -> list[int]:
         """The codex processes that are a session in a terminal (not its server, not `codex exec`)."""
         out = []
         for pid, (_, comm) in table.items():
@@ -380,70 +374,9 @@ class Codex(Agent):
         return os.path.realpath(here) if here else ""
 
     def resolve(self, records, table):
-        """A record the server wrote (pid 0) gets its session's codex: the one started for it
-        (resume, fork), else the one in its folder that started last before it did. That one
-        may have quit since (the server keeps a session a while after you quit it, without a
-        word): the codex processes seen are remembered, and a session whose own has quit is
-        left without one, so it is gone."""
-        pending = [r for r in records if not r.get("pid") and r.get("server")]
-        now = time.time()
-        if self._tuis is None:  # (what an earlier daemon saw: a codex that quit before this one started)
-            seen = load_json(self.hook_dir / TUIS_FILE, {})
-            self._tuis = {int(p): (float(v[0]), str(v[1]), list(v[2]), float(v[3])) for p, v in seen.items()
-                          if isinstance(v, list) and len(v) == 4} if isinstance(seen, dict) else {}
-        live = self._live = set(self.sessions_in_terminals(table))
-        changed = False
-        for p in live:
-            known = self._tuis.get(p)
-            started = self.started_of(p) or 0.0
-            if known is None or abs(known[0] - started) > 1:  # (a pid used again is another process)
-                self._tuis[p] = (started, self.folder_of(p), cmdline(p), now)
-                changed = True
-            else:
-                self._tuis[p] = (*known[:3], now)
-        for p in [p for p, v in self._tuis.items() if p not in live and now - v[3] > TUI_MEMORY_S]:
-            del self._tuis[p]
-            changed = True
-        if changed:
-            self._save_tuis()
-        for rec in pending:
-            sid = rec["session"]
-            pid = next((p for p in live if sid in self._tuis[p][2]), 0)
-            if not pid:
-                # (two in one folder: a session belongs to the codex that started last before
-                # it did; one started later is newer than the session)
-                where = os.path.realpath(rec.get("cwd") or "/")
-                when = float(rec.get("started") or rec.get("t") or 0)
-                before = [p for p, (start, folder, _, _) in self._tuis.items()
-                          if folder == where and start <= when + STARTED_SLACK_S]
-                pid = max(before, key=lambda p: self._tuis[p][0], default=0)
-            if pid in live:
-                rec["pid"] = pid
-                rec["ancestors"] = ancestors(pid, table)
-                pane = self._pane_of(pid)
-                if pane:
-                    rec["pane"] = pane
-
-    def _save_tuis(self):
-        try:
-            self.hook_dir.mkdir(parents=True, exist_ok=True)
-            tmp = self.hook_dir / (TUIS_FILE + ".tmp")
-            tmp.write_text(json.dumps({str(p): list(v) for p, v in self._tuis.items()}))
-            tmp.replace(self.hook_dir / TUIS_FILE)
-        except OSError:
-            pass
-
-    @staticmethod
-    def _pane_of(pid: int) -> dict:
-        """The pane a codex runs in, from its own environment (the hook only has the server's)."""
-        from sidelit.detect import PANE_KEYS
-        try:
-            with open(f"/proc/{pid}/environ", "rb") as f:
-                env = dict(v.split(b"=", 1) for v in f.read().split(b"\0") if b"=" in v)
-        except OSError:
-            return {}
-        keys = set(PANE_KEYS) | {"KITTY_LISTEN_ON", "WEZTERM_UNIX_SOCKET", "TMUX"}
-        return {k: env[k.encode()].decode("utf-8", "replace")[:200] for k in sorted(keys) if env.get(k.encode())}
+        """A record the server wrote (pid 0) gets its session's codex (TerminalClients): the one
+        started for it (resume, fork), else the one in its folder that started last before it did."""
+        self.terminals.resolve(records, table)
 
     # ---- titles
     def title(self, session, cwd, rec=None):
@@ -463,7 +396,8 @@ class Codex(Agent):
     def unmatched_title(self, title):
         """The title of a codex running in a terminal: its project's name (with a spinner while
         it works), for one of the codex processes running now."""
-        live = {project_name(self._tuis[p][1]) for p in self._live if self._tuis and p in self._tuis}
+        seen = self.terminals.seen or {}
+        live = {project_name(seen[p][1]) for p in self.terminals.live if p in seen}
         return bool(title) and bare_title(title) in live
 
     def watch(self, sessions: list[str]):
@@ -512,12 +446,7 @@ class Codex(Agent):
 
     # ---- the turn check: `codex exec`, from what the hook kept of the turn
     def last_turn(self, rec):
-        events = [("tool", t) for t in rec.get("tools") or [] if isinstance(t, str)]
-        if isinstance(rec.get("said"), str) and rec["said"].strip():
-            events.append(("Codex", rec["said"].strip()))
-        if not events:
-            return None
-        return {"asked": rec.get("asked") or "", "events": events, "cut": False, "wakes": False}
+        return turn_from_record(rec, "Codex")
 
     def check_model(self, cfg):
         return cfg.get("check_model_codex") or None  # (none: the model your Codex is set to)

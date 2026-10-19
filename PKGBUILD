@@ -15,6 +15,7 @@ license=('MIT')
 depends=('python' 'python-gobject' 'gtk3' 'gtk-layer-shell' 'python-xlib' 'systemd')
 optdepends=('claude-code: session titles, status, model line and usage'
             'openai-codex: the same for Codex sessions'
+            'opencode: the same for OpenCode sessions'
             'terminator: the default terminal the sidebar opens'
             'gtk4-layer-shell: the GTK 4 sidebar, drawn on the GPU'
             'gtk4: the GTK 4 sidebar on GNOME'
@@ -31,7 +32,7 @@ optdepends=('claude-code: session titles, status, model line and usage'
 conflicts=('claude-workspace')
 replaces=('claude-workspace')
 source=()
-# after a removal: how to take the plugin out of Claude Code and Codex
+# after a removal: how to take the plugin out of Claude Code, Codex and OpenCode
 install=sidelit.install
 
 package() {

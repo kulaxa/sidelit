@@ -306,16 +306,18 @@ main() {
     fetch_sidelit
 
     # install.sh links the command into ~/.local/bin and installs Sidelit's plugin in each coding
-    # agent it finds (`claude`, `codex`), whose own installers put them in ~/.local/bin too: all on
-    # PATH for this run, even where a login has not put ~/.local/bin there yet
+    # agent it finds (`claude`, `codex`, `opencode`), whose own installers put them in
+    # ~/.local/bin or a folder of their own: all on PATH for this run, even where a login has not
+    # put them there yet
     local bindir=$HOME/.local/bin on_path=1
     case ":$PATH:" in
         *":$bindir:"*) ;;
         *) on_path='' PATH=$bindir:$PATH ;;
     esac
     [ ! -x "$HOME/.claude/local/claude" ] || PATH=$PATH:$HOME/.claude/local
+    [ ! -x "$HOME/.opencode/bin/opencode" ] || PATH=$PATH:$HOME/.opencode/bin
 
-    say "Setting it up: the sidelit command, starting at login, the plugin for Claude Code and Codex, the Chrome bridge"
+    say "Setting it up: the sidelit command, starting at login, the plugin for Claude Code, Codex and OpenCode, the Chrome bridge"
     local out status
     out=$(bash "$dir/install.sh" </dev/null 2>&1)
     status=$?
@@ -387,8 +389,8 @@ main() {
         echo "  Next: to start Sidelit at every login, add this line to $(tilde "$hypr")/hyprland.conf:"
         echo "    exec-once = sidelit start"
     fi
-    command -v claude >/dev/null || command -v codex >/dev/null ||
-        echo "  Next: install Claude Code (curl -fsSL https://claude.ai/install.sh | bash) or Codex, then run this line again to connect Sidelit to it."
+    command -v claude >/dev/null || command -v codex >/dev/null || command -v opencode >/dev/null ||
+        echo "  Next: install Claude Code (curl -fsSL https://claude.ai/install.sh | bash), Codex or OpenCode, then run this line again to connect Sidelit to it."
     # Codex runs a plugin's hooks only once you have trusted them (it asks when it next starts)
     ! command -v codex >/dev/null ||
         PYTHONPATH=$dir python3 -c 'from sidelit import codex; raise SystemExit(codex.Codex().hooks_trusted() is False)' 2>/dev/null </dev/null ||

@@ -55,15 +55,16 @@ And on X11:
 
 Other desktops are planned.
 
-**Works with Claude Code and Codex.** Sidelit plugs into each as a plugin, installed with the
-agent's own plugin commands: every session reports what it is doing as it happens, and the
-agent's own measure of your plan's usage limits comes along for the bars. Beyond that it only
-reads what each agent offers for it (Claude Code's list of running sessions and the titles in
-its transcripts; Codex's app-server), touches Claude's settings itself only once, to take out
-the hook Sidelit 0.5 had put there, never edits Codex's, and never touches your login. Each box
-says whose session it is: ✳ for Claude Code, ◆ for Codex. Sidelit is an independent project,
-not made by or affiliated with Anthropic or OpenAI; Claude and Claude Code are Anthropic's
-trademarks, Codex is OpenAI's.
+**Works with Claude Code, Codex and OpenCode.** Sidelit plugs into each as a plugin, installed
+the way the agent installs plugins: every session reports what it is doing as it happens, and
+the agent's own measure of your plan's usage limits, where it has one, comes along for the bars.
+Beyond that it only reads what each agent offers for it (Claude Code's list of running sessions
+and the titles in its transcripts; Codex's app-server), touches Claude's settings itself only
+once, to take out the hook Sidelit 0.5 had put there, never edits Codex's or OpenCode's, and
+never touches your login. Each box says whose session it is: ✳ for Claude Code, ◆ for Codex, ◎
+for OpenCode. Sidelit is an independent project, not made by or affiliated with Anthropic,
+OpenAI or OpenCode's makers; Claude and Claude Code are Anthropic's trademarks, Codex is
+OpenAI's.
 
 ## Install
 
@@ -92,7 +93,7 @@ for the one thing left after it, on Hyprland, [On Hyprland](#on-hyprland), on ni
 Sidelit needs COSMIC, KDE Plasma 6, GNOME 46 or later, Hyprland, niri or sway, on Wayland, or an X11
 desktop whose window manager keeps the EWMH hints (Cinnamon, Xfce, MATE), Python 3.10 or later
 with GTK 3 and gtk-layer-shell (the packages pull them in; on GNOME, GTK 4 instead of the layer
-shell; on X11, python-xlib), and the `claude` or `codex` CLI for the session features. Nothing is
+shell; on X11, python-xlib), and the `claude`, `codex` or `opencode` CLI for the session features. Nothing is
 compiled: the Wayland client is pure Python, in the tree, on KDE it talks to KWin over D-Bus, on
 GNOME to its own GNOME Shell extension, which is JavaScript, on Hyprland to Hyprland's own
 sockets, on niri and sway to theirs, and on X11 to the window manager through python-xlib.
@@ -111,7 +112,7 @@ curl -LO https://github.com/kulaxa/sidelit/releases/latest/download/sidelit-late
 sudo pacman -U ./sidelit-latest-any.pkg.tar.zst
 ```
 
-Then, once, as yourself: `sidelit hooks install` (Sidelit's plugin, in Claude Code and Codex, see below)
+Then, once, as yourself: `sidelit hooks install` (Sidelit's plugin, in Claude Code, Codex and OpenCode, see below)
 and, if you use Chrome, `sidelit chrome install`. Start it with `sidelit start`; after that it starts at
 every login.
 
@@ -125,7 +126,7 @@ sidelit start
 
 `install.sh` links `sidelit` into `~/.local/bin`, adds a desktop entry, an autostart entry and
 two systemd user units (the daemon and the sidebar), and installs Sidelit's plugin in each
-coding agent it finds (Claude Code, Codex) and the Chrome bridge.
+coding agent it finds (Claude Code, Codex, OpenCode) and the Chrome bridge.
 `uninstall.sh` takes all of that away again and leaves your layout alone. The line above and a
 package do not mix: to go from a package to the line, remove the package first.
 
@@ -296,6 +297,69 @@ What Codex offers differs a little from Claude Code:
 Removing it: `sidelit hooks uninstall` (or by hand, `codex plugin remove sidelit@sidelit`, then
 `codex plugin marketplace remove sidelit`).
 
+### The OpenCode plugin
+
+Two OpenCodes are in use, and Sidelit works with both: OpenCode 1 (1.18.29 or later; what
+`curl -fsSL https://opencode.ai/install | bash` and npm's `opencode-ai` install) and OpenCode 2
+(what `https://opencode.ai/v2/install` installs, and Arch's `opencode` package).
+`opencode --version` says which you have.
+
+OpenCode's plugins are JavaScript files in its plugin folder, which it loads by itself.
+Sidelit's is one file for both, `plugin/opencode/sidelit.js`, with no dependencies; `sidelit
+hooks install` copies it there, as OpenCode's docs say to install one:
+
+```bash
+cp ~/.local/share/sidelit/plugin/opencode/sidelit.js ~/.config/opencode/plugins/    # or /usr/share/sidelit/…
+```
+
+(`$XDG_CONFIG_HOME/opencode/plugins` if you set that.) A file of that name that is not Sidelit's
+is left alone. OpenCode asks nothing before it runs a plugin, so there is no step to trust it.
+OpenCode 1 loads it into each `opencode` as it starts: sessions started from then on report to
+Sidelit, one already running once you start it again. OpenCode 2 runs it in its background
+server, which loads it as soon as the file is there, so its sessions report at once. It is a
+copy, so `sidelit start` (and `restart`) refreshes it after an update, and a Sidelit installed
+before OpenCode was supported puts it in at its first start after the update (once: take it out
+with `sidelit hooks uninstall` and it stays out). Nothing of OpenCode's settings is touched.
+
+The plugin writes what each session does to `$XDG_RUNTIME_DIR/sidelit/opencode/`, the same
+record the hook writes for the other agents. What each of OpenCode's events means is one table
+in the file, with both OpenCodes' names: OpenCode 2 names some anew (a turn is
+`session.execution.*`, a question a form).
+
+What OpenCode offers differs a little from Claude Code:
+
+- Its terminal's title is `OC | ` and the session's title (`OpenCode` with none open), so a
+  box's title is the session's, and a terminal with an OpenCode session open gets a box (◎) even
+  without the plugin, though with no more than its title says.
+- OpenCode 2's terminals share one background server (the first `opencode` starts it), which
+  runs the plugin, so the plugin cannot tell which terminal a session is in. Sidelit finds it, as
+  for Codex: the `opencode` that was started for that session (`opencode -s <id>`, as a restore
+  does), else the one in the session's folder that started last before the session did. Two
+  OpenCode sessions in one folder, in two terminals, can be confused when you start a new one
+  inside the older terminal.
+- A session opened with `opencode -s <id>` (as a restore after a login does) is on screen at
+  once, before you type in it.
+- Its subagents run as sessions of their own; Sidelit counts them as the session's dots, and a
+  permission or a question one of them asks makes the session wait for you.
+- One `opencode` window can switch between sessions (`/sessions`, and OpenCode 2's tabs): its
+  box stays with the session started there last.
+- Fork: the new terminal runs Sidelit's `opencode-fork`, which asks the `opencode` your shell
+  finds which OpenCode it is. OpenCode 1 opens `opencode -s <id> --fork`. OpenCode 2's terminal
+  cannot fork, so its server is asked to (`opencode api POST /api/session/<id>/fork`) and the
+  copy opens; if it cannot (a session with nothing in it yet), it says so and a new session
+  starts there.
+- The turn check runs `opencode run` with every tool off and every permission refused, and no
+  plugins but OpenCode's own, Sidelit's neither (OpenCode 1: `--pure`; OpenCode 2: on a server of
+  its own, `--standalone`, so Sidelit never starts your background one). It uses the model your
+  OpenCode is set to unless config `check_model_opencode` names one, so your own provider
+  (`check_turns: false` turns the check off). Its session is deleted after, so it is not among
+  yours. The turn is read from what the plugin kept of it (what you asked, the tools it called,
+  what it said last).
+- It has no plan with usage limits of its own (it works with whatever provider you give it), so
+  there are no usage bars for it.
+
+Removing it: `sidelit hooks uninstall`, or by hand, `rm ~/.config/opencode/plugins/sidelit.js`.
+
 ## How to run
 
 ```bash
@@ -307,7 +371,7 @@ sidelit reapply        # put every window back on its workspace and screen
 sidelit state|layout   # what the daemon sees / keeps, as JSON
 sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N [OUTPUT]
 sidelit open URL       # open a link on the current workspace (see below)
-sidelit hooks install|uninstall|status   # Sidelit's plugin, in Claude Code and Codex
+sidelit hooks install|uninstall|status   # Sidelit's plugin, in Claude Code, Codex and OpenCode
 sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which profiles are connected
 ```
 
@@ -329,13 +393,14 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   your config binds to that workspace).
 - **`+`** pins a fresh workspace (on KDE, adds a desktop; on Hyprland and sway, the next number;
   on niri, the empty one at the end of the screen you are on, named) and opens a terminal in your home
-  directory, or whatever the template you pick says. Start `claude` or `codex` there as usual
+  directory, or whatever the template you pick says. Start `claude`, `codex` or `opencode` there as usual
   and the tab picks up its title within seconds. Right-click a tab for a new session, in that
   tab's directory, of each agent installed on this computer.
 - **Each box says whose session it is**: ✳ for Claude Code (◐ while it works: the glyphs Claude
-  Code puts in its own terminal's title), ◆ for Codex.
+  Code puts in its own terminal's title), ◆ for Codex, ◎ for OpenCode.
 - **Fork** icon: like `/fork`, opens `claude --resume <id> --fork-session` (`codex fork <id>` for
-  a Codex session) in a new workspace in the same directory.
+  a Codex session, OpenCode's fork for an OpenCode one, see above) in a new workspace in the same
+  directory.
 - **×** closes the whole workspace: every window on it gets a normal close request (after a
   confirmation listing what will close), the workspace is unpinned and disappears once empty (on
   KDE, the desktop is removed once its windows have closed). A session that was there stays in
@@ -368,9 +433,10 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   orange meanwhile. If it fails or takes more than a minute, the tab turns yellow anyway. A turn
   that ends while you are typing in its terminal is not checked, unless it left a shell running
   (below). The check runs through the session's own agent: `claude -p` on your subscription (no
-  API key), or `codex exec` for a Codex session, with no tools and no session saved; one process
-  is started ahead while a session works. Config: `check_turns` (false = yellow at every turn
-  end), `check_model`, `check_model_codex`. `sidelit why turn_checked` lists the
+  API key), `codex exec` for a Codex session, `opencode run` for an OpenCode one, with no tools
+  and no session kept; one process is started ahead while a session works. Config:
+  `check_turns` (false = yellow at every turn end), `check_model`, `check_model_codex`,
+  `check_model_opencode`. `sidelit why turn_checked` lists the
   verdicts (`why TITLE` one session's), and every tab that turned yellow without one.
 - **Working, and waiting.** The orange stripe breathes while the agent works, and stays orange
   without breathing while its turn is over but it waits on something (the check above says
@@ -399,7 +465,7 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   keeps them in the layout. A chat app closing to the tray keeps its place, and its window goes
   home when it comes back.
 - **Restore after login.** A few seconds after a login the daemon starts what is missing: each
-  session resumed by its agent (`claude --resume`, `codex resume`) in a terminal on its workspace, terminals in their
+  session resumed by its agent (`claude --resume`, `codex resume`, `opencode -s`) in a terminal on its workspace, terminals in their
   directory, file managers on their folder, web app windows on their URL, one at a time, each
   waiting for its window. Apps that restore their own windows (Chrome, VS Code) are started once
   and their windows placed as they appear, matched by title. Then it switches back to the
@@ -433,6 +499,7 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   through the plugin's mod; Codex's (logged in with ChatGPT) as its app-server says. They appear
   after the first turn (Codex's within seconds of the start), the last ones seen stay through a
   login, and a window whose reset has passed goes. Sidelit never reads your logins for them.
+  OpenCode has no such limits of its own, so it has no bars.
 - **Links open where you are.** `sidelit open URL` looks at the active workspace: a browser
   window there gets focused and receives the tab; if there is none, a new browser window opens
   on this workspace instead of a tab landing in whichever window the browser last used somewhere
@@ -533,9 +600,10 @@ re-reads it.
 - `restore_on_login`, `restore_windows`, `restore_delay`, `relaunch`: the restore after a login
   and after a crash.
 - `ignore_apps`: app ids never kept in the layout.
-- `check_turns`, `check_model`, `check_model_codex`: the check before a tab turns yellow (each
-  agent's sessions are checked through that agent; `check_model_codex` empty is your Codex's
-  own model).
+- `check_turns`, `check_model`, `check_model_codex`, `check_model_opencode`: the check before a
+  tab turns yellow (each agent's sessions are checked through that agent; `check_model_codex`
+  empty is your Codex's own model, `check_model_opencode` empty your OpenCode's, as
+  `provider/model`).
 
 ### What `+` opens: templates
 
@@ -549,7 +617,7 @@ next to a browser window on GitHub:
 ```
 
 - `{"type": "claude"}` is a terminal with `claude` in it, and the tab follows it;
-  `{"type": "codex"}` the same with `codex`. A
+  `{"type": "codex"}` the same with `codex`, `{"type": "opencode"}` with `opencode`. A
   `{"type": "terminal"}` step is a shell, or with `"command": "..."` runs that; an
   `{"type": "app", "exec": "..."}` step runs any command line.
 - An `exec` line can use `{cwd}`, the workspace's directory, and `{browser}`, your default
@@ -564,7 +632,8 @@ few session variables systemd lacks, such as the input method):
   has no surfaces, so screens coming and going cannot kill it, and systemd restarts it if
   anything else does. It observes the desktop on every change and once a second and steps the
   engine. The turn checker (`turncheck.py`) runs in it: before a tab turns yellow, it asks a
-  model (through the session's agent, a `claude -p` or `codex exec` it starts ahead) whether the
+  model (through the session's agent, a `claude -p`, `codex exec` or `opencode run` it starts
+  ahead) whether the
   session needs you or only waits.
 - **The sidebar** is a view: it draws the state the daemon pushes over
   `$XDG_RUNTIME_DIR/sidelit/daemon.sock` and sends a command for everything you do. It keeps
@@ -630,13 +699,17 @@ it): every client has the same interface
 hides those controls.
 
 Sidelit knows coding agents only through one interface (`sidelit/agents.py`), with an adapter
-per agent: `claude.py` for Claude Code, `codex.py` for Codex. Each says how to recognise the
-agent's process, how to put Sidelit's plugin in and take it out (always through the agent's own
-plugin commands), what its sessions are and what they are called, how to resume and fork one,
-how to ask it, headless, whether a turn needs you, and what its plan's usage limits are. The
-plugin's one hook (`plugin/hooks/hook.py`) turns every agent's events into Sidelit's states,
-with a table per agent; `detect.py`, which works out which window shows which session, is the
-same for all of them.
+per agent: `claude.py` for Claude Code, `codex.py` for Codex, `opencode.py` for OpenCode. Each
+says how to recognise the agent's process, how to put Sidelit's plugin in and take it out
+(always the way the agent installs plugins), what its sessions are and what they are called, how
+to resume and fork one, how to ask it, headless, whether a turn needs you, and what its plan's
+usage limits are. The plugin's one hook (`plugin/hooks/hook.py`) turns Claude Code's and
+Codex's events into Sidelit's states, with a table per agent; for OpenCode, whose plugins are
+JavaScript running inside it, `plugin/opencode/sidelit.js` does the same with a table of its
+own and writes the same record. `detect.py`, which works out which window shows which session,
+is the same for all of them; where an agent's shared server writes the records (Codex's,
+OpenCode 2's), `agents.TerminalClients` finds the agent's process in a terminal that shows each
+session.
 
 For Claude Code, session state comes from Sidelit's plugin (each session's events, and the
 usage limits), from `claude agents --json` (Claude Code's list of running sessions, which its
@@ -646,7 +719,9 @@ and nothing of it is written but through its own `claude plugin` commands (apart
 out, once, the hook Sidelit 0.5 had written into `~/.claude/settings.json`). For Codex, from
 the plugin's events, its process list (`/proc`), and its app-server (`codex app-server`, over
 stdio: a session's name, the usage limits, whether you trusted the hooks); nothing of Codex's is
-written but through its own `codex plugin` commands.
+written but through its own `codex plugin` commands. For OpenCode, from the plugin and its
+process list (`/proc`; and `opencode --version`, which OpenCode it is), and only the plugin's
+file in OpenCode's plugin folder is written.
 
 COSMIC notes: only pinned workspaces have a stable id, workspace `rename` is ignored on COSMIC
 1.0 (names live in the layout), and toplevel → workspace mapping arrives on the compositor's next
@@ -885,12 +960,20 @@ need foot and swaymsg. On a real X11 window manager (a session you can spare, or
 `tests/x11_live.py` checks the X11 backend and a test daemon; it needs xterm.
 
 Each agent's adapter is tested against events and answers recorded from the real agent
-(`tests/test_claude.py`, `tests/test_codex.py`). With Codex installed, `tests/codex_live.py`
+(`tests/test_claude.py`, `tests/test_codex.py`, `tests/test_opencode.py`, which runs the
+OpenCode plugin under Node the way OpenCode 1 and 2 each load it, skipped without Node). With
+Codex installed, `tests/codex_live.py`
 runs the real Codex CLI, nothing of yours: a throwaway `CODEX_HOME` whose model is a stand-in
 on localhost (no account, nothing billed). It installs the plugin with Codex's commands, trusts
 its hooks when Codex asks, runs turns in Codex's terminal UI (with its background server and
 with `--no-daemon`), and checks what Sidelit makes of them: the session in its own `codex`, its
-state, title and model, the turn check through `codex exec`, resume and fork.
+state, title and model, the turn check through `codex exec`, resume and fork. With OpenCode
+installed (1 or 2; `SIDELIT_OPENCODE=` picks a binary), `tests/opencode_live.py` does the same
+with the real OpenCode, in a throwaway home whose model is a stand-in on localhost too (OpenCode
+2's background server on a port of its own): the plugin in its folder, turns in its terminal UI
+(an answer, a command, a permission), the turn check through `opencode run` leaving no session
+or record behind, `opencode -s` on screen before you type (also with its record gone, as after a
+reboot), and Sidelit's fork.
 
 ## Licence
 

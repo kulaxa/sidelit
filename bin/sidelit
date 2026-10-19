@@ -13,7 +13,7 @@
 #   sidelit restore          start what is missing from the layout now (runs by itself after a login)
 #   sidelit reapply          put every window back on its workspace and screen
 #   sidelit state|layout     what the daemon sees / keeps, as JSON
-#   sidelit hooks install|uninstall|status   Sidelit's plugin in Claude Code and Codex (status of every session)
+#   sidelit hooks install|uninstall|status   Sidelit's plugin in Claude Code, Codex and OpenCode (status of every session)
 #   sidelit chrome install|uninstall|status  the bridge to the Chrome extension
 #   sidelit daemon|sidebar   run one in the foreground (the units do this)
 #   sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N
@@ -125,8 +125,8 @@ write_session_env() {
 
 # The first start on a machine with this project's old install takes over from it, once
 # (sidelit/moveover.py); one where Sidelit 0.5 wrote its hook into Claude Code's settings gets
-# the plugin in its place, and Codex's copy of the plugin is refreshed after an update
-# (sidelit/hooks.py). Never for a test instance, and never in the way of starting.
+# the plugin in its place, and Codex's and OpenCode's copies of the plugin are refreshed after
+# an update (sidelit/hooks.py). Never for a test instance, and never in the way of starting.
 move_over() {
     [ -z "${SIDELIT_HOME-}" ] || return 0
     python3 -m sidelit moveover --if-needed || true

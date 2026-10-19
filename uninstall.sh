@@ -3,7 +3,7 @@
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 "$HOME/.local/bin/sidelit" stop 2>/dev/null || true
-"$HOME/.local/bin/sidelit" hooks uninstall 2>/dev/null || true  # (the plugin, from Claude Code and Codex)
+"$HOME/.local/bin/sidelit" hooks uninstall 2>/dev/null || true  # (the plugin, from Claude Code, Codex and OpenCode)
 "$HOME/.local/bin/sidelit" chrome uninstall 2>/dev/null || true
 for name in sidelit sidelit-open sidelit-hook sidelit-chrome-host; do
     rm -f "$HOME/.local/bin/$name"

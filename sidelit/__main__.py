@@ -18,7 +18,7 @@ USAGE = """usage: sidelit <command>
   restore                  start what is missing from the layout now (runs by itself after a login)
   reapply                  put every window back on its workspace and screen
   reload                   re-read config.json
-  hooks install|uninstall|status   Sidelit's plugin in each coding agent (Claude Code, Codex), which
+  hooks install|uninstall|status   Sidelit's plugin in each coding agent (Claude Code, Codex, OpenCode), which
                                    reports each session's status
   chrome install|uninstall|status  the bridge to the Chrome extension (windows and their tabs)
   ws ...                   talk to the compositor directly (list, toplevels, activate N, ...)
@@ -131,6 +131,9 @@ def main(argv=None):
     if cmd == "moveover":
         from sidelit.moveover import main as moveover_main
         return moveover_main(argv[1:])
+    if cmd == "opencode-fork":  # (what a fork of an OpenCode session runs in its new terminal)
+        from sidelit.opencode import fork_here
+        return fork_here(argv[1] if len(argv) > 1 else "")
     if cmd in ("state", "layout", "why", "restore", "reapply", "reload", "ping"):
         return _ctl(cmd, argv[1:])
     sys.exit(USAGE)

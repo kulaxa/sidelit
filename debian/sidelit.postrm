@@ -1,6 +1,7 @@
 #!/bin/sh
 # Sidelit's plugin is registered in each user's Claude Code and Codex, from
-# /usr/share/sidelit: a package removal cannot take it out for them, so say how.
+# /usr/share/sidelit, and copied into their OpenCode's plugin folder: a package removal cannot
+# take it out for them, so say how.
 # (package.sh builds the .deb with this file too, less the debhelper line)
 set -e
 case "$1" in
@@ -8,6 +9,7 @@ case "$1" in
         echo "Sidelit is removed. Its plugin is still listed in Claude Code and Codex for each user"
         echo "who installed it; as that user: claude plugin uninstall sidelit@sidelit; claude plugin marketplace remove sidelit"
         echo "(and for Codex: codex plugin remove sidelit@sidelit; codex plugin marketplace remove sidelit)"
+        echo "(and for OpenCode: rm ~/.config/opencode/plugins/sidelit.js)"
         ;;
 esac
 

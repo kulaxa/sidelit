@@ -214,8 +214,8 @@ class Boxes(unittest.TestCase):
         """(before you trusted its hooks: its spinner looks like Claude's, its title is its project)"""
         from sidelit import agents
         codex = agents.get("codex")
-        with mock.patch.object(codex, "_tuis", {900: (1.0, "/src/pricing", ["codex"], 2.0)}), \
-                mock.patch.object(codex, "_live", {900}):
+        with mock.patch.object(codex.terminals, "seen", {900: (1.0, "/src/pricing", ["codex"], 2.0)}), \
+                mock.patch.object(codex.terminals, "live", {900}):
             self.window("A", "⠸ pricing")
             self.assertEqual([(b["agent"], b["title"], b["state"]) for b in self.boxes()], [("codex", "pricing", "busy")])
             self.window("A", "pricing")

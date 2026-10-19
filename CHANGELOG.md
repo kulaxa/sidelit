@@ -6,6 +6,13 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- OpenCode, both OpenCode 1 (its releases since September 2026) and 2: its sessions get a box
+  of their own, marked ◎, with their state, title and model, the same "needs you" check
+  (through `opencode run`, on the model your OpenCode uses), fork, and resume after a login.
+  Sidelit's plugin for it is one file in OpenCode's plugin folder: `sidelit hooks install` (and
+  the one-line install) puts it there, with nothing to trust, and a Sidelit from before puts it
+  in at its first start after the update. OpenCode has no usage limits of its own, so it has
+  no bars.
 - sway: Sidelit runs there too. The tabs are sway's own workspaces, by number; the ones you work
   on are kept even after sway drops them empty (going there makes them again), and come back
   under the same numbers after a login. Each tab shows the key your sway config binds to it.

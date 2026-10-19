@@ -12,7 +12,7 @@ it down; systemd restarts it if anything else does. It:
 - reports this desktop's Claudes to the other sources that ask for them (sources.py),
 - asks the agents that offer their plan's usage limits for them (agents.py: polls_usage) and
   writes them where the sidebar's bars read them.
-The coding agents (Claude Code, Codex) it only knows through their adapters (agents.py).
+The coding agents (Claude Code, Codex, OpenCode) it only knows through their adapters (agents.py).
 """
 from __future__ import annotations
 

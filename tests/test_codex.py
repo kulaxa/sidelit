@@ -160,9 +160,10 @@ class ResolveTest(unittest.TestCase):
         self.folder = {TUI_A: "/src/pricing", TUI_B: "/src/pricing", SERVER: "/home/alex"}
         self.started = {TUI_A: 100.0, TUI_B: 200.0, SERVER: 90.0}
         patches = [mock.patch.object(codex, "cmdline", lambda p: self.args.get(p, [])),
+                   mock.patch.object(agents, "cmdline", lambda p: self.args.get(p, [])),
                    mock.patch.object(codex, "cwd_of", lambda p: self.folder.get(p, "")),
                    mock.patch.object(codex, "in_terminal", lambda p: p != SERVER),
-                   mock.patch.object(codex.Codex, "_pane_of", staticmethod(lambda p: {}))]
+                   mock.patch.object(agents, "pane_of", lambda p: {})]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -544,7 +545,7 @@ class LayoutTest(unittest.TestCase):
         self.assertNotIn("agent", slot.state)
 
     def test_registry(self):
-        self.assertEqual([a.name for a in agents.every()], ["claude", "codex"])
+        self.assertEqual([a.name for a in agents.every()], ["claude", "codex", "opencode"])
         self.assertEqual(agents.get(None).name, "claude")
         self.assertEqual(agents.get("codex").mark(True), agents.get("codex").mark(False))
         self.assertEqual((agents.get("claude").mark(False), agents.get("claude").mark(True)), ("✳", "◐"))
