@@ -235,6 +235,18 @@ class CommonTest(unittest.TestCase):
         one = sidebar_common.tab_info({**tab, "claudes": tab["claudes"][:1]})
         self.assertEqual((len(one["boxes"]), one["session_id"]), (1, "s1"))
 
+    def test_an_app_without_a_desktop_entry_has_no_icon_and_draws(self):
+        # (GIO raises for an entry that is not there; that once stopped the sidebar drawing)
+        with mock.patch.object(sidebar_common, "_APPS", {}), \
+                mock.patch.object(sidebar_common.launch, "desktop_app", side_effect=ImportError):
+            self.assertEqual(sidebar_common.app_entry("firefox"), (None, ""))  # (no GIO at all)
+        try:
+            import gi  # noqa: F401
+        except ImportError:
+            return
+        with mock.patch.object(sidebar_common, "_APPS", {}):
+            self.assertEqual(sidebar_common.app_entry("no-such-app-sidelit-test"), (None, ""))
+
     def test_other_windows_are_pills_under_the_claudes(self):
         tab = {"space": 1, "ws": "w1", "name": "Home", "claudes": [{"key": "s1", "title": "Fix", "window": "T"}],
                "windows": [{"id": "T", "app": "terminator", "title": "✳ Fix"},

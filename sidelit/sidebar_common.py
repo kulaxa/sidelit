@@ -24,7 +24,7 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-from sidelit import agents, config, gnome, sources, version as local_version
+from sidelit import agents, config, gnome, launch, sources, version as local_version
 from sidelit.procs import load_json, login_shell
 from sidelit.tabstate import Attention, note
 
@@ -300,6 +300,21 @@ def window_label(title: str | None, app: str | None) -> str:
 
 
 UNREAD = re.compile(r"^\((\d+)\)\s*")  # "(264) Discord | #general": what an app's title says is unread
+
+
+_APPS: dict[str, tuple] = {}  # app id -> (its icon, its name), from its desktop entry
+
+
+def app_entry(app: str) -> tuple:
+    """An app's icon (a Gio.Icon) and name from its desktop entry, found the way a restore
+    finds it (launch.desktop_app); (None, "") for an app with none, or without GIO."""
+    if app not in _APPS:
+        try:
+            info = launch.desktop_app(app)
+        except ImportError:
+            info = None
+        _APPS[app] = (info.get_icon(), info.get_display_name() or "") if info is not None else (None, "")
+    return _APPS[app]
 
 
 def app_info(w: dict, missing: bool = False) -> dict:

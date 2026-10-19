@@ -33,7 +33,7 @@ else:
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
-    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, SOURCE_STATE_CLASS, SidebarLogic, box_classes, close_question, countdown, day_label,
+    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, close_question, countdown, day_label,
     history_lines, item_sub, matches, tab_classes, tab_snapshot, usage_level,
 )
 
@@ -244,23 +244,6 @@ def fork_icon(size: int = 16) -> Gtk.Image:
     image = Gtk.Image.new_from_paintable(_FORK_TEXTURE)
     image.set_pixel_size(size)
     return image
-
-
-_APPS: dict[str, tuple] = {}  # app id -> (its icon, its name), from its desktop entry
-
-
-def app_entry(app: str) -> tuple:
-    """An app's icon and name from its desktop entry (Wayland's app id is the entry's name),
-    (None, "") when it has none."""
-    if app not in _APPS:
-        found = (None, "")
-        for name in dict.fromkeys((app, app.lower())):
-            info = Gio.DesktopAppInfo.new(f"{name}.desktop") if name else None
-            if info is not None:
-                found = (info.get_icon(), info.get_display_name() or "")
-                break
-        _APPS[app] = found
-    return _APPS[app]
 
 
 def app_icon(app: str, size: int = 16) -> Gtk.Image:

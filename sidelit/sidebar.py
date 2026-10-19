@@ -35,7 +35,7 @@ from gi.repository import GLib  # noqa: E402
 # our dialogs are windows too; with this app id the daemon knows them and leaves them out
 # (it has to be set before GTK initialises, which importing Gtk does)
 GLib.set_prgname("sidelit")
-from gi.repository import Gdk, GdkPixbuf, Gio, Gtk, Pango  # noqa: E402
+from gi.repository import Gdk, GdkPixbuf, Gtk, Pango  # noqa: E402
 
 # on GNOME there is no layer shell: Sidelit's GNOME Shell extension docks the plain window
 if gnome.hosted() or X11_DOCK:
@@ -45,7 +45,7 @@ else:
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402,F401 (names the tests and older callers use)
-    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items, box_classes,
+    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items, box_classes,
     close_question, countdown, day_label, group_items, history_lines, item_sub, matches, tab_classes, tab_info,
     tab_snapshot, usage_level,
 )
@@ -244,23 +244,6 @@ def fork_icon() -> Gtk.Image:
     if pixbuf is None:
         return Gtk.Image.new_from_icon_name("edit-copy-symbolic", Gtk.IconSize.MENU)
     return Gtk.Image.new_from_pixbuf(pixbuf)
-
-
-_APPS: dict[str, tuple] = {}  # app id -> (its icon, its name), from its desktop entry
-
-
-def app_entry(app: str) -> tuple:
-    """An app's icon and name from its desktop entry (Wayland's app id is the entry's name),
-    (None, "") when it has none."""
-    if app not in _APPS:
-        found = (None, "")
-        for name in dict.fromkeys((app, app.lower())):
-            info = Gio.DesktopAppInfo.new(f"{name}.desktop") if name else None
-            if info is not None:
-                found = (info.get_icon(), info.get_display_name() or "")
-                break
-        _APPS[app] = found
-    return _APPS[app]
 
 
 def app_icon(app: str, size: int = 18) -> Gtk.Image:
