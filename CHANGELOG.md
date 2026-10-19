@@ -4,7 +4,7 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
-## [Unreleased]
+## [0.6.0] - 2026-10-19
 
 - Sidelit's repository is public now, with a history of its own. A copy installed with the one
   line follows it when you run the line again: a copy with no changes of its own is moved onto

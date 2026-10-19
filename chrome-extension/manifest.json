@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sidelit",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Tells Sidelit which tabs each window has, so its windows come back on their workspaces, tabs and all.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwK+4rdmVh+Y4qUwnooqRrM+BRJCKme88mRcpXDogYkLw2wS5bip539eev8Y206d/BGN5eHJQ5nrskarx3TAO9aWa1LFk/WlDBjK2/CSxrT1tOSYHTa/y8l1kCs7WxgacM7FYto51ztM/9HGVvErFctneeCV+vVrGiGh4ArgmWKp01iD5RfxyvW8F4b55xgqLiSeJNL9GS+cSF2kMpgKGY1z9FEYMDHLO93VL8k3d4OXicQhhS/TaiHwtTU5v9TsdoPZJovzCVgtphUYwLkP5sbhBrFj9mJZZ3SafnHy6FyR9oMj7So2HB4ueee4nQBuQ6oQYgh/QgtPsYQtAFNrxQQIDAQAB",
   "permissions": ["tabs", "nativeMessaging", "storage", "alarms"],
