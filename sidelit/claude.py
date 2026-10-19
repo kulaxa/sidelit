@@ -90,7 +90,9 @@ class AgentsPoller:
 
 def live_sessions(entries: list[dict], table: dict[int, tuple[int, str]]) -> list[dict]:
     """The sessions of `claude agents --json` that may be on screen: a claude process still runs
-    them, and it is not our own `claude -p` (turncheck.py)."""
+    them, and it is not our own `claude -p` (turncheck.py: started by us, in Sidelit's folder)."""
+    from sidelit import config
+    ours = str(config.RUNTIME_DIR)
     out = []
     for d in entries:
         try:
@@ -100,10 +102,20 @@ def live_sessions(entries: list[dict], table: dict[int, tuple[int, str]]) -> lis
         if not pid or not d.get("sessionId"):
             continue
         ppid, comm = table.get(pid, (0, ""))
-        if comm != "claude" or ppid == os.getpid():
+        cwd = str(d.get("cwd") or "")
+        if comm != "claude" or ppid == os.getpid() or cwd == ours or cwd.startswith(ours + "/"):
             continue  # (gone since it was asked; the turn checker's)
         out.append(d)
     return out
+
+
+def placeholder_name(name: str | None, cwd: str = "") -> bool:
+    """The name `claude agents --json` gives a session before Claude has named it: its folder's
+    name and two hex digits ("mario-0f")."""
+    if not name:
+        return False
+    folder = os.path.basename(cwd.rstrip("/")) if cwd else ""
+    return bool(re.fullmatch(re.escape(folder) + r"-[0-9a-f]{2}" if folder else r"\S+-[0-9a-f]{2}", name))
 
 
 def live_session_ids(table=None) -> set[str]:
@@ -112,7 +124,17 @@ def live_session_ids(table=None) -> set[str]:
 
 
 _TITLE_CACHE: dict[str, tuple[float, int, str | None, float]] = {}
-_AI_TITLE_RE = re.compile(r'"type"\s*:\s*"ai-title"\s*,\s*"aiTitle"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_CUSTOM: dict[str, str] = {}  # transcript -> the name you gave it, as last seen (raw)
+_MODEL_CACHE: dict[str, tuple[float, int, str | None]] = {}
+# the names Claude Code records for a session, the one it shows first: the one you gave it
+# (/rename), the one it made up, its agent's
+_TITLE_RES = [re.compile(r'"type"\s*:\s*"' + kind + r'"\s*,\s*"' + key + r'"\s*:\s*"((?:[^"\\]|\\.)*)"')
+              for kind, key in (("custom-title", "customTitle"), ("ai-title", "aiTitle"), ("agent-name", "agentName"))]
+
+
+def _titles_in(text: str) -> list[list[str]]:
+    """Each kind of name (_TITLE_RES) found in a stretch of transcript, oldest first."""
+    return [r.findall(text) for r in _TITLE_RES]
 
 
 def project_slug(cwd: str) -> str:
@@ -157,8 +179,9 @@ def transcript_file(session_id: str, cwd: str) -> Path | None:
 
 
 def transcript_title(session_id: str, cwd: str) -> str | None:
-    """The title Claude shows for a session: the custom title if set, else the latest
-    'ai-title' record in the transcript. Cached by file mtime/size (tail read, cheap)."""
+    """The title Claude shows for a session: the custom title if set, else the latest name the
+    transcript records (_TITLE_RES, in that order); None while it has none (its terminal then
+    says "Claude Code"). Cached by file mtime/size (tail read, cheap)."""
     path = transcript_file(session_id, cwd)
     folder = path.parent if path is not None else PROJECTS / project_slug(cwd)
     custom = load_json(folder / session_id / "custom-title.json", None)
@@ -173,19 +196,25 @@ def transcript_title(session_id: str, cwd: str) -> str | None:
     key = str(path)
     cached = _TITLE_CACHE.get(key)
     now = datetime.now().timestamp()
-    if cached and (cached[0] == st.st_mtime and cached[1] == st.st_size or now - cached[3] < 10):
+    if cached and (cached[0] == st.st_mtime and cached[1] == st.st_size or now - cached[3] < 3):
         return cached[2]
     title = cached[2] if cached else None
     try:
         with open(path, "rb") as handle:
             handle.seek(max(0, st.st_size - 262144))
-            found = _AI_TITLE_RE.findall(handle.read().decode("utf-8", "replace"))
-        if not found and (not cached or now - cached[3] > 60):  # full scan at most once a minute
+            found = _titles_in(handle.read().decode("utf-8", "replace"))
+        # the whole of it at the first look (a name you gave it long ago outranks a newer
+        # made-up one), and when the end names nothing, at most once a minute
+        if (cached is None and not found[0] and st.st_size > 262144) or \
+                (not any(found) and (not cached or now - cached[3] > 60)):
             with open(path, "rb") as handle:
-                found = _AI_TITLE_RE.findall(handle.read().decode("utf-8", "replace"))
-        if found:
-            title = json.loads('"' + found[-1] + '"')
-    except OSError:
+                found = _titles_in(handle.read().decode("utf-8", "replace"))
+        if found[0]:
+            _CUSTOM[key] = found[0][-1]
+        names = [_CUSTOM[key]] if key in _CUSTOM else next((kind for kind in found if kind), None)
+        if names:
+            title = json.loads('"' + names[-1] + '"')
+    except (OSError, ValueError):
         pass
     _TITLE_CACHE[key] = (st.st_mtime, st.st_size, title, now)
     return title
@@ -198,21 +227,34 @@ def pretty_model(model_id: str) -> str:
     return (parts[0].capitalize() + " " + ".".join(parts[1:])).strip()
 
 
+_MODEL_RE = re.compile(r'"model"\s*:\s*"(claude-[a-z0-9.-]+)"')
+
+
 def session_model(session_id: str | None) -> str | None:
-    """Model a session is on: the last one its transcript names."""
+    """Model a session is on: the last one its transcript names. Its end first; after a turn
+    Claude Code writes a large snapshot there, so when the end names none, the whole of it
+    (once per change of the file)."""
     if not session_id:
         return None
     for path in glob.glob(str(PROJECTS / "*" / f"{session_id}.jsonl")):
         try:
-            size = os.path.getsize(path)
-            with open(path, "rb") as handle:
-                handle.seek(max(0, size - 65536))
-                tail = handle.read().decode("utf-8", "replace")
+            st = os.stat(path)
+            cached = _MODEL_CACHE.get(path)
+            if cached and cached[:2] == (st.st_mtime, st.st_size):
+                model = cached[2]
+            else:
+                with open(path, "rb") as handle:
+                    handle.seek(max(0, st.st_size - 262144))
+                    models = _MODEL_RE.findall(handle.read().decode("utf-8", "replace"))
+                    if not models and st.st_size > 262144:
+                        handle.seek(0)
+                        models = _MODEL_RE.findall(handle.read().decode("utf-8", "replace"))
+                model = pretty_model(models[-1]) if models else None
+                _MODEL_CACHE[path] = (st.st_mtime, st.st_size, model)
         except OSError:
             continue
-        models = re.findall(r'"model"\s*:\s*"(claude-[a-z0-9.-]+)"', tail)
-        if models:
-            return pretty_model(models[-1])
+        if model:
+            return model
     return None
 
 
@@ -232,6 +274,7 @@ class ClaudeCode(Agent):
     name, label, short, comm, command = "claude", "Claude Code", "Claude", "claude", "claude"
     marks = ("✳", "◐")  # the glyphs Claude Code itself puts in its terminal's title
     window_title = True
+    untitled = "Claude Code"  # what its terminal's title says before the session has a name
     usage_name = "usage.json"  # (plugin/hooks/usage.js writes it)
     after_install = ("  Claude Code sessions started from now on report their status and window to Sidelit",
                      "  (one already running: type /reload-plugins in it); until then they are followed by their",
@@ -274,6 +317,10 @@ class ClaudeCode(Agent):
 
     def title(self, session, cwd, rec=None):
         return transcript_title(session, cwd)
+
+    def listed_name(self, name, cwd=""):
+        """`claude agents --json` names a session before Claude has: not a name to show."""
+        return None if placeholder_name(name, cwd) else name
 
     def title_key(self, session, rec):
         return transcript_title(session, rec.get("cwd") or "")

@@ -42,6 +42,7 @@ class Agent:
     command = ""       # what starts a new session in a terminal
     marks = ("", "")   # the glyph in front of a box's title: (not working, working)
     window_title = False  # the terminal's title is the session's title (Claude's is; Codex's is the project)
+    untitled = ""      # what that title says while the session has no name yet ("Claude Code")
 
     def __init__(self, hook_dir: Path | None = None):
         self._hook_dir = Path(hook_dir) if hook_dir else None
@@ -93,6 +94,10 @@ class Agent:
     def title(self, session: str, cwd: str, rec: dict | None = None) -> str | None:
         """The title the agent shows for a session."""
         return None
+
+    def listed_name(self, name: str | None, cwd: str = "") -> str | None:
+        """The `name` the agent's own list gives a session, if it is one to show."""
+        return name
 
     def title_key(self, session: str, rec: dict) -> str | None:
         """What the terminal's title says while this session runs in it (window_key's terms)."""

@@ -415,8 +415,10 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   for a permission or an answer, done. That is its main thread; the subagents it runs are dots beside the model, one
   each, and so is a session it started itself, which never gets a box. It also says which
   terminal it lives in: by process ancestry for a session the daemon started (or whose window's
-  process the desktop names), else by which window had the keyboard when you submitted a prompt;
-  and which pane, where the terminal says (Terminator, tmux, WezTerm, kitty). Only without the plugin (or before a
+  process the desktop names), else by which window had the keyboard when you submitted a prompt
+  (until its first prompt, when you started it: a new tab or pane gets its box at once); and
+  which pane, where the terminal says (Terminator, tmux, WezTerm, kitty). A box is called by its
+  session's own name, "New session" until it has one. Only without the plugin (or before a
   session's first event) is the terminal title matched against Claude Code's list of running
   sessions (`claude agents --json`, asked every few seconds), which cannot tell two sessions with
   the same title apart. The two tool-call events run async, so the agent never waits for the hook.

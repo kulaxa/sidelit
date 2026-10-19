@@ -241,15 +241,16 @@ def group_items(src: dict, bound: set) -> list[dict]:
     return [it for it in src["items"] if (src["key"], it["id"]) not in bound]
 
 
-def box_info(c: dict, last_title: str = "") -> dict:
+def box_info(c: dict) -> dict:
     """What a session's box shows: its agent's mark (for Claude Code the glyph it puts in its
-    terminal's title, working or not: agents.py), its title, the model and a note, one dot per
-    subagent at work, and whether it calls you (the daemon decides: tabstate.Attention)."""
+    terminal's title, working or not: agents.py), its title ("New session" until the session has
+    a name), the model and a note, one dot per subagent at work, and whether it calls you (the
+    daemon decides: tabstate.Attention)."""
     state = c.get("state") or "done"
     cls = STATE_CLASS.get(state, "idle")
     agent = agents.get(c.get("agent"))
     return {"key": c.get("key") or c.get("session") or "", "session_id": c.get("session"), "agent": agent.name,
-            "title": c.get("title") or last_title or "Session", "glyph": agent.mark(cls == "working"),
+            "title": c.get("title") or "New session", "glyph": agent.mark(cls == "working"),
             "sub": " · ".join(filter(None, (c.get("model"), note(c)))) or " ", "state": state, "cls": cls,
             "agents": int(c.get("agents") or 0), "calls": bool(c.get("calls")), "cwd": c.get("cwd") or ""}
 
@@ -274,7 +275,7 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
         title, state, sub, cwd = item["title"], item["state"], item_sub(item), None
         cls = SOURCE_STATE_CLASS.get(state, "idle")
     elif c:
-        boxes = [box_info(b, tab.get("last_title") or "") for b in claudes]
+        boxes = [box_info(b) for b in claudes]
         title, state, sub, cls = boxes[0]["title"], boxes[0]["state"], boxes[0]["sub"], None
         cwd = tab.get("cwd") or c.get("cwd")
         head = tab.get("name") or folder_name(cwd) or (f"Workspace {tab['space']}" if not closed else "Workspace")
@@ -469,7 +470,10 @@ class SidebarLogic:
                 with urllib.request.urlopen(LATEST_VERSION_URL, timeout=15) as response:
                     latest = response.read(64).decode("utf-8", "replace").strip()
             except Exception as e:
-                print("update check failed:", e, file=sys.stderr)
+                # (404: no release published where it can be fetched, as while the repository
+                # is private: nothing to offer, and nothing worth saying every hour)
+                if getattr(e, "code", None) != 404:
+                    print("update check failed:", e, file=sys.stderr)
                 return
             ours, theirs = version_tuple(local_version()), version_tuple(latest)
             if ours and theirs and theirs > ours:

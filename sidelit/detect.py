@@ -25,6 +25,7 @@ BY_PID = 3      # ...or the window's own pid (compositors that report it)
 BY_FOCUS = 2    # you submitted a prompt while that terminal had the keyboard
 BY_TITLE = 1    # the terminal's title is what the session's would be
 FOCUS_LAG_S = 0.6  # a focus change reaches us a little after it happens
+SAME_PROCESS = ("clear", "compact")  # session starts in a process that was running already
 # what names a pane (the hook's PANE_VARS), innermost first: tmux in a Terminator pane is tmux's
 PANE_KEYS = ("TMUX_PANE", "WEZTERM_PANE", "KITTY_WINDOW_ID", "TERMINATOR_UUID")
 WOKEN_MAX_S = 300  # an agent's own list alone says it works again for at most this long
@@ -164,7 +165,8 @@ class Detector:
             agent = self.by_name.get(sess.get("agent"))
             if agent is None or not agent.window_title:
                 continue
-            for t in (sess.get("name"), agent.title(sess.get("sessionId", ""), sess.get("cwd", ""))):
+            for t in (agent.listed_name(sess.get("name"), sess.get("cwd") or ""),
+                      agent.title(sess.get("sessionId", ""), sess.get("cwd", ""))):
                 if t:
                     index.setdefault(t.strip(), sess)
         return index
@@ -267,6 +269,15 @@ class Detector:
                 shown = agent.focus_key(w.title) if w is not None and w.app in TERMINAL_APP_IDS else None
                 if shown is not None and (not title or shown == title):
                     found.append((BY_FOCUS, float(prompt_t), wid))
+            started = float(rec.get("started") or 0)
+            if started and not prompt_t and rec.get("source") not in SAME_PROCESS:
+                # until its first prompt: you started it by typing its command in a terminal, the
+                # one with the keyboard then (a new tab or pane of a window that has a Claude in
+                # it already gets a box of its own at once)
+                wid = self.focus_at(started)
+                w = windows.get(wid) if wid else None
+                if w is not None and w.app in TERMINAL_APP_IDS:
+                    found.append((BY_FOCUS, started, wid))
             hits = by_title[agent.name].get(title or "\0", [])
             if len(hits) == 1:
                 found.append((BY_TITLE, float(rec.get("t") or 0), hits[0]))
@@ -394,8 +405,7 @@ class Detector:
         "how", "hooked"} for each session this window shows, in the order they started."""
         sids = self._by_window.get(wid) if wid else None
         if sids:
-            return [self._info(sid, title if len(sids) == 1 else "", self.window_of.get(sid, (None, 0, 0))[1])
-                    for sid in sids]
+            return [self._info(sid, self.window_of.get(sid, (None, 0, 0))[1]) for sid in sids]
         # no mapping yet (first look, no hooks): the title, then the process tree
         sess = None
         if looks_like_claude(title) and title_state(title) != "other":
@@ -406,19 +416,17 @@ class Detector:
                          and not self._windowless(s)), None)
         if sess is None or sess.get("sessionId") in self.window_of:
             return []  # (a session shown in a window we know is not also in this one)
-        return [self._info(sess["sessionId"], title, BY_TITLE)]
+        return [self._info(sess["sessionId"], BY_TITLE)]
 
-    def _info(self, sid: str, title: str, how: int) -> dict:
-        """What a box says of a session. `title`: the window's, when the window shows only this
-        session (with several, it is the title of whichever pane has the keyboard), and the
-        agent titles its terminal after its session."""
+    def _info(self, sid: str, how: int) -> dict:
+        """What a box says of a session. Its title is the session's own, never its window's: that
+        is whichever pane has the keyboard, maybe another session's ("" while it has none)."""
         sess = next((s for s in self.sessions if s.get("sessionId") == sid), None)
         rec = self.hooked.get(sid)
         agent = self.agent_of(sid)
         cwd = (rec or {}).get("cwd") or (sess or {}).get("cwd") or ""
-        shown = bare_title(title) if agent.window_title and looks_like_claude(title) else None
         return {"session": sid, "agent": agent.name,
-                "title": shown or agent.title(sid, cwd, rec) or (sess or {}).get("name") or "",
+                "title": agent.title(sid, cwd, rec) or agent.listed_name((sess or {}).get("name"), cwd) or "",
                 "status": self.status(sid), "agents": self.agents_at_work(sid), "cwd": cwd,
                 "pid": int((rec or sess or {}).get("pid") or 0), "pane": dict((rec or {}).get("pane") or {}),
                 "started": self._started(sid), "prompt_t": float((rec or {}).get("prompt_t") or 0),

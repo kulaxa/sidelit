@@ -183,6 +183,19 @@ class Boxes(unittest.TestCase):
         self.window("A", "✳ Same", claude("s1", "Same"), claude("s2", "Same"), focused=True)
         self.assertEqual([b["typing"] for b in self.boxes(107.0)], [True, True])
 
+    def test_a_new_tab_with_no_name_yet_is_the_one_you_type_in(self):
+        """Its terminal says "Claude Code" until it has a name; the other one finishing calls you."""
+        self.window("A", "⠂ Claude Code", claude("s1", "Fix Test", status="busy"), claude("s2", ""), focused=True)
+        self.boxes(100.0)
+        self.window("A", "✳ Claude Code", claude("s1", "Fix Test"), claude("s2", ""), focused=True)
+        got = {b["key"]: b for b in self.boxes(105.0)}
+        self.assertEqual((got["s1"]["typing"], got["s2"]["typing"], got["s1"]["calls"]), (False, True, 105.0))
+        self.assertEqual([b["title"] for b in self.boxes(106.0)], ["Fix Test", ""])  # ("New session" in the sidebar)
+
+    def test_a_window_titled_claude_code_with_no_session_is_a_new_session(self):
+        self.window("A", "✳ Claude Code")
+        self.assertEqual([b["title"] for b in self.boxes()], [""])
+
     def test_going_there_lands_on_the_one_that_waited_longest(self):
         for sid, wid in (("s1", "A"), ("s2", "B"), ("s3", "C")):
             self.window(wid, f"✳ {sid}", claude(sid, sid, status="busy"))

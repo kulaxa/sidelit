@@ -342,6 +342,92 @@ class TrackerTest(unittest.TestCase):
         seen = self.look_all({"A": term("A", "✳ X")}, 111.0, {"A": TERM_PID})
         self.assertEqual(self.sessions(seen, "A"), ["s1b", "s2"])
 
+    # ---- a second Claude in one window, before its first prompt; what a box is called
+    def transcript(self, sid, *records, cwd="/tmp", pad=0):
+        folder = claude.PROJECTS / claude.project_slug(cwd)
+        folder.mkdir(parents=True, exist_ok=True)
+        lines = [json.dumps(r) for r in records] + [json.dumps({"type": "attachment", "x": "." * pad})] * bool(pad)
+        (folder / f"{sid}.jsonl").write_text("\n".join(lines) + "\n")
+
+    def test_a_second_claude_in_the_window_gets_its_box_before_its_first_prompt(self):
+        """A Terminator you opened yourself (one process for all its windows, and COSMIC names no
+        pid): a new tab, `claude` typed in it. It is placed by the window you typed into."""
+        self.transcript("s1", {"type": "ai-title", "aiTitle": "Fix Test"})
+        self.d.note_focus(99.0, "A")
+        self.pane("s1", 602, 100.0, started=90.0, prompt_t=100.0, source="startup")
+        a, b = term("A", "✳ Fix Test"), term("B", "alex@laptop: ~")
+        self.assertEqual(self.sessions(self.look_all({"A": a, "B": b}, 101.0), "A"), ["s1"])
+        self.pane("s2", 702, 110.0, started=110.0, source="startup")  # SessionStart, no prompt yet
+        a = term("A", "✳ Claude Code")  # (the new tab has the keyboard: its title is the window's)
+        seen = self.look_all({"A": a, "B": b}, 111.0)
+        self.assertEqual((self.sessions(seen, "A"), seen["B"]), (["s1", "s2"], []))
+        self.assertEqual([c["title"] for c in seen["A"]], ["Fix Test", ""])  # (the window's is neither's)
+        self.assertEqual(seen["A"][1]["pane"], {"TERMINATOR_UUID": "urn:uuid:s2"})
+        # its first prompt, and its name
+        self.hook("s2", "busy", 120.0, pid=702, started=110.0, prompt_t=120.0, ancestors=[702, 701, TERM_PID, 1],
+                  source="startup", pane={"TERMINATOR_UUID": "urn:uuid:s2"})
+        self.transcript("s2", {"type": "ai-title", "aiTitle": "Review tests"})
+        claude._TITLE_CACHE.clear()
+        seen = self.look_all({"A": term("A", "◐ Review tests"), "B": b}, 121.0)
+        self.assertEqual([c["title"] for c in seen["A"]], ["Fix Test", "Review tests"])
+
+    def test_one_started_by_clear_is_placed_by_its_process_not_the_keyboard(self):
+        self.d.note_focus(99.0, "B")
+        self.pane("s1", 602, 100.0, started=100.0, source="clear")
+        self.assertEqual(self.look_all({"A": term("A", "✳ X"), "B": term("B", "✳ Y")}, 101.0),
+                         {"A": [], "B": []})
+
+    def test_a_box_is_called_by_the_sessions_own_name(self):
+        """The one you gave it, else Claude's, else its agent's; the placeholder Claude Code
+        lists before any ("mario-0f") and the window's title never."""
+        self.d.note_focus(99.0, "A")
+        self.pane("s1", 602, 100.0, started=90.0, prompt_t=100.0)
+        self.listed("s1", 602, "idle", name="tmp-0f")
+        a = term("A", "⠧ | mario")
+        self.assertEqual(self.look_all({"A": a}, 101.0)["A"][0]["title"], "")
+        self.listed("s1", 602, "idle", name="Fix Test")  # Claude Code named it
+        self.assertEqual(self.look_all({"A": a}, 102.0)["A"][0]["title"], "Fix Test")
+        cases = [((("ai-title", "aiTitle", "Made up"),), "Made up"),
+                 ((("agent-name", "agentName", "Agent"),), "Agent"),
+                 ((("custom-title", "customTitle", "Mine"), ("ai-title", "aiTitle", "Made up later")), "Mine"),
+                 ((("custom-title", "customTitle", "Mine"), ("custom-title", "customTitle", "Renamed")), "Renamed")]
+        for records, want in cases:
+            self.transcript("s1", *({"type": t, k: v} for t, k, v in records))
+            claude._TITLE_CACHE.clear()
+            claude._CUSTOM.clear()
+            self.assertEqual(claude.transcript_title("s1", "/tmp"), want, records)
+
+    def test_a_name_you_gave_it_long_ago_still_wins(self):
+        self.transcript("s1", {"type": "custom-title", "customTitle": "Mine"}, {"type": "x", "pad": "." * 300000},
+                        {"type": "ai-title", "aiTitle": "Made up"})
+        claude._TITLE_CACHE.clear()
+        claude._CUSTOM.clear()
+        self.assertEqual(claude.transcript_title("s1", "/tmp"), "Mine")
+
+    def test_the_placeholder_name(self):
+        self.assertTrue(claude.placeholder_name("mario-0f", "/home/mario"))
+        self.assertTrue(claude.placeholder_name("sidelit-94", ""))
+        self.assertFalse(claude.placeholder_name("Fix Test", "/home/mario"))
+        self.assertFalse(claude.placeholder_name("sidelit-94", "/home/mario"))  # (another folder's)
+        self.assertFalse(claude.placeholder_name(None))
+
+    def test_the_model_from_the_first_turn(self):
+        """Claude Code writes a large snapshot after a turn: the model is further back than the end."""
+        self.transcript("s1", {"type": "user"}, {"type": "assistant", "message": {"model": "claude-opus-5-5"}},
+                        {"type": "attachment", "attachment": {"type": "prompt_snapshot", "x": "." * 300000}})
+        self.assertEqual(claude.session_model("s1"), "Opus 5.5")
+        self.transcript("s2", {"type": "user"})
+        self.assertIsNone(claude.session_model("s2"))
+
+    def test_the_turn_checkers_claude_is_never_a_session(self):
+        """Claude Code lists it as an interactive session, in Sidelit's folder."""
+        from sidelit import config
+        self.table[777] = (1, "claude")
+        self.live[777] = {"pid": 777, "sessionId": "judge", "cwd": str(config.RUNTIME_DIR), "kind": "interactive",
+                          "status": "idle", "name": "sidelit-94"}
+        self.d.refresh(100.0, force=True, table=self.table)
+        self.assertEqual(self.d.sessions, [])
+
     def test_mapping_survives_a_daemon_restart(self):
         a, b = term("A", "✳ Fix tests"), term("B", "✳ Fix tests")
         self.d.note_focus(100.0, "B")

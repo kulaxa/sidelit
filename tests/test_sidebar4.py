@@ -178,6 +178,32 @@ class CommonTest(unittest.TestCase):
         dict(e for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR)["Fork session"]()
         self.assertEqual(ui.sent[-1], ("fork", {"session": "s2"}))
 
+    def test_a_session_with_no_name_yet_is_a_new_session(self):
+        """Not the workspace's last title, nor a placeholder: the daemon sends "" until it has a name."""
+        tab = {"space": 2, "last_title": "Older Claude", "claudes": [{"key": "s1", "session": "s1", "title": ""}]}
+        self.assertEqual(sidebar_common.tab_info(tab)["boxes"][0]["title"], "New session")
+
+    def test_no_release_to_fetch_is_not_worth_a_line_every_hour(self):
+        """(a 404 while the repository is private)"""
+        import io
+        import urllib.error
+
+        class Fake(sidebar_common.SidebarLogic):
+            pass
+
+        for error, said in ((urllib.error.HTTPError("u", 404, "Not Found", {}, None), ""),
+                            (urllib.error.URLError("no network"), "update check failed")):
+            err = io.StringIO()
+            with mock.patch.object(sidebar_common.urllib.request, "urlopen", side_effect=error), \
+                    mock.patch.object(sidebar_common.threading, "Thread",
+                                      side_effect=lambda target, daemon: mock.Mock(start=target)), \
+                    mock.patch.object(sidebar_common.sys, "stderr", err):
+                Fake()._check_update()
+            if said:
+                self.assertIn(said, err.getvalue())
+            else:
+                self.assertEqual(err.getvalue(), "")
+
     def test_a_workspace_with_claudes_is_a_box_each(self):
         tab = {"space": 2, "ws": "w1", "cwd": "/src/pricing", "active": False, "claudes": [
             {"key": "s1", "session": "s1", "title": "Pricing API", "state": "busy", "model": "Opus 5.5", "agents": 2},

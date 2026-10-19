@@ -79,7 +79,7 @@ class Daemon:
         # agent -> (when its usage limits are next asked for, whether they are being asked now)
         self._usage: dict[str, list] = {a.name: [time.time() + 5, False] for a in agents.every() if a.polls_usage}
         self._unmatched: dict[str, str] = {}  # window -> state, for Claude-titled windows with no session matched
-        self._models: dict[str, tuple[float, str | None]] = {}
+        self._models: dict[str, tuple[float, str | None, float]] = {}  # session -> (asked, model, its last event)
         self._tl: dict[str, object] = {}
         self.attention = Attention()  # which Claudes call you back (yellow), by box key
         self._focus_pending = 0  # GLib source of a focus waiting for a workspace slide to end
@@ -689,11 +689,13 @@ class Daemon:
         if not session:
             return None
         now = time.time()
+        rec = self.detector.hooked.get(session)
+        heard = float((rec or {}).get("t") or 0)  # (a session that reports something may have its first model)
         hit = self._models.get(session)
-        if hit and now - hit[0] < 15:
+        if hit and now - hit[0] < (15 if hit[2] == heard else 2):
             return hit[1]
-        model = self.detector.agent_of(session).model(session, self.detector.hooked.get(session))
-        self._models[session] = (now, model)
+        model = self.detector.agent_of(session).model(session, rec)
+        self._models[session] = (now, model, heard)
         return model
 
     def _claudes_on(self, obs: Obs, wins: list[Win], now: float) -> list[dict]:
@@ -717,11 +719,11 @@ class Daemon:
                     boxes.append(self._unmatched_box(w, now, agent.name))
         return sorted(boxes, key=lambda b: b["started"])
 
-    @staticmethod
-    def _typing_in(w: Win, group: list[dict]) -> set[str]:
+    def _typing_in(self, w: Win, group: list[dict]) -> set[str]:
         """The sessions of this window you are typing in: none unless it has the keyboard. With
         several in it (split panes, tabs) the one whose title it shows, the pane with the
-        keyboard; none when it shows a shell's; all when it cannot tell (two with that title)."""
+        keyboard ("Claude Code" is a Claude's with no name yet); none when it shows a shell's;
+        all when it cannot tell (two with that title)."""
         if not w.focused:
             return set()
         every = {c["session"] for c in group}
@@ -729,7 +731,14 @@ class Daemon:
             return every
         if not titles.looks_like_claude(w.title):
             return set()
-        hits = {c["session"] for c in group if c.get("title") and c["title"] == titles.bare_title(w.title)}
+        hits = set()
+        for c in group:
+            agent = agents.get(c.get("agent"))
+            shows = agent.window_key(w.title)
+            says = (c.get("title") or agent.untitled) if agent.window_title else \
+                agent.title_key(c["session"], self.detector.hooked.get(c["session"]) or {"cwd": c.get("cwd") or ""})
+            if shows is not None and says and shows == says:
+                hits.add(c["session"])
         return hits if len(hits) == 1 else every
 
     def _box(self, c: dict, w: Win, typing: bool, now: float) -> dict:
@@ -757,7 +766,10 @@ class Daemon:
         self._unmatched[w.id] = state
         key = f"w:{w.id}"
         calls = self.attention.update(key, state, w.focused, now=now)
-        return {"key": key, "session": None, "agent": agent, "title": titles.bare_title(w.title) or "", "state": state, "on": "",
+        title = titles.bare_title(w.title) or ""
+        if title == agents.get(agent).untitled:  # (no name yet: the box says "New session")
+            title = ""
+        return {"key": key, "session": None, "agent": agent, "title": title, "state": state, "on": "",
                 "model": None, "agents": 0, "cwd": "", "window": w.id, "pane": {}, "started": 0.0, "typed": 0.0,
                 "how": None, "hooked": False, "typing": w.focused,
                 "calls": self.attention.since(key) if calls else 0.0}
