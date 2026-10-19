@@ -339,7 +339,7 @@ What OpenCode offers differs a little from Claude Code:
   inside the older terminal.
 - A session opened with `opencode -s <id>` (as a restore after a login does) is on screen at
   once, before you type in it.
-- Its subagents run as sessions of their own; Sidelit counts them as the session's dots, and a
+- Its subagents run as sessions of their own; Sidelit counts them as the session's blocks, and a
   permission or a question one of them asks makes the session wait for you.
 - One `opencode` window can switch between sessions (`/sessions`, and OpenCode 2's tabs): its
   box stays with the session started there last.
@@ -377,16 +377,22 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
 
 ## What it does
 
-- **Every workspace is a tab.** A workspace with agent sessions is a card with a box for each
-  session, in the order they started: its own title, the model and a state stripe, under a
-  header naming the workspace's folder (or the name you gave it). Sessions in terminals of their
-  own and in split panes or tabs of one terminal window all show. Plain tabs (dim, italic) show
-  what is open on them. The active workspace has the cyan line.
+- **Every workspace is a card.** A box for each agent session on it, in the order they
+  started, together in one well: its own title, the model and a state stripe. Sessions in
+  terminals of their own and in split panes or tabs of one terminal window all show. Under
+  them, a small dimmed icon for each other window on the workspace, with a browser window's tab
+  count (from Sidelit's Chrome extension) and what an app's title says is unread ("(3) …", as
+  Discord, Slack and many web apps put it); the icons take their colour while the pointer is on
+  the card, so at a glance only the sessions' states stand out. Hover an icon for its title,
+  click it to bring that window forward. The first
+  session's title says what the workspace is about; a name you give it heads the card above
+  its sessions, and a workspace without sessions is headed by its name or number. Hover a card
+  for its folder and switch shortcut. The active workspace is cyan.
 - **Click** a tab to switch; keyboard focus lands in the session that has waited longest for
   you, else the one you used last. Switching with the workspace's own shortcut does the same
   when a session there needs you. **Click a box** to go to that session's terminal, and its pane
   in tmux, WezTerm and kitty (with remote control on); Terminator offers no way to focus a pane
-  from outside, so there its window comes forward. Each tab shows its switch shortcut (COSMIC's
+  from outside, so there its window comes forward. Hovering a card shows its switch shortcut (COSMIC's
   default Super+1…9, Super+0 for the last; on KDE, the key bound to "Switch to Desktop N"; on
   GNOME, the key bound to "Switch to workspace N"; on Hyprland, the key that goes to that
   workspace's number; on niri, Mod+1…9 on the tabs of the screen you are on; on sway, the key
@@ -408,11 +414,11 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
   reopen": one click brings it and its windows back.
 - **Drag** a tab onto another to reorder the workspaces themselves (COSMIC, GNOME and niri, where
   a tab dropped among another screen's moves its workspace to that screen; KWin cannot reorder
-  its desktops, and Hyprland and sway order them by number). **Double-click** (or right-click → Rename) to name a plain workspace; a
-  session's title always wins.
+  its desktops, and Hyprland and sway order them by number). **Double-click** (or right-click → Rename) to name a workspace: the
+  name heads its card; an empty name takes the header away again.
 - **Status, straight from the agent.** The hook in Sidelit's plugin (above; for Codex, once you
   have trusted it) makes every session report what it is doing as it happens: working, waiting
-  for a permission or an answer, done. That is its main thread; the subagents it runs are dots beside the model, one
+  for a permission or an answer, done. That is its main thread; the subagents it runs are small blocks right after the model, one
   each, and so is a session it started itself, which never gets a box. It also says which
   terminal it lives in: by process ancestry for a session the daemon started (or whose window's
   process the desktop names), else by which window had the keyboard when you submitted a prompt

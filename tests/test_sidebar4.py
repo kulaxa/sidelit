@@ -212,20 +212,47 @@ class CommonTest(unittest.TestCase):
             {"key": "s3", "session": "s3", "title": "Deploy", "state": "external", "on": "prod deploy",
              "model": "Haiku 5.5"}]}
         info = sidebar_common.tab_info(tab)
-        self.assertEqual((info["head"], info["head_tip"]), ("pricing", "/src/pricing"))
+        # named after its first Claude; the folder shows on hover
+        self.assertEqual((info["title"], info["sub"], info["tip"]), ("Pricing API", "", "/src/pricing"))
         self.assertEqual([(b["glyph"], b["title"], b["sub"], b["cls"], b["agents"], b["calls"]) for b in info["boxes"]], [
             ("◐", "Pricing API", "Opus 5.5", "working", 2, False),  # subagents are dots, not words
             ("✳", "Review tests", "Sonnet 5.5", "idle", 0, True),
             ("✳", "Deploy", "Haiku 5.5 · waiting on prod deploy", "shell", 0, False)])
         classes = dict(sidebar_common.tab_classes(tab, info, True))
-        self.assertTrue(classes["boxes"] and classes["attention"])
+        self.assertTrue(classes["card"] and classes["attention"])
         self.assertFalse(classes["claude"] or classes["working"])  # each box carries its own state
         self.assertEqual(dict(sidebar_common.box_classes(info["boxes"][1]))["attention"], True)
-        # a name you gave it heads the card instead of the folder
-        self.assertEqual(sidebar_common.tab_info({**tab, "name": "Billing"})["head"], "Billing")
+        # no header: the first Claude's title says it once; a name you gave it heads the card
+        self.assertFalse(info["head"])
+        named = sidebar_common.tab_info({**tab, "name": "Billing"})
+        self.assertEqual((named["title"], named["head"]), ("Billing", True))
+        self.assertTrue(sidebar_common.tab_info({**tab, "claudes": []})["head"])  # nothing else to name it
+        # a first Claude with no name yet: the next one's, else the last one it had
+        unnamed = {"key": "s0", "session": "s0", "title": ""}
+        self.assertEqual(sidebar_common.tab_info({**tab, "claudes": [unnamed, *tab["claudes"]]})["title"], "Pricing API")
+        self.assertEqual(sidebar_common.tab_info({**tab, "claudes": [unnamed], "last_title": "Old"})["title"], "Old")
         # one Claude: one box, the same card
         one = sidebar_common.tab_info({**tab, "claudes": tab["claudes"][:1]})
         self.assertEqual((len(one["boxes"]), one["session_id"]), (1, "s1"))
+
+    def test_other_windows_are_pills_under_the_claudes(self):
+        tab = {"space": 1, "ws": "w1", "name": "Home", "claudes": [{"key": "s1", "title": "Fix", "window": "T"}],
+               "windows": [{"id": "T", "app": "terminator", "title": "✳ Fix"},
+                           {"id": "C", "app": "google-chrome", "title": "CI - Google Chrome"},
+                           {"id": "D", "app": "discord", "title": "(264) #office | Acme - Discord"},
+                           {"id": "E", "app": "google-chrome", "title": "Docs - Google Chrome", "tabs": 26}],
+               "missing": [{"slot": "x", "what": "code 'notes'", "app": "code"}]}
+        info = sidebar_common.tab_info(tab)
+        self.assertEqual(info["title"], "Home")
+        # the Claude's own terminal is its box, not a pill too; a missing window is a dim pill
+        self.assertEqual([(a["key"], a["window"], a["title"], a["missing"], a["tabs"], a["unread"])
+                          for a in info["apps"]], [
+            ("C", "C", "CI", False, 0, 0), ("D", "D", "#office | Acme", False, 0, 264),
+            ("E", "E", "Docs", False, 26, 0), ("x", None, "code 'notes'", True, 0, 0)])
+        empty = sidebar_common.tab_info({"space": 3, "ws": "w3", "claudes": [], "windows": []})
+        self.assertEqual((empty["title"], empty["sub"], empty["apps"]), ("Workspace 3", "empty", []))
+        self.assertEqual(sidebar_common.window_label("Notes — Text Editor", "org.gnome.TextEditor"), "Notes")
+        self.assertEqual(sidebar_common.window_label("a - b", "kitty"), "a - b")  # not the app's name: kept
 
     def test_a_box_click_goes_to_its_claude_and_the_card_lands_where_needed(self):
         class Fake(sidebar_common.SidebarLogic):
@@ -240,7 +267,10 @@ class CommonTest(unittest.TestCase):
         tab = {"key": "w:w1", "space": 2, "ws": "w1", "claudes": [{"key": "s1"}, {"key": "s2"}]}
         ui.on_box_clicked(tab, sidebar_common.tab_info(tab)["boxes"][1])
         ui.on_tab_clicked(tab)
-        self.assertEqual(ui.sent, [("focus", {"key": "s2"}), ("activate", {"ws": "w1"})])
+        ui.on_app_clicked(tab, {"window": "C"})
+        ui.on_app_clicked(tab, {"window": None})  # missing: the workspace, which reopens it
+        self.assertEqual(ui.sent, [("focus", {"key": "s2"}), ("activate", {"ws": "w1"}),
+                                   ("focus", {"window": "C"}), ("activate", {"ws": "w1"})])
 
     def test_a_package_install_updates_with_its_own_package_tool(self):
         with mock.patch.object(sidebar_common, "checkout_root", return_value=None), \

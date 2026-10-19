@@ -71,9 +71,6 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab:hover ~ .cw-tab {{ transform: translateY(6px); transition: transform 110ms cubic-bezier(0.2, 0.9, 0.3, 1); }}
 .cw-tab.active {{ background-color: rgba(40,92,116,0.88); border-color: rgba(100,210,255,0.45); }}
 .cw-tab.active:hover {{ background-color: rgba(48,104,130,0.92); }}
-.cw-tab.plain {{ background-color: rgba(54,54,60,0.66); border-color: rgba(255,255,255,0.05); }}
-.cw-tab.plain:hover {{ background-color: rgba(70,70,78,0.85); }}
-.cw-tab.plain.active {{ background-color: rgba(40,92,116,0.82); border-color: rgba(100,210,255,0.40); }}
 .cw-tab.claude.attention {{ border-color: rgba(255,214,10,0.45); }}
 .cw-tab.drop-before {{ box-shadow: inset 0 3px #64d2ff; }}
 .cw-tab.drop-after {{ box-shadow: inset 0 -3px #64d2ff; }}
@@ -106,19 +103,37 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab.claude.attention .cw-pill {{ background-color: #ffd60a; animation: cw-attention 1.4s ease-in-out infinite; }}
 .cw-tab.claude.failed .cw-pill {{ background-color: #ff453a; }}
 
-/* A workspace with Claudes: a card holding one box per Claude, in the order they started,
-   under a header that names the workspace (its folder) with its shortcut and close button.
-   Each box is a recessed well with its own state stripe; a working one is lit from its stripe,
-   one that needs you lit yellow and its title too, and the card around it glows softly.
-   Subagents at work are dots on the model line, in the box's colour. */
-.cw-tab.boxes {{ padding: 6px; }}
-.cw-tab.boxes:hover {{ transform: scale(1.02); }}
-.cw-tab.boxes.attention {{ border-color: rgba(255,214,10,0.35); box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
-.cw-tab.boxes.attention:hover {{ box-shadow: 0 0 14px -2px rgba(255,214,10,0.22), 0 8px 20px rgba(0,0,0,0.35); }}
-.cw-head {{ padding: 2px 2px 6px 16px; }}
-.cw-folder {{ color: rgba(235,235,245,0.55); font-family: {MONO}; font-size: 11px; font-weight: 500; }}
-.cw-box {{ border-radius: 10px; background-color: rgba(22,22,26,0.5); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
-  padding: 8px 8px 7px 6px; transition: background-color 160ms ease-out, background-image 160ms ease-out; }}
+/* A workspace is a card: a box per Claude in the order they started, under a header with its
+   name (two lines at most) and close button when you named it or it has no Claude (else the
+   first Claude's title names it, and its box has the close button). Its folder and shortcut
+   show on hover. Its Claudes share one recessed well, a thin line between them; each has its
+   own state stripe, a working one is lit from its stripe, one that needs you lit yellow and its
+   title too, and the card around it glows softly. Subagents at work are small blocks right
+   after the model, in the box's colour. The other windows are a line of small grey icons under
+   the well, a browser's tab count and what is unread beside them in dim grey; they take their
+   colour while the pointer is on the card, so at a glance only a Claude's colour stands out.
+   An icon's title shows on hover. */
+.cw-tab.card {{ padding: 6px; }}
+.cw-tab.card:hover {{ transform: scale(1.02); }}
+.cw-tab.card.attention {{ border-color: rgba(255,214,10,0.35); box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
+.cw-tab.card.attention:hover {{ box-shadow: 0 0 14px -2px rgba(255,214,10,0.22), 0 8px 20px rgba(0,0,0,0.35); }}
+.cw-head {{ padding: 1px 2px 6px 6px; }}
+.cw-card-name {{ color: rgba(255,255,255,0.94); font-size: 14px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
+.cw-tab.missing .cw-card-name {{ color: rgba(235,235,245,0.45); }}
+.cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; }}
+.cw-apps {{ padding: 5px 4px 0; }}
+.cw-app {{ border-radius: 6px; padding: 2px 3px; filter: grayscale(1); opacity: 0.45;
+  transition: opacity 160ms ease-out, filter 160ms ease-out, background-color 160ms ease-out; }}
+.cw-tab:hover .cw-app, .cw-tab.active .cw-app {{ filter: none; opacity: 0.9; }}
+.cw-app:hover {{ background-color: rgba(255,255,255,0.12); opacity: 1; }}
+.cw-tab .cw-app.missing {{ opacity: 0.25; }}
+.cw-app-tabs, .cw-app-unread {{ color: rgba(235,235,245,0.75); font-size: 10.5px; font-weight: 600; padding-left: 3px; }}
+.cw-well {{ border-radius: 10px; background-color: rgba(22,22,26,0.5); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); }}
+.cw-sep {{ min-height: 1px; background-color: rgba(255,255,255,0.07); margin: 0 8px 0 14px; }}
+.cw-box {{ border-radius: 0; padding: 8px 8px 7px 6px;
+  transition: background-color 160ms ease-out, background-image 160ms ease-out; }}
+.cw-box:first-child {{ border-top-left-radius: 10px; border-top-right-radius: 10px; }}
+.cw-box:last-child {{ border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }}
 /* on the darker well a stripe breathes from .55, or at its faintest it reads as switched off */
 @keyframes cw-box-working {{
   0%   {{ background-color: rgba(255,159,10,0.55); }}
@@ -130,7 +145,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
   50%  {{ background-color: #ffd60a; }}
   100% {{ background-color: rgba(255,214,10,0.55); }}
 }}
-.cw-box:hover {{ background-color: rgba(30,30,35,0.6); }}
+.cw-box:hover {{ background-color: rgba(255,255,255,0.04); }}
 .cw-box.working {{ background-image: linear-gradient(90deg, rgba(255,159,10,0.10), transparent 45%); }}
 .cw-box.attention {{ background-image: linear-gradient(90deg, rgba(255,214,10,0.12), transparent 45%); }}
 .cw-box .cw-pill {{ margin: 0; background-color: rgba(174,174,178,0.55); }}
@@ -142,24 +157,20 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-box-name {{ color: rgba(255,255,255,0.96); font-size: 13.5px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
 .cw-box.attention .cw-box-name {{ color: #ffd60a; font-weight: 700; }}
 .cw-box-sub {{ color: rgba(235,235,245,0.60); font-size: 12px; }}
-.cw-dot {{ min-width: 5px; min-height: 5px; border-radius: 50%; background-color: rgba(235,235,245,0.55); }}
+.cw-dot {{ min-width: 6px; min-height: 6px; border-radius: 1.5px; background-color: rgba(235,235,245,0.55); }}
 .cw-box.working .cw-dot {{ background-color: rgba(255,159,10,0.8); box-shadow: 0 0 4px rgba(255,159,10,0.5); }}
-.cw-tab.boxes .cw-box button.cw-icon {{ opacity: 0.35; }}
-.cw-tab.boxes .cw-box:hover button.cw-icon {{ opacity: 0.9; }}
+.cw-tab.card .cw-box button.cw-icon {{ opacity: 0.35; }}
+.cw-tab.card .cw-box:hover button.cw-icon {{ opacity: 0.9; }}
 
 .cw-src-head {{ color: rgba(235,235,245,0.45); font-size: 78%; font-weight: 600; padding: 14px 18px 6px; }}
 .cw-src-note {{ color: rgba(235,235,245,0.45); font-size: 82%; padding: 2px 18px 8px; }}
 .cw-src-name {{ color: rgba(255,255,255,0.92); font-size: 10.5pt; font-weight: 500; }}
 .cw-src.waiting .cw-src-name {{ color: #ffd60a; }}
 .cw-name {{ color: rgba(255,255,255,0.96); font-size: 10.5pt; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
-.cw-tab.plain .cw-name {{ color: rgba(235,235,245,0.62); font-weight: 400; }}
 .cw-tab.attention .cw-name {{ color: #ffd60a; }}
 .cw-tab.missing .cw-name, .cw-tab.missing .cw-model {{ color: rgba(235,235,245,0.32); }}
 .cw-model {{ color: rgba(235,235,245,0.60); font-size: 85%; margin-top: 2px; }}
 .cw-path {{ color: rgba(235,235,245,0.32); font-family: {MONO}; font-size: 70%; margin-top: 1px; }}
-.cw-key {{ color: rgba(235,235,245,0.55); font-size: 72%; font-weight: 600; padding: 1px 7px;
-  background-color: rgba(255,255,255,0.08); border-radius: 8px; }}
-.cw-tab.active .cw-key {{ color: #64d2ff; background-color: rgba(100,210,255,0.18); }}
 /* fork and close stay quiet until the pointer is on their tab */
 button.cw-icon {{ padding: 2px 4px; min-width: 16px; min-height: 16px; border: none; background: none;
   box-shadow: none; opacity: 0.35; transition: opacity 160ms ease-out; }}
@@ -231,6 +242,31 @@ def fork_icon(size: int = 16) -> Gtk.Image:
         except Exception:
             return Gtk.Image.new_from_icon_name("edit-copy-symbolic")
     image = Gtk.Image.new_from_paintable(_FORK_TEXTURE)
+    image.set_pixel_size(size)
+    return image
+
+
+_APPS: dict[str, tuple] = {}  # app id -> (its icon, its name), from its desktop entry
+
+
+def app_entry(app: str) -> tuple:
+    """An app's icon and name from its desktop entry (Wayland's app id is the entry's name),
+    (None, "") when it has none."""
+    if app not in _APPS:
+        found = (None, "")
+        for name in dict.fromkeys((app, app.lower())):
+            info = Gio.DesktopAppInfo.new(f"{name}.desktop") if name else None
+            if info is not None:
+                found = (info.get_icon(), info.get_display_name() or "")
+                break
+        _APPS[app] = found
+    return _APPS[app]
+
+
+def app_icon(app: str, size: int = 16) -> Gtk.Image:
+    icon = app_entry(app)[0]
+    image = Gtk.Image.new_from_gicon(icon) if icon is not None else \
+        Gtk.Image.new_from_icon_name("application-x-executable-symbolic")
     image.set_pixel_size(size)
     return image
 
@@ -781,25 +817,27 @@ class Sidebar(Gtk.Window, SidebarLogic):
                 self._update_tab(child, tab, info, attention)
 
     def _update_tab(self, w, tab, info, attention):
-        if w.cw_box_keys != [b["key"] for b in info["boxes"]] or \
-                (not info["boxes"] and w.cw_session_id != info["session_id"]):
-            # a Claude came or went, or the fork button appears/disappears: rebuild this tab only
+        if w.cw_box_keys != [b["key"] for b in info["boxes"]] or w.cw_app_keys != [a["key"] for a in info["apps"]] \
+                or w.cw_card != (not info["item"]) or (info["item"] and w.cw_session_id != info["session_id"]) \
+                or w.cw_head != info["head"]:
+            # a Claude or a window came or went, or the fork button appears/disappears: rebuild this tab only
             new = self._make_tab(tab, info, attention)
             self.list_box.insert_child_after(new, w)
             self.list_box.remove(w)
             return
         w.cw_tab = tab
         set_classes(w, tab_classes(tab, info, attention))
-        key = tab.get("shortcut") or ""
-        if w.cw_key.get_text() != key:
-            w.cw_key.set_text(key)
-            w.cw_key.set_visible(bool(key))
-        if info["boxes"]:
-            if w.cw_head.get_text() != info["head"]:
-                w.cw_head.set_text(info["head"])
-            w.cw_head.set_tooltip_text(info["head_tip"] or None)
+        if w.cw_card:
+            w.set_tooltip_text(info["tip"] or None)
+            if w.cw_head and w.cw_name.get_text() != info["title"]:
+                w.cw_name.set_text(info["title"])
+            if w.cw_note.get_text() != info["sub"]:
+                w.cw_note.set_text(info["sub"])
+                w.cw_note.set_visible(bool(info["sub"]))
             for bw, box in zip(w.cw_boxes, info["boxes"]):
                 self._update_box(bw, box)
+            for aw, app in zip(w.cw_apps, info["apps"]):
+                self._update_app(aw, app)
             return
         if w.cw_title.get_text() != info["title"]:
             w.cw_title.set_text(info["title"])
@@ -827,10 +865,11 @@ class Sidebar(Gtk.Window, SidebarLogic):
         return close
 
     def _make_tab(self, tab: dict, info: dict, attention: bool) -> Gtk.Widget:
-        if info["boxes"]:
-            w = self._make_box_card(tab, info, attention)
-        else:
+        if info["item"]:
             w = self._make_plain_tab(tab, info, attention)
+        else:
+            w = self._make_card(tab, info, attention)
+        w.cw_card = not info["item"]
         w.cw_tab = tab
         w.cw_session_id = info["session_id"]
         w.cw_pressed = w.cw_dragging = w.cw_double = False
@@ -849,38 +888,102 @@ class Sidebar(Gtk.Window, SidebarLogic):
         w.add_controller(drag)
         return w
 
-    def _make_box_card(self, tab: dict, info: dict, attention: bool) -> Gtk.Widget:
-        """A workspace with Claudes: its header (folder, shortcut, close), then a box each."""
+    def _make_card(self, tab: dict, info: dict, attention: bool) -> Gtk.Widget:
+        """A workspace: its header (name, close) if it has one, a box per Claude (without a
+        header the first has the close button), an icon per other window; its folder and shortcut
+        show on hover."""
         w = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         w.add_css_class("cw-tab")
         set_classes(w, tab_classes(tab, info, attention))
-        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        head.add_css_class("cw-head")
-        folder = label(info["head"], "cw-folder")
-        folder.set_hexpand(True)
-        folder.set_ellipsize(Pango.EllipsizeMode.END)
-        folder.set_valign(Gtk.Align.CENTER)
-        folder.set_tooltip_text(info["head_tip"] or None)
-        head.append(folder)
-        key = label(tab.get("shortcut") or "", "cw-key")
-        key.set_valign(Gtk.Align.CENTER)
-        key.set_visible(bool(key.get_text()))
-        head.append(key)
-        close = self._close_button(w)
-        close.set_valign(Gtk.Align.CENTER)
-        head.append(close)
-        w.append(head)
-        w.cw_boxes = []
+        w.set_tooltip_text(info["tip"] or None)
+        w.cw_head, w.cw_name = info["head"], None
+        if info["head"]:
+            w.cw_name = self._card_head(w, info)
+        note = label(info["sub"], "cw-card-note")
+        note.set_visible(bool(info["sub"]))
+        w.append(note)
+        w.cw_boxes, w.cw_apps = [], []
+        well = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        well.add_css_class("cw-well")
         for i, box in enumerate(info["boxes"]):
-            bw = self._make_box(w, box)
-            bw.set_margin_top(4 if i else 0)
-            w.append(bw)
+            if i:
+                sep = Gtk.Box()
+                sep.add_css_class("cw-sep")
+                well.append(sep)
+            bw = self._make_box(w, box, closes=i == 0 and not info["head"])
+            well.append(bw)
             w.cw_boxes.append(bw)
-        w.cw_head, w.cw_key, w.cw_box_keys = folder, key, [b["key"] for b in info["boxes"]]
+        well.set_visible(bool(info["boxes"]))
+        w.append(well)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        row.add_css_class("cw-apps")
+        for app in info["apps"]:
+            aw = self._make_app(app)
+            row.append(aw)
+            w.cw_apps.append(aw)
+        row.set_visible(bool(info["apps"]))
+        w.append(row)
+        w.cw_note = note
+        w.cw_box_keys, w.cw_app_keys = [b["key"] for b in info["boxes"]], [a["key"] for a in info["apps"]]
         return w
 
-    def _make_box(self, w, box: dict) -> Gtk.Widget:
-        """One Claude: its stripe, glyph and title, the model with a dot per subagent, fork."""
+    def _card_head(self, w, info: dict) -> Gtk.Label:
+        """A card's header: its name (two lines at most) and close button."""
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        head.add_css_class("cw-head")
+        name = label(info["title"], "cw-card-name")
+        name.set_hexpand(True)
+        name.set_wrap(True)
+        name.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        name.set_lines(2)
+        name.set_ellipsize(Pango.EllipsizeMode.END)
+        name.set_valign(Gtk.Align.CENTER)
+        head.append(name)
+        close = self._close_button(w)
+        close.set_valign(Gtk.Align.START)
+        head.append(close)
+        w.append(head)
+        return name
+
+    @staticmethod
+    def _app_tip(app: dict) -> str:
+        name = app_entry(app["app"])[1] or app["name"]
+        notes = [f"{app['tabs']} tabs" if app["tabs"] else "", f"{app['unread']} unread" if app["unread"] else "",
+                 "missing: it comes back with a restore" if app["missing"] else ""]
+        notes = ", ".join(filter(None, notes))
+        return f"{name}: {app['title']}" + (f" ({notes})" if notes else "")
+
+    def _make_app(self, app: dict) -> Gtk.Widget:
+        """An app's window: its icon, then its tab count (a browser's) and what is unread in it;
+        its title on hover."""
+        aw = Gtk.Box()
+        aw.add_css_class("cw-app")
+        icon = app_icon(app["app"], 14)
+        icon.set_valign(Gtk.Align.CENTER)
+        aw.append(icon)
+        aw.cw_tabs = label("", "cw-app-tabs")
+        aw.cw_tabs.set_valign(Gtk.Align.CENTER)
+        aw.append(aw.cw_tabs)
+        aw.cw_unread = label("", "cw-app-unread")
+        aw.cw_unread.set_valign(Gtk.Align.CENTER)
+        aw.append(aw.cw_unread)
+        aw.cw_app = None
+        self._update_app(aw, app)
+        return aw
+
+    def _update_app(self, aw, app: dict):
+        set_classes(aw, [("missing", app["missing"])])
+        if aw.cw_app is None or aw.cw_app["title"] != app["title"]:
+            aw.set_tooltip_text(self._app_tip(app))
+        for lbl, n in ((aw.cw_tabs, app["tabs"]), (aw.cw_unread, app["unread"])):
+            text = (f"{n}" if n < 1000 else "999+") if n else ""
+            if lbl.get_text() != text:
+                lbl.set_text(text)
+            lbl.set_visible(bool(n))
+        aw.cw_app = app
+
+    def _make_box(self, w, box: dict, closes: bool = False) -> Gtk.Widget:
+        """One Claude: its stripe, glyph and title, the model with a block per subagent, fork."""
         bw = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         bw.add_css_class("cw-box")
         set_classes(bw, box_classes(box))
@@ -891,11 +994,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         name.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         name.set_lines(2)
         name.set_ellipsize(Pango.EllipsizeMode.END)
-        meta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        sub = label(box["sub"], "cw-box-sub")
-        sub.set_hexpand(True)
+        meta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, hexpand=True)
+        sub = label(box["sub"], "cw-box-sub")  # (the blocks follow the model, not the box's edge)
         sub.set_ellipsize(Pango.EllipsizeMode.END)
-        dots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+        dots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         dots.set_valign(Gtk.Align.CENTER)
         self._fill_dots(dots, box["agents"])
         meta.append(sub)
@@ -913,6 +1015,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
             fork.add_css_class("cw-icon")
             fork.connect("clicked", lambda *_: self.fork(w.cw_tab, box["session_id"]))
             bw.append(fork)
+        if closes:  # (the card has no header to hold it)
+            close = self._close_button(w)
+            close.set_valign(Gtk.Align.START)
+            bw.append(close)
         bw.cw_name, bw.cw_sub, bw.cw_dots, bw.cw_box = name, sub, dots, box
         return bw
 
@@ -929,7 +1035,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
     @staticmethod
     def _fill_dots(dots: Gtk.Box, n: int):
-        """A dot per subagent at work (a box has room for MAX_DOTS)."""
+        """A block per subagent at work (a box has room for MAX_DOTS)."""
         clear(dots)
         for _ in range(min(n, MAX_DOTS)):
             dot = Gtk.Box()
@@ -945,6 +1051,16 @@ class Sidebar(Gtk.Window, SidebarLogic):
             b = bounds(bw, w)
             if b is not None and b[0] <= y < b[0] + b[1]:
                 return bw.cw_box
+        return None
+
+    @staticmethod
+    def _app_at(w, x: float, y: float) -> dict | None:
+        """The app whose icon is at (`x`, `y`) of card `w`, if any."""
+        for aw in getattr(w, "cw_apps", []):
+            ok, rect = aw.compute_bounds(w)
+            if ok and rect.get_x() <= x < rect.get_x() + rect.get_width() \
+                    and rect.get_y() <= y < rect.get_y() + rect.get_height():
+                return aw.cw_app
         return None
 
     def _make_plain_tab(self, tab: dict, info: dict, attention: bool) -> Gtk.Widget:
@@ -974,11 +1090,6 @@ class Sidebar(Gtk.Window, SidebarLogic):
         # the icons take the column's spare height; vexpand set here keeps that from spreading up
         # (in GTK 4 a child's expand makes its parents expand: every card would stretch)
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, vexpand=False)
-        key = label(tab.get("shortcut") or "", "cw-key")
-        key.set_halign(Gtk.Align.END)
-        key.set_valign(Gtk.Align.START)
-        key.set_visible(bool(key.get_text()))
-        right.append(key)
         icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0, vexpand=True)
         icons.set_halign(Gtk.Align.END)
         icons.set_valign(Gtk.Align.CENTER)
@@ -1000,7 +1111,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
         if info["closed"]:
             w.set_tooltip_text("Closed: click to reopen it")
-        w.cw_title, w.cw_sub, w.cw_path, w.cw_key, w.cw_box_keys = lbl, sub, path, key, []
+        w.cw_title, w.cw_sub, w.cw_path, w.cw_box_keys, w.cw_app_keys, w.cw_head = lbl, sub, path, [], [], False
         return w
 
     # ---- click, drag to reorder ------------------------------------------------------------
@@ -1042,9 +1153,11 @@ class Sidebar(Gtk.Window, SidebarLogic):
             if target is not None and target is not w:
                 self.finish_drag(w.cw_tab, target.cw_tab, before)
         elif pressed and not double:
-            box = self._box_at(w, w.cw_press[1])
+            box, app = self._box_at(w, w.cw_press[1]), self._app_at(w, *w.cw_press)
             if box is not None:
                 self.on_box_clicked(w.cw_tab, box)
+            elif app is not None:
+                self.on_app_clicked(w.cw_tab, app)
             else:
                 self.on_tab_clicked(w.cw_tab)
 
@@ -1076,8 +1189,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
                     lambda url: url and self.send("webapp", url=url, **self._where(tab))).present()
 
     def rename_dialog(self, tab: dict):
-        EntryDialog("Name workspace", "OK", tab.get("name") or "", "empty = follow the session's title",
-                    "A session running here still shows its own title; the name is used when there is none.",
+        EntryDialog("Name workspace", "OK", tab.get("name") or "", "empty = no name",
+                    "A name heads the card, above its sessions. Without one, its first session's title says what it is.",
                     lambda name: self.send("rename", name=name, **self._where(tab))).present()
 
     def close_tab(self, tab: dict):

@@ -6,6 +6,14 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- Every workspace is the same card: its sessions together in one well, then a small dimmed icon
+  for each other window on it, with a browser window's tab count and what an app's title says is
+  unread (Discord, Slack and other apps that title themselves "(3) …"); the icons take their
+  colour while the pointer is on the card, so at a glance only the sessions' states stand out.
+  Click an icon to bring that window forward. A card is headed only by a name you give it (or, without sessions, its name
+  or number); otherwise its first session's title says what it is about. The folder name and the
+  shortcut chip are gone from the card: hover it for its folder and shortcut. Subagents are
+  small blocks right after the model.
 - OpenCode, both OpenCode 1 (its releases since September 2026) and 2: its sessions get a box
   of their own, marked ◎, with their state, title and model, the same "needs you" check
   (through `opencode run`, on the model your OpenCode uses), fork, and resume after a login.

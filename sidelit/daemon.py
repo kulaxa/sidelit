@@ -802,7 +802,8 @@ class Daemon:
                 "name": lw.name if lw else "", "cwd": lw.cwd if lw else "", "item": self._item_of(lw),
                 "shortcut": self.ws.shortcut_label(ws_obj, total) if ws_obj is not None else "",
                 "claudes": self._claudes_on(obs, wins, now),
-                "windows": [{"app": w.app, "title": w.title, "slot": e.bind.get(w.id)} for w in wins],
+                "windows": [{"id": w.id, "app": w.app, "title": w.title, "slot": e.bind.get(w.id),
+                             "tabs": len((obs.browser.get(w.id) or {}).get("tabs") or [])} for w in wins],
                 "missing": [{"slot": s.id, "what": ad.adapter_of(s).describe(s), "app": s.app}
                             for s in (lw.slots if lw else []) if s.id not in bound],
                 "last_title": self._last_title(lw),
@@ -945,11 +946,14 @@ class Daemon:
         return True
 
     def cmd_focus(self, params):
-        """A Claude's box clicked: its terminal gets the keyboard (on its workspace), and its
-        pane where the terminal lets us (panes.py)."""
+        """A Claude's box clicked (`key`): its terminal gets the keyboard (on its workspace), and
+        its pane where the terminal lets us (panes.py). An app's (`window`): that window."""
         view = self._last_view or self.view()
         for tab in view.get("tabs") or []:
-            box = next((b for b in tab.get("claudes") or [] if b["key"] == params.get("key")), None)
+            if params.get("window"):
+                box = next(({"window": w["id"]} for w in tab.get("windows") or [] if w["id"] == params["window"]), None)
+            else:
+                box = next((b for b in tab.get("claudes") or [] if b["key"] == params.get("key")), None)
             ws = self._space(tab["space"]) if box is not None and tab.get("space") is not None else None
             if ws is not None:
                 self._go_to(ws, box)
@@ -968,7 +972,8 @@ class Daemon:
         tl = self._tl.get(box["window"]) if box else None
         if tl is None:
             return
-        self.attention.seen(box["key"])
+        if box.get("key"):  # (an app's window: nothing calls you)
+            self.attention.seen(box["key"])
         if already_there:
             self._focus(tl, box)
         else:

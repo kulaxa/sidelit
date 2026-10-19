@@ -256,59 +256,87 @@ def box_info(c: dict) -> dict:
 
 
 def folder_name(path: str | None) -> str:
-    """A directory as a card's header names it: its last part, ~ for home."""
+    """A directory by its last part, ~ for home."""
     if not path:
         return ""
     return "~" if path.rstrip("/") == str(Path.home()) else os.path.basename(path.rstrip("/")) or path
 
 
+def app_name(app: str | None) -> str:
+    """An app id as a short name: "google-chrome" -> "chrome", "org.gnome.Nautilus" -> "nautilus"."""
+    return (app or "?").rsplit(".", 1)[-1].replace("google-", "").lower()
+
+
+def window_label(title: str | None, app: str | None) -> str:
+    """A window's title without the app's name it ends with ("CI - Google Chrome" -> "CI")."""
+    title = (title or "").strip()
+    short = re.sub(r"[^a-z0-9]", "", app_name(app))
+    for sep in (" - ", " — ", " – "):
+        head, found, tail = title.rpartition(sep)
+        if found and head and short and short in re.sub(r"[^a-z0-9]", "", tail.lower()):
+            return head.strip()
+    return title
+
+
+UNREAD = re.compile(r"^\((\d+)\)\s*")  # "(264) Discord | #general": what an app's title says is unread
+
+
+def app_info(w: dict, missing: bool = False) -> dict:
+    """What an app's icon shows: its window's tabs (a browser's, as its extension reports them),
+    what its title says is unread ("(3) …", as Discord, Slack and many web apps put it), the
+    title on hover, and whether it is only missing (a closed workspace's, or one that crashed:
+    it comes back)."""
+    name = app_name(w.get("app"))
+    title = "" if missing else w.get("title") or ""
+    unread = UNREAD.match(title)
+    title = w.get("what") if missing else window_label(title[unread.end():] if unread else title, w.get("app"))
+    tabs = int(w.get("tabs") or 0)
+    return {"key": w.get("id") or w.get("slot") or name, "window": None if missing else w.get("id"),
+            "app": w.get("app") or "", "name": name, "title": title or name, "missing": missing,
+            "tabs": tabs, "unread": int(unread.group(1)) if unread else 0}
+
+
 def tab_info(tab: dict, item: dict | None = None) -> dict:
     """Everything a tab shows, from what the daemon sent for it; a workspace opened for an other
-    source's item is drawn from that `item` while its source still lists it. A workspace with
-    Claudes is a card holding a box per Claude (`boxes`), under a header naming the workspace
-    (`head`: its name, else its folder; `head_tip` the whole path)."""
+    source's item is drawn from that `item` while its source still lists it. Every other
+    workspace is a card: a box per Claude (`boxes`), then an icon per other window (`apps`). A
+    header names it (`head`) only when you named it or it has no Claude: else its first Claude's
+    title says what it is about, once (`title` is that name either way). A line under the
+    header only when there is nothing else to say (`sub`: empty, closed). Its folder and
+    shortcut show on hover (`tip`)."""
     claudes = tab.get("claudes") or []
     c = claudes[0] if claudes else None
     closed = tab.get("space") is None
-    boxes, head, head_tip = [], "", ""
+    boxes, apps, tip = [], [], ""
     if item:
         title, state, sub, cwd = item["title"], item["state"], item_sub(item), None
         cls = SOURCE_STATE_CLASS.get(state, "idle")
-    elif c:
-        boxes = [box_info(b) for b in claudes]
-        title, state, sub, cls = boxes[0]["title"], boxes[0]["state"], boxes[0]["sub"], None
-        cwd = tab.get("cwd") or c.get("cwd")
-        head = tab.get("name") or folder_name(cwd) or (f"Workspace {tab['space']}" if not closed else "Workspace")
-        head_tip = home_path(cwd)
     else:
-        title = tab.get("name") or (tab.get("last_title") if closed else "") \
-            or (f"Workspace {tab['space']}" if not closed else "Workspace")
-        state = "other"
-        if closed:
-            n = len(tab.get("missing") or [])
-            sub = f"{n} window{'s' if n != 1 else ''} to reopen" if n else "empty"
-        else:
-            names = []
-            for w in tab.get("windows") or []:
-                app = (w.get("app") or "?").rsplit(".", 1)[-1].replace("google-", "").lower()
-                if app not in names:
-                    names.append(app)
-            sub = " · ".join(names[:4]) if names else "empty"
-        cwd = tab.get("cwd") if tab.get("ws") else None
-        cls = None
+        boxes = [box_info(b) for b in claudes]
+        hosts = {b.get("window") for b in claudes}  # (a Claude's terminal is its box)
+        apps = [app_info(w) for w in tab.get("windows") or [] if not (w.get("id") and w["id"] in hosts)]
+        apps += [app_info(m, missing=True) for m in tab.get("missing") or []]
+        named = next((b["title"] for b in boxes if b["title"] != "New session"), "") or tab.get("last_title")
+        title = tab.get("name") or named or (f"Workspace {tab['space']}" if not closed else "Workspace")
+        state, cls = "other", None
+        sub = "" if boxes or apps else "empty"
+        cwd = tab.get("cwd") or (c or {}).get("cwd")
+        tip = "\n".join(filter(None, (home_path(cwd), tab.get("shortcut"), closed and "Closed: click to reopen it")))
     if closed:  # the title stays the title; the line under it says so
-        sub = " · ".join(filter(None, ("closed", sub.strip() if sub.strip() != "empty" else None)))
+        n = len(tab.get("missing") or [])
+        sub = " · ".join(filter(None, ("closed", f"{n} window{'s' if n != 1 else ''} to reopen" if n else None)))
     return {"title": title, "sub": sub, "state": state, "cls": cls, "has_claude": bool(c or item),
             "item": bool(item), "session_id": (c or {}).get("session") if len(claudes) == 1 else None,
-            "path": home_path(cwd), "closed": closed, "boxes": boxes, "head": head, "head_tip": head_tip}
+            "path": home_path(cwd), "closed": closed, "boxes": boxes, "apps": apps, "tip": tip,
+            "head": not item and (bool(tab.get("name")) or not boxes)}
 
 
 def tab_classes(tab: dict, info: dict, attention: bool) -> list[tuple[str, bool]]:
-    """Every style class a tab can carry, and whether it carries it now. A card of boxes is
-    "boxes", not "claude": each box carries its own state."""
-    boxes = bool(info["boxes"])
+    """Every style class a tab can carry, and whether it carries it now. A workspace's card is
+    "card": each box in it carries its own state; an item's tab is "claude", striped by the
+    item's state."""
     return [("active", bool(tab.get("active"))), ("attention", attention),
-            ("claude", info["has_claude"] and not boxes), ("boxes", boxes), ("plain", not info["has_claude"]),
+            ("claude", info["item"]), ("card", not info["item"]),
             ("missing", info["closed"]), *((c, c == info["cls"]) for c in STATE_CLASSES)]
 
 
@@ -320,8 +348,9 @@ def box_classes(box: dict) -> list[tuple[str, bool]]:
 def tab_snapshot(rows) -> list[tuple]:
     """What a redraw depends on: an unchanged snapshot needs none."""
     return [(t["key"], t.get("space"), t.get("active"), i["title"], i["sub"], i["session_id"], att,
-             i["has_claude"], i["path"], i["state"], i["cls"], t.get("shortcut"), i["head"], i["head_tip"],
-             tuple((b["key"], b["title"], b["sub"], b["cls"], b["calls"], b["agents"]) for b in i["boxes"]))
+             i["has_claude"], i["path"], i["state"], i["cls"], t.get("shortcut"), i["tip"], i["head"],
+             tuple((b["key"], b["title"], b["sub"], b["cls"], b["calls"], b["agents"]) for b in i["boxes"]),
+             tuple((a["key"], a["title"], a["missing"], a["tabs"], a["unread"]) for a in i["apps"]))
             for t, i, att in rows]
 
 
@@ -727,6 +756,13 @@ class SidebarLogic:
                       url=item["url"], folder=item.get("folder"))
             return
         self.send("activate", **self._where(tab))
+
+    def on_app_clicked(self, tab: dict, app: dict):
+        """An app's pill: its window gets the keyboard; a missing one's reopens the workspace."""
+        if tab.get("space") is None or not app.get("window"):
+            self.on_tab_clicked(tab)
+            return
+        self.send("focus", window=app["window"])
 
     def on_box_clicked(self, tab: dict, box: dict):
         """A Claude's box: its terminal (and pane, where the terminal lets us) gets the keyboard."""
