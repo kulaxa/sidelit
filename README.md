@@ -497,11 +497,13 @@ sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which 
 - **Header menu.** Right-click the header for "Put windows back on their workspaces", "Reopen
   missing windows", *Recent sessions* (closed ones, one click resumes one on a new workspace)
   and "Restart sidebar". Right-click a tab to forget its missing windows.
-- **Workspace history.** The clock button in the header opens the workspaces you closed, newest
-  first under a heading per day, each with when, its folder and what else was open on it. The
-  search box on top matches titles, windows and directories (Enter opens the first match). Pick
-  one and it comes back on a new workspace: its name and directory, its session resumed, its
-  terminals, folders and web apps reopened one at a time. The last 100 are kept.
+- **Workspace history.** The clock button in the header swaps the workspaces for the ones you
+  closed, in the sidebar itself: newest first under a heading per day, each a card with when, its
+  folder and what else was open on it. The last three days show; "Show older" brings the rest.
+  The search box on top matches titles, windows and directories across all of them (Enter opens
+  the first match). Pick one and it comes back on a new workspace: its name and directory, its
+  session resumed, its terminals, folders and web apps reopened one at a time. ← or Esc goes
+  back to the workspaces. The last 100 are kept.
 - **Usage.** Your plans' 5-hour and weekly limits sit at the bottom, under each agent's name:
   Claude Code's (on a Pro or Max plan) as it measured them after the last turn of any session,
   through the plugin's mod; Codex's (logged in with ChatGPT) as its app-server says. They appear

@@ -21,7 +21,8 @@ class HistoryPanelTest(unittest.TestCase):
 
     def setUp(self):
         self.picked = []
-        self.panel = sidebar.HistoryPanel(self.picked.append, 400)
+        self.backs = []
+        self.panel = sidebar.HistoryPanel(self.picked.append, lambda: self.backs.append(True))
         self.panel.set_items([
             self.entry(1, "Fix tests", what=["Claude 'Fix tests'", "chrome 'CI' +3 tabs"]),
             self.entry(2, "Write docs", days_ago=1, cwd="/home/docs"),
@@ -39,9 +40,15 @@ class HistoryPanelTest(unittest.TestCase):
         self.assertEqual(sidebar.day_label(at(today - timedelta(days=2)), today), "Monday")
         self.assertEqual(sidebar.day_label(at(today - timedelta(days=8)), today), "Tue 22 Sep")
 
-    def test_every_entry_is_there_newest_first(self):
-        self.assertEqual(self.shown(), ["Fix tests", "Write docs", "Pricing page"])
+    def test_the_last_days_newest_first_and_older_on_request(self):
+        self.assertEqual(self.shown(), ["Fix tests", "Write docs"])
         self.assertEqual([r.day for r in self.panel.list.get_children()][:2], ["Today", "Yesterday"])
+        self.assertEqual(self.panel.older.get_label(), "Show 1 older")
+        self.panel._show_older()
+        self.assertEqual(self.shown(), ["Fix tests", "Write docs", "Pricing page"])
+        self.assertFalse(self.panel.older.get_visible())
+        self.panel.reset()  # opened again: the recent days only, loading
+        self.assertEqual(self.panel.list.get_children(), [])
 
     def test_search_matches_titles_windows_and_folders(self):
         for text, want in (("docs", ["Write docs"]), ("chrome", ["Fix tests"]), ("webshop", ["Pricing page"]),

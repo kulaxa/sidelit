@@ -6,6 +6,9 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- The workspace history opens in the sidebar itself, in place of the workspaces, instead of a
+  panel hanging off it: cards like the workspaces', the last three days with "Show older" for
+  the rest, and ← or Esc to go back.
 - Every workspace is the same card: its sessions together in one well, then a small dimmed icon
   for each other window on it, with a browser window's tab count and what an app's title says is
   unread (Discord, Slack and other apps that title themselves "(3) …"); the icons take their

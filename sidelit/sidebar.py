@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import functools
 import signal
+import time
 
 import gi
 
@@ -203,15 +204,23 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-history {{ color: rgba(235,235,245,0.6); border: none; background: none; box-shadow: none; padding: 6px;
   border-radius: 12px; }}
 .cw-history:hover {{ color: #ffffff; background-color: rgba(255,255,255,0.10); }}
-.cw-history-title {{ color: rgba(255,255,255,0.92); font-weight: 600; }}
-.cw-history-sub {{ color: rgba(235,235,245,0.6); font-size: 85%; }}
-popover.cw-history-pop {{ background-color: #2c2c2e; border: 1px solid rgba(255,255,255,0.10); border-radius: 14px; }}
-.cw-history-pop entry {{ margin: 8px 8px 4px 8px; border-radius: 10px; }}
-.cw-history-pop list {{ background-color: transparent; }}
-.cw-history-row {{ padding: 6px 10px; border-radius: 10px; }}
-.cw-history-row:hover {{ background-color: rgba(255,255,255,0.08); }}
-.cw-history-day {{ color: #64d2ff; font-size: 80%; font-weight: 700; padding: 10px 10px 2px 10px; }}
-.cw-history-empty {{ color: rgba(235,235,245,0.5); padding: 14px 10px; }}
+/* The history is a view of the sidebar itself: the clock swaps the cards for it and the
+   header for "← History". A recessed search field, day headings like the usage section's,
+   and every closed workspace a card, as wide as the workspaces' cards. */
+.cw-history-view entry {{ margin: 2px 8px 6px; padding: 6px 10px; border-radius: 12px; border: none;
+  background-color: rgba(22,22,26,0.5); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); color: rgba(255,255,255,0.92); }}
+.cw-history-view list {{ background-color: transparent; }}
+.cw-history-view list row.cw-history-row {{ background-color: rgba(62,62,68,0.84); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 16px; margin: 4px 8px; padding: 8px 12px; }}
+.cw-history-view list row.cw-history-row:hover {{ background-color: rgba(80,80,88,0.92); }}
+.cw-history-title {{ color: rgba(255,255,255,0.96); font-size: 13.5px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
+.cw-history-sub {{ color: rgba(235,235,245,0.60); font-size: 12px; }}
+.cw-history-day {{ color: rgba(235,235,245,0.45); font-size: 72%; font-weight: 600; letter-spacing: 0.5px;
+  padding: 12px 18px 2px; }}
+.cw-history-empty {{ color: rgba(235,235,245,0.5); font-size: 12px; padding: 14px 18px; }}
+.cw-older {{ color: rgba(235,235,245,0.7); font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.06);
+  border: none; box-shadow: none; border-radius: 12px; padding: 6px 10px; margin: 6px 8px 10px; }}
+.cw-older:hover {{ background: rgba(255,255,255,0.12); color: #ffffff; }}
 """.encode()
 
 @functools.lru_cache(maxsize=1)
@@ -296,16 +305,21 @@ def card(w: Gtk.Widget) -> Gtk.Widget:
 
 class HistoryPanel(Gtk.Box):
     """Closed workspaces, newest first under a heading per day, with a search over their
-    titles, what was open and their directories. It scrolls: as a menu they grew taller than
-    the screen, and GTK pushed the newest ones off its top. `pick(id)` brings one back."""
+    titles, what was open and their directories: a view of the sidebar, in place of the
+    workspaces. The last RECENT_DAYS days show; "Show older" (or a search) reaches the rest.
+    `pick(id)` brings one back, `back()` returns to the workspaces (Esc too)."""
 
-    def __init__(self, pick, max_height: int):
+    RECENT_DAYS = 3
+
+    def __init__(self, pick, back):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.get_style_context().add_class("cw-history-view")
         self.pick = pick
         self.search = Gtk.SearchEntry()
         self.search.set_placeholder_text("Search closed workspaces")
         self.search.connect("search-changed", lambda *_: self._refilter())
         self.search.connect("activate", lambda *_: self._pick_first())  # Enter: the first match
+        self.search.connect("stop-search", lambda *_: back())  # Esc
         self.pack_start(self.search, False, False, 0)
         self.list = Gtk.ListBox()
         self.list.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -317,22 +331,39 @@ class HistoryPanel(Gtk.Box):
         self.empty.get_style_context().add_class("cw-history-empty")
         self.empty.show()
         self.list.set_placeholder(self.empty)
-        self.max_height = max_height
+        self.older = Gtk.Button(label="Show older")
+        self.older.get_style_context().add_class("cw-older")
+        self.older.connect("clicked", lambda *_: self._show_older())
+        self.older.set_no_show_all(True)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.pack_start(self.list, False, False, 0)
+        content.pack_start(self.older, False, False, 0)
         self.scroller = Gtk.ScrolledWindow()
         self.scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.scroller.set_propagate_natural_height(True)
-        self.scroller.set_max_content_height(max_height)
-        self.scroller.add(self.list)
+        self.scroller.add(content)
         self.pack_start(self.scroller, True, True, 0)
+        self.all = False
+
+    def reset(self):
+        """Opened again: an empty search, the recent days, at the top, while the list loads."""
+        self.search.set_text("")
+        self.all = False
+        for row in self.list.get_children():
+            self.list.remove(row)
+        self.older.hide()
+        self.empty.set_text("Loading…")
+        self.scroller.get_vadjustment().set_value(0)
 
     def set_items(self, items: list[dict]):
         for row in self.list.get_children():
             self.list.remove(row)
+        since = time.time() - self.RECENT_DAYS * 86400
         for h in items:
             title, sub, needle, tooltip = history_lines(h)
             row = Gtk.ListBoxRow()
             row.entry, row.day = h, day_label(h.get("closed") or 0)
             row.needle = needle
+            row.recent = (h.get("closed") or 0) >= since
             row.get_style_context().add_class("cw-history-row")
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
             for text, cls in ((title, "cw-history-title"), (sub, "cw-history-sub")):
@@ -343,25 +374,36 @@ class HistoryPanel(Gtk.Box):
             row.set_tooltip_text(tooltip)
             row.add(box)
             self.list.add(row)
-        self.empty.set_text("No closed workspaces yet")
         self.list.show_all()
-        # as tall as the list, up to max_height: whatever sizes the panel by its minimum
-        # (the list arrives after it is up) still shows it all, not a sliver
-        self.scroller.set_min_content_height(min(self.list.get_preferred_height()[1], self.max_height))
+        self._refilter()
+
+    def _searching(self) -> bool:
+        return bool(self.search.get_text().strip())
 
     def _visible(self, row) -> bool:
-        return matches(row.needle, self.search.get_text())
+        return (self.all or row.recent or self._searching()) and matches(row.needle, self.search.get_text())
 
     def _refilter(self):
-        self.empty.set_text("Nothing matches" if self.search.get_text().strip() else "No closed workspaces yet")
+        rows = self.list.get_children()
+        older = sum(1 for r in rows if not r.recent)
+        self.older.set_label(f"Show {older} older")
+        self.older.set_visible(bool(older) and not self.all and not self._searching())
+        if self._searching():
+            self.empty.set_text("Nothing matches")
+        else:
+            self.empty.set_text("Nothing closed in the last few days" if rows else "No closed workspaces yet")
         self.list.invalidate_filter()
         self.list.invalidate_headers()
+
+    def _show_older(self):
+        self.all = True
+        self._refilter()
 
     def _header(self, row, before):
         if before is not None and before.day == row.day:
             row.set_header(None)
             return
-        label = Gtk.Label(label=row.day, xalign=0)
+        label = Gtk.Label(label=row.day.upper(), xalign=0)
         label.get_style_context().add_class("cw-history-day")
         row.set_header(label)
 
@@ -442,6 +484,15 @@ class Sidebar(Gtk.Window, SidebarLogic):
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header.get_style_context().add_class("cw-header")
         header.set_margin_bottom(2)
+        self.back_btn = Gtk.Button.new_from_icon_name("go-previous-symbolic", Gtk.IconSize.MENU)
+        self.back_btn.set_relief(Gtk.ReliefStyle.NONE)
+        self.back_btn.set_tooltip_text("Back to the workspaces")
+        self.back_btn.get_style_context().add_class("cw-history")
+        self.back_btn.set_valign(Gtk.Align.CENTER)
+        self.back_btn.set_margin_start(10)
+        self.back_btn.connect("clicked", lambda *_: self._show_history(False))
+        self.back_btn.set_no_show_all(True)
+        header.pack_start(self.back_btn, False, False, 0)
         mark = logo()
         mark.set_margin_start(16)
         mark.set_valign(Gtk.Align.CENTER)
@@ -458,8 +509,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         history_btn.get_style_context().add_class("cw-history")
         history_btn.set_valign(Gtk.Align.CENTER)
         history_btn.set_margin_end(10)
-        history_btn.connect("clicked", self._on_history_clicked)
+        history_btn.connect("clicked", lambda *_: self._show_history(True))
         header.pack_end(history_btn, False, False, 0)
+        self.header_mark, self.header_title, self.history_btn = mark, title, history_btn
         header_box = Gtk.EventBox()
         header_box.add(header)
         header_box.connect("button-press-event", self._on_header_press)
@@ -498,7 +550,14 @@ class Sidebar(Gtk.Window, SidebarLogic):
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.add(content)
-        root.pack_start(scroller, True, True, 0)
+        # the clock swaps the workspaces for the history, in place
+        self.views = Gtk.Stack()
+        self.views.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.views.set_transition_duration(180)
+        self.views.add_named(scroller, "workspaces")
+        self.history = HistoryPanel(self._pick_history, lambda: self._show_history(False))
+        self.views.add_named(self.history, "history")
+        root.pack_start(self.views, True, True, 0)
 
         self.footer = Gtk.Label(label="", xalign=0)
         self.footer.get_style_context().add_class("cw-footer")
@@ -583,34 +642,34 @@ class Sidebar(Gtk.Window, SidebarLogic):
         gnome.place_sidebar("")
 
     # ---- history ----------------------------------------------------------------------------
-    def _on_history_clicked(self, button):
-        """Closed workspaces, newest first, in a panel that scrolls and searches (HistoryPanel);
-        picking one brings it back with its windows. The list is asked for now, not pushed."""
+    def _show_history(self, show: bool):
+        """The history in place of the workspaces (HistoryPanel), or back; the list is asked
+        for each time it opens, not pushed. Picking one brings it back with its windows."""
+        self.back_btn.set_visible(show)
+        self.header_mark.set_visible(not show)
+        self.history_btn.set_visible(not show)
+        self.header_title.set_text("History" if show else "Sidelit")
+        self.header_title.set_margin_start(2 if show else 8)
+        self.views.set_visible_child_name("history" if show else "workspaces")
+        if not show:
+            return
         if gnome.hosted():  # GNOME's dock gets the keyboard only when it asks: the search needs it
             gnome.focus_sidebar()
         elif X11_DOCK:  # (so does a dock on X11)
             xdock.focus(self)
-        pop = Gtk.Popover(relative_to=button, position=Gtk.PositionType.BOTTOM)
-        pop.get_style_context().add_class("cw-history-pop")
-
-        def pick(entry_id):
-            pop.popdown()
-            self.send("history_restore", id=entry_id)
-
-        panel = HistoryPanel(pick, max(240, self.get_allocated_height() - 170))
-        panel.set_size_request(int(self.cfg["width"]) - 24, -1)
-        pop.add(panel)
-        pop.connect("closed", lambda *_: GLib.idle_add(pop.destroy))
-        panel.show_all()
-        pop.popup()
-        panel.search.grab_focus()
+        self.history.reset()
+        self.history.search.grab_focus()
 
         def done(result, error):
             if error:
-                panel.empty.set_text(f"Could not load the history: {error}")
+                self.history.empty.set_text(f"Could not load the history: {error}")
             else:
-                panel.set_items(result or [])
+                self.history.set_items(result or [])
         self.daemon.request("history", done)
+
+    def _pick_history(self, entry_id):
+        self._show_history(False)
+        self.send("history_restore", id=entry_id)
 
     # ---- header menu ------------------------------------------------------------------------
     def _on_header_press(self, widget, ev):
