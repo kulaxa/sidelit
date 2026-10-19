@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import functools
 import signal
+import sys
 import time
 
 import gi
 
-from sidelit import gnome, xdock
+from sidelit import gnome, themes, xdock
 
 # on X11 the sidebar is a dock window (xdock.py); GNOME's extension docks it on either
 X11_DOCK = not gnome.hosted() and xdock.on_x11()
@@ -474,6 +475,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         css = Gtk.CssProvider()
         css.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # the theme's CSS over it (themes.py): a rule of the theme wins over the same one above
+        self._theme_css, self._theme = Gtk.CssProvider(), None
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), self._theme_css,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         root.get_style_context().add_class("cw-root")
@@ -511,7 +516,18 @@ class Sidebar(Gtk.Window, SidebarLogic):
         history_btn.set_margin_end(10)
         history_btn.connect("clicked", lambda *_: self._show_history(True))
         header.pack_end(history_btn, False, False, 0)
-        self.header_mark, self.header_title, self.history_btn = mark, title, history_btn
+        # the gear: the header's menu (also on a right click) and the themes
+        menu_btn = Gtk.Button.new_from_icon_name("emblem-system-symbolic", Gtk.IconSize.MENU)
+        menu_btn.set_relief(Gtk.ReliefStyle.NONE)
+        menu_btn.set_tooltip_text("Settings: theme, and putting windows back")
+        menu_btn.get_style_context().add_class("cw-history")
+        menu_btn.set_valign(Gtk.Align.CENTER)
+        menu_btn.connect("clicked", lambda b: build_menu(self.header_menu() + [("Theme", self.theme_menu())]).popup_at_widget(
+            b, Gdk.Gravity.SOUTH, Gdk.Gravity.NORTH, None))
+        header.pack_end(menu_btn, False, False, 0)
+        self.header_mark, self.header_title, self.history_btn, self.menu_btn = mark, title, history_btn, menu_btn
+        self._apply_theme()
+        GLib.timeout_add_seconds(3600, lambda: (self._apply_theme(), True)[1])  # "auto" turns with the season
         header_box = Gtk.EventBox()
         header_box.add(header)
         header_box.connect("button-press-event", self._on_header_press)
@@ -641,6 +657,19 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
         gnome.place_sidebar("")
 
+    # ---- theme ------------------------------------------------------------------------------
+    def _apply_theme(self):
+        """The theme config.json picks (themes.py): its CSS over the sidebar's."""
+        name = themes.wanted(self.cfg)
+        if name == self._theme:
+            return
+        self._theme = name
+        try:
+            self._theme_css.load_from_data(themes.css(themes.load(name)).encode())
+        except GLib.Error as e:  # (GTK 3 takes no rule GTK 4 alone knows: the sidebar as it is)
+            print(f"sidelit: theme {name}: {e}", file=sys.stderr)
+            self._theme_css.load_from_data(b"")
+
     # ---- history ----------------------------------------------------------------------------
     def _show_history(self, show: bool):
         """The history in place of the workspaces (HistoryPanel), or back; the list is asked
@@ -648,6 +677,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.back_btn.set_visible(show)
         self.header_mark.set_visible(not show)
         self.history_btn.set_visible(not show)
+        self.menu_btn.set_visible(not show)
         self.header_title.set_text("History" if show else "Sidelit")
         self.header_title.set_margin_start(2 if show else 8)
         self.views.set_visible_child_name("history" if show else "workspaces")

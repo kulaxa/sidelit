@@ -24,7 +24,7 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-from sidelit import agents, config, gnome, launch, sources, version as local_version
+from sidelit import agents, config, gnome, launch, sources, themes, version as local_version
 from sidelit.procs import load_json, login_shell
 from sidelit.tabstate import Attention, note
 
@@ -773,6 +773,20 @@ class SidebarLogic:
             items.append(("Recent sessions", sub))
         items.append(("Restart sidebar", lambda: self._screens_changed("menu")))
         return items
+
+    def theme_menu(self) -> list:
+        """The themes (themes.py) as menu entries, the one config.json picks ticked (the GTK 3
+        sidebar's; the GTK 4 one has a settings view)."""
+        picked = str(self.cfg.get("theme") or "auto").strip().lower()
+        return [(f"✓  {title}" if name == picked else f"     {title}", lambda n=name: self.set_theme(n))
+                for name, title, _ in themes.choices()]
+
+    def set_theme(self, name: str):
+        """Saved in config.json, and worn at once."""
+        self.cfg["theme"] = name
+        if not config.put("theme", name):
+            print(f"sidebar: theme {name}: config.json is not JSON, not saved", file=sys.stderr)
+        self._apply_theme()
 
     def new_menu(self) -> list | None:
         """'+' asks which template to use; with only one configured it just opens it (None)."""

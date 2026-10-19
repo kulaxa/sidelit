@@ -85,6 +85,9 @@ DEFAULT_CONFIG = {
     "monitor": "leftmost",  # leftmost | largest | <model substring, e.g. "Acer">
     # auto: the GTK 4 sidebar when gtk4-layer-shell is installed, else the GTK 3 one; gtk3 | gtk4
     "sidebar": "auto",
+    # the sidebar's look (themes.py): auto (the season's: Halloween's in the two weeks up to it) |
+    # default | halloween | the name of a CSS file in ~/.config/sidelit/themes/
+    "theme": "auto",
     "templates": DEFAULT_TEMPLATES,
     "default_template": "Claude Code",
     # right-click → "Open <name> here": one-click web app windows on a workspace, e.g.
@@ -120,6 +123,26 @@ def load() -> dict:
         except OSError:
             pass
     return cfg
+
+
+def put(key: str, value) -> bool:
+    """One setting changed in config.json, the rest left as written. False when the file is not
+    JSON (half edited, say): it is not overwritten."""
+    try:
+        user = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
+    except (OSError, ValueError):
+        return False
+    if not isinstance(user, dict):
+        return False
+    user[key] = value
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = CONFIG.with_suffix(".tmp")
+        tmp.write_text(json.dumps(user, indent=2))
+        tmp.replace(CONFIG)
+    except OSError:
+        return False
+    return True
 
 
 def templates(cfg: dict) -> list[dict]:

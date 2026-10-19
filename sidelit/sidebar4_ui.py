@@ -32,7 +32,7 @@ if gnome.hosted():
 else:
     from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
 
-from sidelit import ipc  # noqa: E402
+from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
     FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, close_question, countdown, day_label,
     history_lines, item_sub, matches, tab_classes, tab_snapshot, usage_level,
@@ -235,6 +235,18 @@ popover.cw-pop > arrow {{ background-color: #2c2c2e; border-color: rgba(255,255,
 button.cw-older {{ color: rgba(235,235,245,0.7); font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.06);
   border: none; box-shadow: none; border-radius: 12px; padding: 6px 10px; margin: 6px 8px 10px; }}
 button.cw-older:hover {{ background: rgba(255,255,255,0.12); color: #ffffff; }}
+/* The settings are a view like the history: the gear swaps the cards for them and the header
+   for "← Settings". Every theme a card with a small picture of it, the one in use ringed in
+   the colour of where you are; under them what the header's right click offers, as cards too. */
+button.cw-setting {{ background-color: rgba(62,62,68,0.84); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 16px; margin: 4px 8px; padding: 8px 12px; box-shadow: none; text-shadow: none; outline: none;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out; }}
+button.cw-setting:hover {{ background-color: rgba(80,80,88,0.92); }}
+button.cw-setting.picked {{ background-color: rgba(40,92,116,0.88); border-color: rgba(100,210,255,0.45); }}
+button.cw-setting.picked:hover {{ background-color: rgba(48,104,130,0.92); }}
+.cw-theme-pic {{ border-radius: 6px; }}
+.cw-setting-check {{ color: #64d2ff; }}
+.cw-setting-icon {{ color: rgba(235,235,245,0.6); }}
 """
 
 _FORK_TEXTURE = None
@@ -277,6 +289,25 @@ def logo(size: int = 22) -> Gtk.Widget:
         return Gtk.Box()
     image.set_pixel_size(size)
     return image
+
+
+def svg_texture(svg: bytes, width: int, height: int):
+    """An SVG drawn at twice its size, sharp on a scaled screen (None: no SVG loader)."""
+    try:
+        loader = GdkPixbuf.PixbufLoader.new_with_type("svg")
+        loader.set_size(width * 2, height * 2)
+        loader.write(svg)
+        loader.close()
+        return Gdk.Texture.new_for_pixbuf(loader.get_pixbuf())
+    except Exception:
+        return None
+
+
+def load_css(provider: Gtk.CssProvider, css: str):
+    if hasattr(provider, "load_from_string"):
+        provider.load_from_string(css)
+    else:
+        provider.load_from_data(css, -1)
 
 
 def label(text: str, *classes: str, xalign: float = 0.0) -> Gtk.Label:
@@ -519,6 +550,70 @@ class HistoryPanel(Gtk.Box):
             self.pick(row.entry["id"])
 
 
+class SettingsPanel(Gtk.Box):
+    """The gear's view, in place of the workspaces like the history: the themes, each a card
+    with a small picture of it (themes.preview), the one in use ringed; picking one wears it at
+    once. Under them the sidebar's own actions. `pick_theme(name)`, `actions` [(text, icon, fn)]."""
+
+    def __init__(self, pick_theme, actions: list):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.pick_theme = pick_theme
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.append(label("THEME", "cw-history-day"))
+        self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.append(self.themes_box)
+        content.append(label("SIDEBAR", "cw-history-day"))
+        for text, icon, action in actions:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            image = Gtk.Image.new_from_icon_name(icon)
+            image.add_css_class("cw-setting-icon")
+            row.append(image)
+            name = label(text, "cw-history-title")
+            name.set_ellipsize(Pango.EllipsizeMode.END)
+            row.append(name)
+            btn = Gtk.Button()
+            btn.set_child(row)
+            btn.add_css_class("cw-setting")
+            btn.connect("clicked", lambda *_, fn=action: fn())
+            content.append(btn)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(content)
+        scroller.set_vexpand(True)
+        self.append(scroller)
+
+    def set_themes(self, choices: list, picked: str):
+        clear(self.themes_box)
+        for name, title, about in choices:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            texture = svg_texture(themes.preview(name), 96, 56)
+            if texture is not None:
+                pic = Gtk.Picture.new_for_paintable(texture)
+                pic.set_can_shrink(True)
+                pic.set_size_request(64, 37)
+                pic.set_valign(Gtk.Align.CENTER)
+                pic.add_css_class("cw-theme-pic")
+                row.append(pic)
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True, valign=Gtk.Align.CENTER)
+            texts.append(label(title, "cw-history-title"))
+            if about:
+                line = label(about, "cw-history-sub")
+                line.set_ellipsize(Pango.EllipsizeMode.END)
+                texts.append(line)
+            row.append(texts)
+            check = Gtk.Image.new_from_icon_name("object-select-symbolic")
+            check.add_css_class("cw-setting-check")
+            check.set_opacity(1.0 if name == picked else 0.0)
+            row.append(check)
+            btn = Gtk.Button()
+            btn.set_child(row)
+            btn.add_css_class("cw-setting")
+            if name == picked:
+                btn.add_css_class("picked")
+            btn.connect("clicked", lambda *_, n=name: self.pick_theme(n))
+            self.themes_box.append(btn)
+
+
 # --------------------------------------------------------------------------- ui
 class Sidebar(Gtk.Window, SidebarLogic):
     def __init__(self, layer: bool = True):
@@ -552,12 +647,13 @@ class Sidebar(Gtk.Window, SidebarLogic):
         if settings is not None:  # menus, entries and dialogs in the dark variant
             settings.set_property("gtk-application-prefer-dark-theme", True)
         css = Gtk.CssProvider()
-        if hasattr(css, "load_from_string"):
-            css.load_from_string(CSS)
-        else:
-            css.load_from_data(CSS, -1)
+        load_css(css, CSS)
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # the theme's CSS over it (themes.py): a rule of the theme wins over the same one above
+        self._theme_css, self._theme = Gtk.CssProvider(), None
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self._theme_css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         root.add_css_class("cw-root")
@@ -573,7 +669,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.back_btn.add_css_class("cw-history")
         self.back_btn.set_valign(Gtk.Align.CENTER)
         self.back_btn.set_margin_start(10)
-        self.back_btn.connect("clicked", lambda *_: self._show_history(False))
+        self.back_btn.connect("clicked", lambda *_: self._show_view("workspaces"))
         self.back_btn.set_visible(False)
         header.append(self.back_btn)
         mark = logo()
@@ -587,6 +683,17 @@ class Sidebar(Gtk.Window, SidebarLogic):
         title.set_margin_bottom(10)
         header.append(title)
         self.header_mark, self.header_title = mark, title
+        self._apply_theme()
+        GLib.timeout_add_seconds(3600, lambda: (self._apply_theme(), True)[1])  # "auto" turns with the season
+        # the gear: the settings, a view in place of the workspaces (SettingsPanel)
+        menu_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        menu_btn.set_has_frame(False)
+        menu_btn.set_tooltip_text("Settings: theme, and putting windows back")
+        menu_btn.add_css_class("cw-history")
+        menu_btn.set_valign(Gtk.Align.CENTER)
+        menu_btn.connect("clicked", lambda *_: self._show_view("settings"))
+        header.append(menu_btn)
+        self.menu_btn = menu_btn
         history_btn = Gtk.Button(icon_name="document-open-recent-symbolic")
         history_btn.set_has_frame(False)
         history_btn.set_tooltip_text("Closed workspaces — click one to bring it back")
@@ -638,6 +745,12 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.views.add_named(scroller, "workspaces")
         self.history = HistoryPanel(self._pick_history, lambda: self._show_history(False))
         self.views.add_named(self.history, "history")
+        self.settings = SettingsPanel(self._pick_theme, [
+            ("Put windows back on their workspaces", "view-refresh-symbolic", lambda: self.send("reapply")),
+            ("Reopen missing windows", "window-restore-symbolic", lambda: self.send("restore")),
+            ("Restart sidebar", "system-reboot-symbolic", lambda: self._screens_changed("settings")),
+        ])
+        self.views.add_named(self.settings, "settings")
         root.append(self.views)
 
         self.footer = label("", "cw-footer")
@@ -717,16 +830,37 @@ class Sidebar(Gtk.Window, SidebarLogic):
         point = translate(widget, self.root_box, x, y) or (x, y)
         Menu(self.root_box, entries).popup_at(*point)
 
+    # ---- theme ------------------------------------------------------------------------------
+    def _apply_theme(self):
+        """The theme config.json picks (themes.py): its CSS over the sidebar's."""
+        name = themes.wanted(self.cfg)
+        if name != self._theme:
+            self._theme = name
+            load_css(self._theme_css, themes.css(themes.load(name)))
+
+    def _pick_theme(self, name: str):
+        self.set_theme(name)
+        self.settings.set_themes(themes.choices(), name)
+
+    # ---- views ------------------------------------------------------------------------------
+    def _show_view(self, view: str):
+        """The workspaces, the history or the settings, the header saying which ("← History")."""
+        away = view != "workspaces"
+        self.back_btn.set_visible(away)
+        self.header_mark.set_visible(not away)
+        self.history_btn.set_visible(not away)
+        self.menu_btn.set_visible(not away)
+        self.header_title.set_text({"history": "History", "settings": "Settings"}.get(view, "Sidelit"))
+        self.header_title.set_margin_start(2 if away else 8)
+        if view == "settings":
+            self.settings.set_themes(themes.choices(), str(self.cfg.get("theme") or "auto").strip().lower())
+        self.views.set_visible_child_name(view)
+
     # ---- history ----------------------------------------------------------------------------
     def _show_history(self, show: bool):
         """The history in place of the workspaces (HistoryPanel), or back; the list is asked
         for each time it opens, not pushed. Picking one brings it back with its windows."""
-        self.back_btn.set_visible(show)
-        self.header_mark.set_visible(not show)
-        self.history_btn.set_visible(not show)
-        self.header_title.set_text("History" if show else "Sidelit")
-        self.header_title.set_margin_start(2 if show else 8)
-        self.views.set_visible_child_name("history" if show else "workspaces")
+        self._show_view("history" if show else "workspaces")
         if not show:
             return
         if gnome.hosted():  # GNOME's dock gets the keyboard only when it asks: the search needs it

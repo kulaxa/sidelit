@@ -601,6 +601,14 @@ re-reads it.
 - `width`: the sidebar's width in pixels.
 - `monitor`: the sidebar's screen, `leftmost`, `largest`, or a model or maker substring.
 - `sidebar`: `auto`, `gtk4` or `gtk3` (see the GTK 4 sidebar above).
+- `theme`: the sidebar's look, also picked in the settings (the gear at the top of the sidebar),
+  which saves it here and changes the look at once. `auto` (the default) is the season's:
+  Halloween's in the two weeks up to October 31 (a cobweb and its spider, bats across the moon,
+  a jack-o'-lantern and usage bars of dripping blood), the usual look otherwise. `default` and
+  `halloween` pick one for good. A theme of your own is a CSS file,
+  `~/.config/sidelit/themes/<name>.css`, drawn over the sidebar's own CSS (its classes are in
+  `sidelit/sidebar4_ui.py`); it shows in the settings by its name. `SIDELIT_THEME=<name>` in the
+  sidebar's environment overrides the config.
 - `terminal` (a command with `{cwd}`) and `terminal_cmd` (with `{command}` too): the terminal
   the sidebar opens. The default is the first of Terminator, Konsole, GNOME Console, kitty,
   foot, Alacritty, GNOME Terminal, Xfce's and MATE's terminals and xterm that is installed.

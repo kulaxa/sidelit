@@ -6,6 +6,12 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- Themes, picked in the new settings (the gear at the top of the sidebar), each with a small
+  picture of it. In the two weeks up to October 31 the sidebar dresses up for Halloween: a
+  cobweb and its spider, bats across the moon, a jack-o'-lantern, usage bars of dripping blood,
+  sessions at work flickering like candles and the ones that need you in potion green. Pick
+  Default or Halloween to keep one all year, or put a CSS file of your own in
+  `~/.config/sidelit/themes/`. The settings also put windows back and restart the sidebar.
 - The workspace history opens in the sidebar itself, in place of the workspaces, instead of a
   panel hanging off it: cards like the workspaces', the last three days with "Show older" for
   the rest, and ← or Esc to go back.
