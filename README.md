@@ -1,14 +1,53 @@
 # Sidelit
 
-A sidebar for COSMIC, KDE Plasma, GNOME, Hyprland, niri, sway, Cinnamon, Xfce and MATE where every workspace is a tab, and the coding agent working
-on it shows its status there: working, waiting for you, done. Each agent keeps its terminal,
-its browser and whatever else it needs on a workspace of its own, and Sidelit keeps that layout:
-windows go back where they belong after a screen change, a crash or a login, and the sessions
-that were open come back resumed. You look after agents, not windows.
+A sidebar for Linux where every workspace is a tab, and the coding agent working on it shows its
+status there: working, waiting for you, done. Each agent keeps its terminal, its browser and
+whatever else it needs on a workspace of its own, and Sidelit keeps that layout: windows go back
+where they belong after a screen change, a crash or a login, and the sessions that were open
+come back resumed. You look after agents, not windows.
 
-<!-- screenshot: docs/sidelit.png, the sidebar on COSMIC with a few agents at work -->
+```bash
+curl -fsSL https://raw.githubusercontent.com/kulaxa/sidelit/main/get.sh | bash
+```
 
-**What works today**, on Wayland:
+Run it in a terminal on your desktop: it installs the few packages Sidelit needs (asking for your
+password once), puts Sidelit in `~/.local/share/sidelit` and starts it. The same line again
+updates it. More in [Install](#install).
+
+![The sidebar beside a terminal: a Claude Code session at work, another one waiting for you in yellow, a Codex one done, and the plans' usage below](docs/sidelit.png)
+
+*One card per workspace; yellow means a session is waiting for you.*
+
+**Works with Claude Code, Codex and OpenCode.** Sidelit plugs into each as a plugin, installed
+the way the agent installs plugins: every session reports what it is doing as it happens, and
+the agent's own measure of your plan's usage limits, where it has one, comes along for the bars.
+Beyond that it only reads what each agent offers for it (Claude Code's list of running sessions
+and the titles in its transcripts; Codex's app-server), never edits the agents' settings (but
+once, to take out the hook an older Sidelit had put in Claude Code's) and never touches your
+login. Each box says whose session it is: ✳ for Claude Code, ◆ for Codex, ◎ for OpenCode.
+
+Sidelit is an independent project, not made by or affiliated with Anthropic, OpenAI or
+OpenCode's makers. Claude and Claude Code are trademarks of Anthropic; Codex is a trademark of
+OpenAI.
+
+## What works where
+
+| Desktop | Session | Drag tabs to reorder | Left to do after the install line |
+|---|---|---|---|
+| COSMIC (Pop!_OS 24.04 and later) | Wayland | yes | nothing |
+| KDE Plasma 6 | Wayland | no | nothing |
+| GNOME 46 to 51 (Ubuntu, Debian, Fedora, Zorin) | Wayland | yes | log out and back in once |
+| Hyprland | Wayland | no, by number | one line in its config, unless uwsm runs your session |
+| niri | Wayland | yes | nothing in niri's own session, else one line in its config |
+| sway | Wayland | no, by number | one line in its config, unless your session runs autostart entries |
+| Cinnamon (Linux Mint), Xfce, MATE | X11 | no | nothing |
+
+The install line says what is left, if anything. Other desktops are planned.
+
+<details>
+<summary>Desktop by desktop, in detail</summary>
+
+On Wayland:
 
 - **COSMIC** (Pop!_OS 24.04 and later, or any distribution with COSMIC): everything below.
 - **KDE Plasma 6**: workspaces are KWin's virtual desktops. KDE keeps every desktop until you
@@ -53,18 +92,7 @@ And on X11:
 - Not on X11: KDE Plasma and GNOME (use their Wayland sessions). Not on Wayland: Cinnamon's
   Wayland session (pick "Cinnamon" at the login screen).
 
-Other desktops are planned.
-
-**Works with Claude Code, Codex and OpenCode.** Sidelit plugs into each as a plugin, installed
-the way the agent installs plugins: every session reports what it is doing as it happens, and
-the agent's own measure of your plan's usage limits, where it has one, comes along for the bars.
-Beyond that it only reads what each agent offers for it (Claude Code's list of running sessions
-and the titles in its transcripts; Codex's app-server), touches Claude's settings itself only
-once, to take out the hook Sidelit 0.5 had put there, never edits Codex's or OpenCode's, and
-never touches your login. Each box says whose session it is: ✳ for Claude Code, ◆ for Codex, ◎
-for OpenCode. Sidelit is an independent project, not made by or affiliated with Anthropic,
-OpenAI or OpenCode's makers; Claude and Claude Code are Anthropic's trademarks, Codex is
-OpenAI's.
+</details>
 
 ## Install
 

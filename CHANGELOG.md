@@ -6,6 +6,12 @@ update. The reasoning belongs in the commit message.
 
 ## [Unreleased]
 
+- Sidelit's repository is public now, with a history of its own. A copy installed with the one
+  line follows it when you run the line again: a copy with no changes of its own is moved onto
+  the new history (your layout and settings stay as they are); one with changes of its own is
+  left alone, and the message says what to do. A copy from before this release needs the line
+  once (its update button only pulls, and git refuses the new history); from then on the
+  button follows too.
 - Tooltips are rounded dark cards like the rest of the sidebar (purple in Halloween's theme)
   instead of the system's black box, and a session's fork button sits right under its ×.
 - Themes, picked in the new settings (the gear at the top of the sidebar), each with a small

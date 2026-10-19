@@ -292,6 +292,13 @@ class CommonTest(unittest.TestCase):
             with mock.patch.object(sidebar_common, "package_tool", return_value="apt"):
                 self.assertIn(f"sudo apt install ./{sidebar_common.LATEST_DEB}", sidebar_common.update_command())
 
+    def test_a_checkout_updates_the_way_the_one_line_install_does(self):
+        # (get.sh pull: it also follows a repository that began its history anew, tests/test_get.py)
+        with mock.patch.object(sidebar_common, "checkout_root", return_value="/home/u/.local/share/sidelit"), \
+                mock.patch.object(sidebar_common, "login_shell", return_value="bash"):
+            self.assertIn("bash /home/u/.local/share/sidelit/get.sh pull /home/u/.local/share/sidelit"
+                          " && /home/u/.local/share/sidelit/bin/sidelit restart", sidebar_common.update_command())
+
 
 if __name__ == "__main__":
     unittest.main()

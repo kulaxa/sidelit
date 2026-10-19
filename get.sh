@@ -11,6 +11,8 @@
 # the commands said goes to ~/.cache/sidelit-install.log; uninstall.sh takes it all out again.
 #
 # SIDELIT_REPO clones from another address instead, e.g. git@github.com:kulaxa/sidelit.git.
+# A copy whose repository began its history anew is moved onto the new one, unless it has
+# changes of its own (update_checkout).
 #
 # Everything happens in main(), called on the last line: a download cut short runs nothing.
 
@@ -238,7 +240,55 @@ install_packages() {
 }
 
 # ---- Sidelit itself ---------------------------------------------------------------------------
-# Clones Sidelit into `dir`, or pulls it there; sets `before` to the version it had (empty: new).
+# Brings the checkout $1 up to date with the branch it follows (origin's main): a fast-forward,
+# as `git pull --ff-only`. When that branch shares no history with the checkout (the repository
+# at Sidelit's address began its history anew, as when Sidelit went public), a checkout with
+# nothing of its own (no changed or new files, no commits) is moved onto it; one with something
+# of its own is left as it is, saying so. Your layout and settings are in ~/.config/sidelit,
+# outside the checkout: never touched.
+update_checkout() {
+    local dir=$1 shown branch remote merge upstream theirs anew='' changes pulled=() n i rev
+    shown=$(tilde "$dir")
+    if ! branch=$(git -C "$dir" symbolic-ref --quiet --short HEAD) ||
+        ! remote=$(git -C "$dir" config "branch.$branch.remote") ||
+        ! merge=$(git -C "$dir" config "branch.$branch.merge") ||
+        ! upstream=$(git -C "$dir" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null); then
+        fail "Could not update $shown: it is on no branch that follows Sidelit's ('git -C $shown status' says where it is)."
+    fi
+    # what the branch it follows has now, without moving it there yet: a try that stops below
+    # leaves the checkout as it was, so the next one still sees what the checkout had pulled
+    git -C "$dir" fetch --quiet --refmap= "$remote" "$merge" </dev/null >>"$log" 2>&1 ||
+        fail "Could not update $shown: no network, or no access to $(git -C "$dir" remote get-url "$remote" 2>/dev/null)."
+    theirs=$(git -C "$dir" rev-parse FETCH_HEAD)
+    if ! git -C "$dir" merge-base HEAD "$theirs" >/dev/null 2>&1; then
+        anew=1
+        # its own: changed or new files, and commits that never were on the branch it follows,
+        # as it is now or was before (an older Sidelit's update button, a `git pull` or `git
+        # fetch`, may have moved it onto the new history already: its reflog keeps every value
+        # it had, `@{N}` for the oldest entry's old one)
+        changes=$(git -C "$dir" status --porcelain 2>/dev/null) || changes='?'
+        pulled=("$(git -C "$dir" rev-parse "$upstream")")
+        n=$(git -C "$dir" reflog show --format=%H "$upstream" -- 2>/dev/null | wc -l)
+        for ((i = 1; i <= n; i++)); do
+            rev=$(git -C "$dir" rev-parse --verify --quiet "$upstream@{$i}") && pulled+=("$rev")
+        done
+        [ "$(git -C "$dir" rev-list --count HEAD --not "${pulled[@]}" 2>/dev/null)" = 0 ] || changes="$changes commits"
+        [ -z "$changes" ] ||
+            fail "Sidelit's repository began its history anew, and $shown has changes of its own, so it is left as it is ('git -C $shown status' shows them). Keep what you need from it, move it away, then run Sidelit's one-line install again for a fresh copy (your layout and settings in ~/.config/sidelit stay as they are)."
+    fi
+    git -C "$dir" fetch --prune --quiet "$remote" </dev/null >>"$log" 2>&1 ||
+        fail "Could not update $shown: no network, or no access to $(git -C "$dir" remote get-url "$remote" 2>/dev/null)."
+    if [ -z "$anew" ]; then
+        git -C "$dir" merge --ff-only --quiet "$theirs" </dev/null >>"$log" 2>&1 ||
+            fail "Could not update $shown: it has changes of its own ('git -C $shown status' shows them)."
+        return
+    fi
+    say "Sidelit's repository began its history anew: moving $shown onto it"
+    git -C "$dir" reset --hard --quiet "$theirs" </dev/null >>"$log" 2>&1 ||
+        fail "Could not move $shown onto Sidelit's new history ('git -C $shown status' says why)."
+}
+
+# Clones Sidelit into `dir`, or updates it there; sets `before` to the version it had (empty: new).
 fetch_sidelit() {
     local repo=${SIDELIT_REPO:-$REPO_URL}
     before=''
@@ -247,8 +297,7 @@ fetch_sidelit() {
     if [ -e "$dir/.git" ] && [ -f "$dir/bin/sidelit" ]; then
         before=$(cat "$dir/VERSION" 2>/dev/null || echo '?')
         say "Updating Sidelit in $(tilde "$dir")"
-        git -C "$dir" pull --ff-only --quiet </dev/null >>"$log" 2>&1 ||
-            fail "Could not update $(tilde "$dir"): no network, or files there were changed by hand ('git -C $(tilde "$dir") status' shows which)."
+        update_checkout "$dir"
     elif [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
         fail "$(tilde "$dir") is there already and is not a Sidelit checkout: move it away and run this line again."
     else
@@ -290,6 +339,15 @@ main() {
     local cache=${XDG_CACHE_HOME:-$HOME/.cache}
     mkdir -p "$cache"
     log=$cache/sidelit-install.log
+    # `bash get.sh pull DIR` only updates the checkout DIR (the sidebar's update button, which
+    # restarts Sidelit itself)
+    if [ "${1:-}" = pull ] && [ -n "${2:-}" ]; then
+        printf '=== Sidelit update, %s ===\n' "$(date -Is)" >>"$log"
+        export GIT_TERMINAL_PROMPT=0
+        say "Updating Sidelit in $(tilde "$2")"
+        update_checkout "$2"
+        return
+    fi
     printf '=== Sidelit install, %s ===\n' "$(date -Is)" >"$log"
 
     check_desktop

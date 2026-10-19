@@ -179,12 +179,14 @@ def package_tool() -> str:
 
 def update_command() -> str:
     """Command that updates this install, in a terminal of its own so git, apt or pacman can talk
-    to you (they ask for the sudo password there). A checkout is pulled, a package install gets the
-    latest .deb (or Arch package); both restart the services afterwards."""
+    to you (they ask for the sudo password there). A checkout is pulled, by the one-line install's
+    own way (get.sh, which also follows a repository that began its history anew), a package
+    install gets the latest .deb (or Arch package); both restart the services afterwards."""
     shell = login_shell()
     root = checkout_root()
     if root:
-        inner = (f'git -C {shlex.quote(root)} pull --ff-only && {shlex.quote(root + "/bin/sidelit")} restart'
+        inner = (f'bash {shlex.quote(root + "/get.sh")} pull {shlex.quote(root)}'
+                 f' && {shlex.quote(root + "/bin/sidelit")} restart'
                  f' && echo && echo "Updated to $(cat {shlex.quote(root + "/VERSION")}); restarted."')
     else:
         pkg, install = ((LATEST_ARCH, "sudo pacman -U") if package_tool() == "pacman"

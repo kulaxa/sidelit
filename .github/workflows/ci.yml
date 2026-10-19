@@ -51,6 +51,7 @@ jobs:
   # The one-line install (get.sh) on a fresh system of each distribution it knows, as a user with
   # sudo, cloning this checkout: the packages, the clone, install.sh, the start (which goes
   # nowhere here: no desktop). Then again with sudo taken away: a second run must not need it.
+  # And a third, from a repository that began its history anew: the copy must follow it.
   installer:
     name: One-line install on ${{ matrix.image }}
     runs-on: ubuntu-latest
@@ -94,6 +95,15 @@ jobs:
             fi
             rm /etc/sudoers.d/tester
             as_tester
+            # the repository begins its history anew, as when Sidelit went public: the line again
+            # moves the copy onto it by itself
+            rm -rf /srv/sidelit/.git
+            git_tester() { sudo -u tester env HOME=/home/tester git "$@"; }
+            git_tester -C /srv/sidelit init -q -b installer-test
+            git_tester -C /srv/sidelit add -A
+            git_tester -C /srv/sidelit -c user.name=CI -c user.email=ci@example.com commit -qm anew
+            as_tester
+            test "$(git_tester -C /home/tester/.local/share/sidelit rev-parse HEAD)" = "$(git_tester -C /srv/sidelit rev-parse HEAD)"
           '
 
   package:
