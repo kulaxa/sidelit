@@ -750,7 +750,8 @@ class Daemon:
         calls = self.attention.update(sid, state, typing, now=now)
         return {"key": sid, "session": sid, "agent": c.get("agent") or "claude", "title": c.get("title") or "",
                 "state": state, "on": on,
-                "model": self._model(sid), "agents": c.get("agents") or 0, "cwd": c.get("cwd") or "",
+                "model": self._model(sid), "agents": c.get("agents") or 0, "models": c.get("models") or [],
+                "cwd": c.get("cwd") or "",
                 "window": w.id, "pane": c.get("pane") or {}, "started": c.get("started") or 0.0,
                 "typed": c.get("prompt_t") or 0.0, "how": c.get("how"), "hooked": bool(c.get("hooked")),
                 "typing": typing, "calls": self.attention.since(sid) if calls else 0.0}

@@ -53,6 +53,11 @@ STATE_CLASS = {"busy": "working", "checking": "working", "shell": "shell", "exte
 SOURCE_STATE_CLASS = {"working": "working", "waiting": "waiting", "idle": "idle", "done": "idle", "failed": "failed"}
 SOURCE_STATE_NOTE = {"working": "working", "waiting": "waiting for you", "done": "done", "failed": "failed"}
 STATE_CLASSES = sorted(set(STATE_CLASS.values()) | set(SOURCE_STATE_CLASS.values()))
+# a subagent's block takes its model family's colour (class cw-m-<family>); another model, or one
+# not known yet, keeps the plain block. Opus is the orange of a session at work.
+MODEL_COLORS = {"opus": (255, 159, 10), "sonnet": (100, 210, 255), "haiku": (48, 209, 88), "fable": (191, 90, 242)}
+GROUP_BLOCKS = 4  # past this many subagents on one model, their group is one block and the number
+UNKNOWN_MODEL = "Model not known yet"
 
 # Sidelit's mark, at the top of the sidebar: a panel lit from its side (in the orange of a
 # session at work), its light falling on the list beside it
@@ -277,15 +282,50 @@ def group_items(src: dict, bound: set) -> list[dict]:
 def box_info(c: dict) -> dict:
     """What a session's box shows: its agent's mark (for Claude Code the glyph it puts in its
     terminal's title, working or not: agents.py), its title ("New session" until the session has
-    a name), the model and a note, one dot per subagent at work, and whether it calls you (the
-    daemon decides: tabstate.Attention)."""
+    a name), the model and a note, its subagents at work by model (subagent_groups), and whether
+    it calls you (the daemon decides: tabstate.Attention)."""
     state = c.get("state") or "done"
     cls = STATE_CLASS.get(state, "idle")
     agent = agents.get(c.get("agent"))
+    n = int(c.get("agents") or 0)
     return {"key": c.get("key") or c.get("session") or "", "session_id": c.get("session"), "agent": agent.name,
             "title": c.get("title") or "New session", "glyph": agent.mark(cls == "working"),
             "sub": " · ".join(filter(None, (c.get("model"), note(c)))) or " ", "state": state, "cls": cls,
-            "agents": int(c.get("agents") or 0), "calls": bool(c.get("calls")), "cwd": c.get("cwd") or ""}
+            "agents": n, "subagents": subagent_groups(c.get("models") or [], n),
+            "calls": bool(c.get("calls")), "cwd": c.get("cwd") or ""}
+
+
+def subagent_groups(models: list, n: int) -> tuple:
+    """The subagents at work by model, most first: ((model, family, how many), ...). Those whose
+    model is not known (yet) come last; family is "other" for a model without a colour of its own."""
+    models = (list(models) + [None] * n)[:n]
+    counts: dict = {}
+    for m in models:
+        counts[m or None] = counts.get(m or None, 0) + 1
+    order = sorted(counts, key=lambda m: (m is None, -counts[m], m or ""))
+    return tuple((m or UNKNOWN_MODEL, model_family(m), counts[m]) for m in order)
+
+
+def model_family(model: str | None) -> str:
+    """'Haiku 5.5' -> 'haiku': the family a model's block is coloured by ("other": none)."""
+    family = (model or "").split(" ")[0].lower()
+    return family if family in MODEL_COLORS else "other"
+
+
+def model_css() -> str:
+    """The colour of each family's blocks, in a box and in its tooltip; "other" stays grey even in
+    a box at work, where a plain block is orange. The sidebars load it over the theme's CSS, whose
+    `.cw-box.working .cw-dot` would paint them all one colour."""
+    sel = ".cw-box .cw-dots .cw-dot.cw-m-{0}, .cw-tip .cw-tip-row.cw-dot.cw-m-{0}"
+    rules = [sel.format(family) + f" {{ background-color: rgb({r},{g},{b}); box-shadow: 0 0 4px rgba({r},{g},{b},0.5); }}"
+             for family, (r, g, b) in MODEL_COLORS.items()]
+    rules.append(sel.format("other") + " { background-color: rgba(235,235,245,0.55); box-shadow: none; }")
+    return "\n".join(rules) + "\n"
+
+
+def group_blocks(count: int) -> tuple[int, str]:
+    """How a group of `count` subagents on one model is drawn: (blocks, the number after them)."""
+    return (count, "") if count <= GROUP_BLOCKS else (1, str(count))
 
 
 def folder_name(path: str | None) -> str:
@@ -351,7 +391,7 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
     open workspace is headed (`head`) by its name, else "Workspace N"; a closed one only when it
     has no Claude, else its first Claude's title says what it was about (`title` either way). A
     line under the header only when there is nothing else to say (`sub`: empty, closed). Its
-    folder shows on hover (`tip`)."""
+    folder (`path`) heads its menu; a closed one says on hover how to reopen it (`tip`)."""
     claudes = tab.get("claudes") or []
     c = claudes[0] if claudes else None
     closed = tab.get("space") is None
@@ -369,7 +409,7 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
         state, cls = "other", None
         sub = "" if boxes or apps else "empty"
         cwd = tab.get("cwd") or (c or {}).get("cwd")
-        tip = "\n".join(filter(None, (home_path(cwd), closed and "Closed: click to reopen it")))
+        tip = "Closed: click to reopen it" if closed else ""
     if closed:  # the title stays the title; the line under it says so
         n = len(tab.get("missing") or [])
         sub = " · ".join(filter(None, ("closed", f"{n} window{'s' if n != 1 else ''} to reopen" if n else None)))
@@ -406,7 +446,7 @@ def tab_snapshot(rows) -> list[tuple]:
     """What a redraw depends on: an unchanged snapshot needs none."""
     return [(t["key"], t.get("space"), t.get("active"), i["title"], i["sub"], i["session_id"], att,
              i["has_claude"], i["path"], i["state"], i["cls"], t.get("shortcut"), i["tip"], i["head"],
-             tuple((b["key"], b["title"], b["sub"], b["cls"], b["calls"], b["agents"]) for b in i["boxes"]),
+             tuple((b["key"], b["title"], b["sub"], b["cls"], b["calls"], b["subagents"]) for b in i["boxes"]),
              tuple((a["key"], a["title"], a["missing"], a["tabs"], a["unread"]) for a in i["apps"]))
             for t, i, att in rows]
 
@@ -761,13 +801,14 @@ class SidebarLogic:
         return "move" in (self.state.get("caps") or [])  # a desktop that cannot reorder: no drop indicator
 
     def tab_menu(self, tab: dict, box: dict | None = None) -> list:
-        """A card's menu; on one of its Claudes' boxes, its Fork is that Claude's."""
+        """A card's menu, headed by its folder; on one of its Claudes' boxes, its Fork is that
+        Claude's."""
         info = tab_info(tab)
         where = self._where(tab)
         cwd = (box or {}).get("cwd") or tab.get("cwd") or next(
             (c.get("cwd") for c in tab.get("claudes") or [] if c.get("cwd")), "") or str(Path.home())
         session = (box or {}).get("session_id") or info["session_id"]
-        items = []
+        items = [(info["path"], None), SEPARATOR] if info["path"] else []
         if not info["closed"]:
             items.append(("Open terminal here", lambda: self.send("terminal", **where)))
         # a new session of each agent installed (Claude Code's with none: its terminal says so)

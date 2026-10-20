@@ -102,7 +102,7 @@ class Detector:
         self.sessions: list[dict] = []                 # the agents' own lists: the live ones, each with "agent"
         self.index: dict = {}
         self.hooked: dict[str, dict] = {}              # live sessions the hook reports, each with "agent"
-        self.inner: dict[int, int] = {}                # agent pid -> agents it started, working now
+        self.inner: dict[int, list[str]] = {}          # agent pid -> sessions of agents it started, working now
         self.window_of: dict[str, tuple] = {}          # session -> (window id, strength, evidence time)
         self.focus: list[tuple[float, str]] = []       # (when, window id) the keyboard moved
         self.focus_since = 0.0
@@ -215,7 +215,7 @@ class Detector:
         self.inner = {}
         for rec in out.values():
             if rec["outer"] and rec.get("state") in ("busy", "waiting"):
-                self.inner[rec["outer"]] = self.inner.get(rec["outer"], 0) + 1
+                self.inner.setdefault(rec["outer"], []).append(rec["session"])
         # /clear, /resume and friends start a new session in the same agent process: the
         # newest one is the live one, and it inherits the window
         by_pid: dict[int, list[dict]] = {}
@@ -398,18 +398,30 @@ class Detector:
 
     def agents_at_work(self, sid: str) -> int:
         """Subagents of this session working now, and agents it started that work."""
+        subagents, started = self._at_work(sid)
+        return len(subagents) + len(started)
+
+    def models_at_work(self, sid: str) -> list[str | None]:
+        """The model of each agent agents_at_work counts (None: not known, or not yet)."""
+        subagents, started = self._at_work(sid)
+        rec, agent = self.hooked.get(sid), self.agent_of(sid)
+        return [agent.subagent_model(sid, rec, a) for a in subagents] + \
+            [self.agent_of(s).model(s, self.hooked.get(s)) for s in started]
+
+    def _at_work(self, sid: str) -> tuple[list[str], list[str]]:
+        """(this session's subagents heard from lately, sessions of the agents it started that work)"""
         rec = self.hooked.get(sid) or {}
         sess = next((s for s in self.sessions if s.get("sessionId") == sid and s.get("pid")), None)
         pid = int(rec.get("pid") or (sess or {}).get("pid") or 0)
-        heard = (rec.get("agents") or {}).values()
-        return sum(1 for t in heard if self._at - float(t) < AGENT_QUIET_S) + self.inner.get(pid, 0)
+        heard = (rec.get("agents") or {}).items()
+        return [a for a, t in heard if self._at - float(t) < AGENT_QUIET_S], list(self.inner.get(pid, ()))
 
     def for_window(self, title: str, pid: int = 0, wid: str | None = None) -> dict | None:
         """The first session this window shows (claudes_for), or None."""
         return next(iter(self.claudes_for(title, pid, wid)), None)
 
     def claudes_for(self, title: str, pid: int = 0, wid: str | None = None) -> list[dict]:
-        """{"session", "agent", "title", "status", "agents", "cwd", "pid", "pane", "started",
+        """{"session", "agent", "title", "status", "agents", "models", "cwd", "pid", "pane", "started",
         "how", "hooked"} for each session this window shows, in the order they started."""
         sids = self._by_window.get(wid) if wid else None
         if sids:
@@ -435,7 +447,8 @@ class Detector:
         cwd = (rec or {}).get("cwd") or (sess or {}).get("cwd") or ""
         return {"session": sid, "agent": agent.name,
                 "title": agent.title(sid, cwd, rec) or agent.listed_name((sess or {}).get("name"), cwd) or "",
-                "status": self.status(sid), "agents": self.agents_at_work(sid), "cwd": cwd,
+                "status": self.status(sid), "agents": self.agents_at_work(sid), "models": self.models_at_work(sid),
+                "cwd": cwd,
                 "pid": int((rec or sess or {}).get("pid") or 0), "pane": dict((rec or {}).get("pane") or {}),
                 "started": self._started(sid), "prompt_t": float((rec or {}).get("prompt_t") or 0),
                 "how": {BY_LAUNCH: "launch", BY_FOCUS: "focus", BY_TITLE: "title"}.get(how, "pid"),

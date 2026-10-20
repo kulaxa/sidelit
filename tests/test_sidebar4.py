@@ -68,6 +68,16 @@ class ChoiceTest(unittest.TestCase):
 
 @unittest.skipIf(sidebar_common is None, "needs PyGObject")
 class CommonTest(unittest.TestCase):
+    def test_subagents_are_grouped_by_model_most_first(self):
+        groups = sidebar_common.subagent_groups(["Sonnet 5.5", "Haiku 5.5", None, "Haiku 5.5", "GPT-5.5"], 6)
+        self.assertEqual(groups, (("Haiku 5.5", "haiku", 2), ("GPT-5.5", "other", 1), ("Sonnet 5.5", "sonnet", 1),
+                                  (sidebar_common.UNKNOWN_MODEL, "other", 2)))  # (one the daemon had no model for)
+        self.assertEqual(sidebar_common.subagent_groups([], 0), ())
+        self.assertEqual([sidebar_common.group_blocks(n) for n in (1, 4, 5)], [(1, ""), (4, ""), (1, "5")])
+        css = sidebar_common.model_css()
+        self.assertIn(".cw-box .cw-dots .cw-dot.cw-m-opus", css)
+        self.assertIn(".cw-tip .cw-tip-row.cw-dot.cw-m-other", css)
+
     def test_usage_levels(self):
         self.assertEqual([sidebar_common.usage_level(p) for p in (0, 69, 70, 89, 90, 100)],
                          [None, None, "warn", "warn", "high", "high"])
@@ -201,6 +211,7 @@ class CommonTest(unittest.TestCase):
         tab = {"space": 3, "claudes": [{"title": "T", "session": "s1", "cwd": "/w"}],
                "missing": [{"slot": "m1", "what": "chrome 'Docs'"}]}
         entries = ui.tab_menu(tab)
+        self.assertEqual(entries[:2], [("/w", None), sidebar_common.SEPARATOR])  # its folder, greyed out
         labels = [e[0] for e in entries if e is not sidebar_common.SEPARATOR]
         self.assertIn("Fork session", labels)
         self.assertIn("missing: chrome 'Docs'", labels)
@@ -242,18 +253,20 @@ class CommonTest(unittest.TestCase):
 
     def test_a_workspace_with_claudes_is_a_box_each(self):
         tab = {"space": 2, "ws": "w1", "cwd": "/src/pricing", "active": False, "claudes": [
-            {"key": "s1", "session": "s1", "title": "Pricing API", "state": "busy", "model": "Opus 5.5", "agents": 2},
+            {"key": "s1", "session": "s1", "title": "Pricing API", "state": "busy", "model": "Opus 5.5", "agents": 2,
+             "models": ["Haiku 5.5", "Haiku 5.5"]},
             {"key": "s2", "session": "s2", "title": "Review tests", "state": "done", "model": "Sonnet 5.5",
              "calls": 1000.0},
             {"key": "s3", "session": "s3", "title": "Deploy", "state": "external", "on": "prod deploy",
              "model": "Haiku 5.5"}]}
         info = sidebar_common.tab_info(tab)
-        # headed by its number; the folder shows on hover
-        self.assertEqual((info["title"], info["sub"], info["tip"]), ("Workspace 2", "", "/src/pricing"))
+        # headed by its number; no tooltip on an open card (its folder heads its menu)
+        self.assertEqual((info["title"], info["sub"], info["tip"], info["path"]), ("Workspace 2", "", "", "/src/pricing"))
         self.assertEqual([(b["glyph"], b["title"], b["sub"], b["cls"], b["agents"], b["calls"]) for b in info["boxes"]], [
             ("◐", "Pricing API", "Opus 5.5", "working", 2, False),  # subagents are dots, not words
             ("✳", "Review tests", "Sonnet 5.5", "idle", 0, True),
             ("✳", "Deploy", "Haiku 5.5 · waiting on prod deploy", "shell", 0, False)])
+        self.assertEqual([b["subagents"] for b in info["boxes"]], [(("Haiku 5.5", "haiku", 2),), (), ()])
         classes = dict(sidebar_common.tab_classes(tab, info, True))
         self.assertTrue(classes["card"] and classes["attention"])
         self.assertFalse(classes["claude"] or classes["working"])  # each box carries its own state

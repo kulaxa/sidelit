@@ -36,7 +36,7 @@ else:
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
     FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question, countdown, reset_line,
-    day_label, history_lines, item_sub, matches, tab_classes, tab_snapshot, usage_level,
+    day_label, group_blocks, history_lines, item_sub, matches, model_css, tab_classes, tab_snapshot, usage_level,
 )
 
 FONT = "'Inter', 'SF Pro Text', 'Fira Sans', 'Cantarell', 'Noto Sans', sans-serif"
@@ -107,15 +107,18 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 
 /* A workspace is a card: a box per Claude in the order they started, under a header with its
    name (two lines at most) and close button when you named it or it has no Claude (else the
-   first Claude's title names it, and its box has the close button). Its folder and shortcut
-   show on hover. Each Claude has a recessed well of its own, a small gap between them, and its
-   own state stripe, a working one is lit from its stripe, one that needs you lit yellow and its
-   title too, and the card around it glows softly. Subagents at work are small blocks right
-   after the model, in the box's colour. The other windows are small grey icons right of the
-   header's name, a browser's tab count and what is unread beside them in dim grey; they take
-   their colour while the pointer is on the card, so at a glance only a Claude's colour stands
-   out. An icon's title shows on hover. A box has room for a two-line title whatever its own
-   (in_room), so every card with one Claude is as tall as the next. */
+   first Claude's title names it, and its box has the close button). Its shortcut shows on
+   hover, its folder heads its menu. Each Claude has a recessed well of its own, a small gap
+   between them, and its own state stripe, a working one is lit from its stripe, one that needs
+   you lit yellow and its title too, and the card around it glows softly. Subagents at work are
+   small blocks right after the model, one each in its model's colour (Opus orange, Sonnet blue,
+   Haiku green, Fable purple, grey for any other or one not known yet), grouped by model, with a
+   group of more than four one block and the number; hovering them names the models. The other
+   windows are small grey icons right of the header's name, a browser's tab count and what is
+   unread beside them in dim grey; they take their colour while the pointer is on the card, so
+   at a glance only a Claude's colour stands out. An icon's title shows on hover. A box has room
+   for a two-line title whatever its own (in_room), so every card with one Claude is as tall as
+   the next. */
 .cw-tab.card {{ padding: 6px; }}
 .cw-tab.card:hover {{ transform: scale(1.02); }}
 .cw-tab.card.attention {{ border-color: rgba(255,214,10,0.35); box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
@@ -159,6 +162,9 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-box-sub {{ color: rgba(235,235,245,0.60); font-size: 12px; }}
 .cw-dot {{ min-width: 6px; min-height: 6px; border-radius: 1.5px; background-color: rgba(235,235,245,0.55); }}
 .cw-box.working .cw-dot {{ background-color: rgba(255,159,10,0.8); box-shadow: 0 0 4px rgba(255,159,10,0.5); }}
+.cw-dots-n {{ color: rgba(235,235,245,0.75); font-size: 10.5px; }}
+.cw-tip-row.cw-dot {{ min-width: 7px; min-height: 7px; }}
+.cw-tip-n {{ font-weight: 600; }}
 .cw-tab.card .cw-box button.cw-icon {{ opacity: 0.35; }}
 .cw-tab.card .cw-box:hover button.cw-icon {{ opacity: 0.9; }}
 
@@ -257,7 +263,6 @@ tooltip, tooltip * {{ font-family: {FONT}; font-size: 12px; color: rgba(255,255,
 """
 
 _FORK_TEXTURE = None
-MAX_DOTS = 8  # subagent dots a box has room for
 
 
 def fork_icon(size: int = 16) -> Gtk.Image:
@@ -699,6 +704,11 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self._theme_css, self._theme = Gtk.CssProvider(), None
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self._theme_css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        # a subagent's model colour over the theme's (whose blocks at work are all one colour)
+        models = Gtk.CssProvider()
+        load_css(models, model_css())
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), models,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         root.add_css_class("cw-root")
@@ -1195,8 +1205,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
     def _make_card(self, tab: dict, info: dict, attention: bool) -> Gtk.Widget:
         """A workspace: its header (name, close) if it has one, a box per Claude (without a
-        header the first has the close button), an icon per other window; its folder and shortcut
-        show on hover."""
+        header the first has the close button), an icon per other window; its shortcut shows on
+        hover, its folder heads its menu."""
         w = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         w.add_css_class("cw-tab")
         set_classes(w, tab_classes(tab, info, attention))
@@ -1304,9 +1314,12 @@ class Sidebar(Gtk.Window, SidebarLogic):
         meta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, hexpand=True)
         sub = label(box["sub"], "cw-box-sub")  # (the blocks follow the model, not the box's edge)
         sub.set_ellipsize(Pango.EllipsizeMode.END)
-        dots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        dots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         dots.set_valign(Gtk.Align.CENTER)
-        self._fill_dots(dots, box["agents"])
+        dots.add_css_class("cw-dots")
+        dots.set_has_tooltip(True)
+        dots.connect("query-tooltip", self._dots_tip)
+        self._fill_dots(dots, box["subagents"])
         meta.append(sub)
         meta.append(dots)
         col.append(name)
@@ -1337,20 +1350,48 @@ class Sidebar(Gtk.Window, SidebarLogic):
             bw.cw_name.set_text(text)
         if bw.cw_sub.get_text() != box["sub"]:
             bw.cw_sub.set_text(box["sub"])
-        if len(children(bw.cw_dots)) != min(box["agents"], MAX_DOTS):
-            self._fill_dots(bw.cw_dots, box["agents"])
+        if bw.cw_dots.cw_groups != box["subagents"]:
+            self._fill_dots(bw.cw_dots, box["subagents"])
         bw.cw_box = box
 
     @staticmethod
-    def _fill_dots(dots: Gtk.Box, n: int):
-        """A block per subagent at work (a box has room for MAX_DOTS)."""
+    def _fill_dots(dots: Gtk.Box, groups: tuple):
+        """A block per subagent at work, in its model's colour, grouped by model (a big group: one
+        block and the number). Hovering them names the models."""
         clear(dots)
-        for _ in range(min(n, MAX_DOTS)):
-            dot = Gtk.Box()
+        for _model, family, count in groups:
+            blocks, more = group_blocks(count)
+            group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            for _ in range(blocks):
+                dot = Gtk.Box()
+                dot.add_css_class("cw-dot")
+                dot.add_css_class(f"cw-m-{family}")
+                dot.set_valign(Gtk.Align.CENTER)
+                group.append(dot)
+            if more:
+                group.append(label(more, "cw-dots-n"))
+            dots.append(group)
+        dots.cw_groups = groups
+        dots.set_visible(bool(groups))
+
+    @staticmethod
+    def _dots_tip(dots, _x, _y, _keyboard, tooltip) -> bool:
+        """The models of a box's subagents: a row each, its colour, its name, how many."""
+        if not dots.cw_groups:
+            return False
+        grid = Gtk.Grid(column_spacing=8, row_spacing=3)
+        grid.add_css_class("cw-tip")
+        for row, (model, family, count) in enumerate(dots.cw_groups):
+            dot = Gtk.Box(valign=Gtk.Align.CENTER, halign=Gtk.Align.START)
             dot.add_css_class("cw-dot")
-            dot.set_valign(Gtk.Align.CENTER)
-            dots.append(dot)
-        dots.set_visible(n > 0)
+            dot.add_css_class(f"cw-m-{family}")
+            n = label(str(count), "cw-tip-n", xalign=1.0)
+            n.set_hexpand(True)
+            for col, w in enumerate((dot, label(model), n)):
+                w.add_css_class("cw-tip-row")
+                grid.attach(w, col, row, 1, 1)
+        tooltip.set_custom(grid)
+        return True
 
     @staticmethod
     def _box_at(w, y: float) -> dict | None:

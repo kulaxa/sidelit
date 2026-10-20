@@ -268,31 +268,54 @@ _MODEL_RE = re.compile(r'"model"\s*:\s*"(claude-[a-z0-9.-]+)"')
 
 
 def session_model(session_id: str | None) -> str | None:
-    """Model a session is on: the last one its transcript names. Its end first; after a turn
-    Claude Code writes a large snapshot there, so when the end names none, the whole of it
-    (once per change of the file)."""
+    """Model a session is on: the last one its transcript names."""
     if not session_id:
         return None
     for path in glob.glob(str(PROJECTS / "*" / f"{session_id}.jsonl")):
-        try:
-            st = os.stat(path)
-            cached = _MODEL_CACHE.get(path)
-            if cached and cached[:2] == (st.st_mtime, st.st_size):
-                model = cached[2]
-            else:
-                with open(path, "rb") as handle:
-                    handle.seek(max(0, st.st_size - 262144))
-                    models = _MODEL_RE.findall(handle.read().decode("utf-8", "replace"))
-                    if not models and st.st_size > 262144:
-                        handle.seek(0)
-                        models = _MODEL_RE.findall(handle.read().decode("utf-8", "replace"))
-                model = pretty_model(models[-1]) if models else None
-                _MODEL_CACHE[path] = (st.st_mtime, st.st_size, model)
-        except OSError:
-            continue
+        model = transcript_model(path)
         if model:
             return model
     return None
+
+
+def subagent_model(session_id: str, agent_id: str, transcript: str = "") -> str | None:
+    """Model a subagent of a session is on: the last one its own transcript names, which Claude
+    Code keeps beside the session's (<session>/subagents/agent-<id>.jsonl), or under the project
+    of the folder the session is in now, when it moved to another one. None until its first reply
+    is written."""
+    if not re.fullmatch(r"[\w-]+", agent_id or "") or not re.fullmatch(r"[\w-]+", session_id or ""):
+        return None
+    name = f"agent-{agent_id}.jsonl"
+    if transcript.endswith(".jsonl"):
+        beside = os.path.join(transcript[:-len(".jsonl")], "subagents", name)
+        if os.path.exists(beside):
+            return transcript_model(beside)
+    for path in glob.glob(str(PROJECTS / "*" / session_id / "subagents" / name)):
+        model = transcript_model(path)
+        if model:
+            return model
+    return None
+
+
+def transcript_model(path: str) -> str | None:
+    """The last model a transcript names. Its end first; after a turn Claude Code writes a large
+    snapshot there, so when the end names none, the whole of it (once per change of the file)."""
+    try:
+        st = os.stat(path)
+        cached = _MODEL_CACHE.get(path)
+        if cached and cached[:2] == (st.st_mtime, st.st_size):
+            return cached[2]
+        with open(path, "rb") as handle:
+            handle.seek(max(0, st.st_size - 262144))
+            models = _MODEL_RE.findall(handle.read().decode("utf-8", "replace"))
+            if not models and st.st_size > 262144:
+                handle.seek(0)
+                models = _MODEL_RE.findall(handle.read().decode("utf-8", "replace"))
+    except OSError:
+        return None
+    model = pretty_model(models[-1]) if models else None
+    _MODEL_CACHE[path] = (st.st_mtime, st.st_size, model)
+    return model
 
 
 def resume_command(session_id: str, cwd: str) -> str:
@@ -376,6 +399,9 @@ class ClaudeCode(Agent):
 
     def model(self, session, rec):
         return session_model(session)
+
+    def subagent_model(self, session, rec, agent_id):
+        return subagent_model(session, agent_id, str((rec or {}).get("transcript") or ""))
 
     def resume_command(self, session, cwd):
         return resume_command(session, cwd)
