@@ -96,6 +96,8 @@ def _chrome(args: list[str]) -> int:
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     _scrub_claude_env()
+    from sidelit.procs import extend_path
+    extend_path()  # (an agent npm installed through nvm & co. is on PATH only in your shell)
     cmd = argv[0] if argv else "sidebar"
     if cmd == "ws":
         from sidelit.backend import cli as ws_cli
