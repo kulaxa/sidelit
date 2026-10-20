@@ -68,6 +68,10 @@
   No Claude Code bars? They need Claude Code 2.1.287 or later (`sidelit hooks status` says when
   yours is older), a Pro or Max plan (an API key, a cloud provider's or a gateway's login has no
   such windows), and one finished turn since the plugin went in.
+  A model's own weekly limit (Fable's) is not among what Claude Code hands plugins; Sidelit
+  shows it as Claude Code's `/usage` last read it (Claude Code keeps that reading in its
+  `~/.claude.json`; nothing else in that file is looked at), with the time of that reading once
+  it is a quarter of an hour old. Open `/usage` to bring it up to date.
   OpenCode has no such limits of its own, so it has no bars.
 - **Updates.** When a newer release is out, an "Update to X.Y.Z" button appears under the usage
   bars. It opens a terminal that pulls the checkout (or, for a package install, downloads the

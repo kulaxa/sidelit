@@ -35,7 +35,7 @@ else:
 
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
-    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question, countdown,
+    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question, countdown, reset_line,
     day_label, history_lines, item_sub, matches, tab_classes, tab_snapshot, usage_level,
 )
 
@@ -981,11 +981,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
             if len(groups) > 1:
                 self.usage_compact.append(label(agent.upper(), "usage-agent"))
             line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
-            for caption, percent, resets in rows:
+            for caption, percent, resets, read in rows:
                 cell = self._usage_row(caption, percent)
-                left = countdown(resets)
-                if left:
-                    cell.set_tooltip_text("resets in %s" % left)
+                cell.set_tooltip_text(reset_line(resets, read) or None)
                 line.append(cell)
             self.usage_compact.append(line)
         self.usage_box.set_visible(bool(groups))
@@ -1015,13 +1013,13 @@ class Sidebar(Gtk.Window, SidebarLogic):
         return row
 
     def _render_usage_rows(self, rows):
-        for caption, percent, resets in rows:
+        for caption, percent, resets, read in rows:
             row = self._usage_row(caption, percent)
-            left = countdown(resets)
-            if left:
-                cd = label("resets in %s" % left, "usage-reset", xalign=1)
+            text = reset_line(resets, read)
+            if text:
+                cd = label(text, "usage-reset", xalign=1)
                 row.append(cd)
-                self._countdowns.append((cd, resets))
+                self._countdowns.append((cd, resets, read))
             self.usage_full.append(row)
 
     # ---- other sources (sources.py) ----------------------------------------------------

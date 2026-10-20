@@ -82,10 +82,46 @@ class CommonTest(unittest.TestCase):
             {"kind": "spend_limit", "percentUsed": 63, "resetsAt": "2026-10-17T11:00:00Z"},     # its reset has passed
             {"kind": "five_hour", "percentUsed": "a lot"}, "junk"]}
         self.assertEqual(sidebar_common.usage_rows(data, now), [
-            ("Session", 23.5, "2026-10-17T15:00:00+00:00"), ("Week", 41.2, "2026-10-21T09:00:00Z"), ("Weekly opus", 7.0, None)])
+            ("Session", 23.5, "2026-10-17T15:00:00+00:00", None), ("Week", 41.2, "2026-10-21T09:00:00Z", None),
+            ("Weekly opus", 7.0, None, None)])
         for nothing in (None, {}, {"limits": None}, {"at": 5, "rows": [["Session", 50, None]]}):  # (the old cache)
             self.assertEqual(sidebar_common.usage_rows(nothing, now), [])
         self.assertTrue(sidebar_common.countdown("2999-01-01T00:00:00Z"))
+
+    def test_a_models_week_is_named_after_it_and_says_how_old_it_is(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
+        read = lambda minutes: int((now.timestamp() - minutes * 60) * 1000)  # noqa: E731
+        data = {"limits": [{"kind": "seven_day_fable", "label": "Fable", "percentUsed": 3, "at": read(5)},
+                           {"kind": "seven_day", "percentUsed": 41}]}
+        self.assertEqual(sidebar_common.usage_rows(data, now), [("Week", 41.0, None, None), ("Fable", 3.0, None, None)])
+        old = {"limits": [{"kind": "seven_day_fable", "label": "Fable", "percentUsed": 3, "at": read(60)}]}
+        stamp = datetime.fromtimestamp(read(60) / 1000).strftime("%H:%M")
+        self.assertEqual(sidebar_common.usage_rows(old, now), [("Fable", 3.0, None, stamp)])
+        self.assertEqual(sidebar_common.reset_line(None, stamp), f"as of {stamp}")
+        self.assertTrue(sidebar_common.reset_line("2999-01-01T00:00:00Z", stamp).startswith(f"as of {stamp} · resets in "))
+
+    def test_claude_codes_own_usage_reading_gives_its_models_weeks(self):
+        from sidelit import claude
+        reading = {"oauthAccount": {"accountUuid": "a1"}, "cachedUsageUtilization": {
+            "accountUuid": "a1", "fetchedAtMs": 1792502221578, "utilization": {"limits": [
+                {"kind": "session", "group": "session", "percent": 18},
+                {"kind": "weekly_all", "group": "weekly", "percent": 45},
+                {"kind": "weekly_scoped", "group": "weekly", "percent": 2, "resets_at": "2026-10-22T06:00:00+00:00",
+                 "scope": {"model": {"id": "claude/fable", "display_name": "Fable"}}}]}}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".claude.json"
+            with mock.patch.object(claude, "GLOBAL_CONFIG", path), mock.patch.dict(claude._SCOPED, {"mtime": None, "limits": []}):
+                self.assertEqual(claude.scoped_limits(), [])  # (no file)
+                path.write_text(json.dumps(reading))
+                self.assertEqual(claude.scoped_limits(), [
+                    {"kind": "seven_day_fable", "label": "Fable", "percentUsed": 2,
+                     "resetsAt": "2026-10-22T06:00:00+00:00", "at": 1792502221578}])
+                other = {**reading, "oauthAccount": {"accountUuid": "b2"}}  # (another account's reading)
+                path.write_text(json.dumps(other) + " ")
+                self.assertEqual(claude.scoped_limits(), [])
+                path.write_text("{ half written")
+                self.assertEqual(claude.scoped_limits(), [])
 
     def test_usage_bars_follow_the_file_and_outlast_a_login(self):
         class Bars(sidebar_common.SidebarLogic):
@@ -108,19 +144,19 @@ class CommonTest(unittest.TestCase):
                 live.write_text(json.dumps({"at": 1, "limits": [{"kind": "five_hour", "percentUsed": 10, "resetsAt": later}]}))
                 bars._refresh_usage()
                 bars._refresh_usage()  # (the same figures: not drawn again)
-                self.assertEqual(bars.drawn[1:], [[("Claude Code", [("Session", 10.0, later)])]])
+                self.assertEqual(bars.drawn[1:], [[("Claude Code", [("Session", 10.0, later, None)])]])
                 live.write_text('{"at": 2, "limits": [{"kin')  # the plugin half way through writing it
                 bars._refresh_usage()
                 self.assertEqual(len(bars.drawn), 2)
                 # another agent's limits come under its own name
                 codex[0].write_text(json.dumps({"at": 3, "limits": [{"kind": "seven_day", "percentUsed": 55, "resetsAt": later}]}))
                 bars._refresh_usage()
-                self.assertEqual(bars.drawn[-1], [("Claude Code", [("Session", 10.0, later)]), ("Codex", [("Week", 55.0, later)])])
+                self.assertEqual(bars.drawn[-1], [("Claude Code", [("Session", 10.0, later, None)]), ("Codex", [("Week", 55.0, later, None)])])
                 live.unlink()  # a new login: no session has measured anything yet
                 codex[0].unlink()
                 fresh = Bars()
                 fresh._refresh_usage()
-                self.assertEqual(fresh.drawn, [[("Claude Code", [("Session", 10.0, later)]), ("Codex", [("Week", 55.0, later)])]])
+                self.assertEqual(fresh.drawn, [[("Claude Code", [("Session", 10.0, later, None)]), ("Codex", [("Week", 55.0, later, None)])]])
 
     def test_each_agent_with_limits_has_its_files(self):
         names = [name for name, _, _ in sidebar_common.usage_sources()]

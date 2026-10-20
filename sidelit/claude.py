@@ -27,6 +27,9 @@ from sidelit.core.titles import bare_title, looks_like_claude, title_state
 from sidelit.procs import load_json, proc_table, shell_command  # noqa: F401 (load_json: for importers)
 
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+# Claude Code's own settings and state (its config folder's .claude.json when one is set)
+GLOBAL_CONFIG = (Path(os.environ["CLAUDE_CONFIG_DIR"]) / ".claude.json" if os.environ.get("CLAUDE_CONFIG_DIR")
+                 else Path.home() / ".claude.json")
 PROJECTS = CLAUDE_DIR / "projects"
 AGENTS_EVERY_S = 10.0  # how often Claude Code is asked for its sessions (it starts a process)
 FLUSH_WAIT_S = 1.0     # without the hook's copy of Claude's last words, give the transcript this long
@@ -37,6 +40,40 @@ LEAKED_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION
 def claude_binary() -> str | None:
     return shutil.which("claude") or next((str(p) for p in (Path.home() / ".local/bin/claude", CLAUDE_DIR / "local/claude",
                                                             Path.home() / ".claude/local/claude") if p.exists()), None)
+
+
+_SCOPED: dict = {"mtime": None, "limits": []}
+
+
+def scoped_limits() -> list[dict]:
+    """The weekly limits of one model (Fable's) that Claude Code's /usage shows: Claude Code hands
+    plugins only the session and the week, but keeps its last /usage reading in its own config
+    (cachedUsageUtilization, its `limits`: "weekly_scoped" with the model's name). Each as the
+    usage file has its limits, the model's name for a label and when it was read (`at`, ms).
+    Not documented: a reading of another account, or a shape it does not have, gives none. The
+    file is read again only when it changed; nothing in it but that reading is looked at."""
+    try:
+        mtime = GLOBAL_CONFIG.stat().st_mtime_ns
+    except OSError:
+        return []
+    if mtime != _SCOPED["mtime"]:
+        limits = []
+        try:
+            data = json.loads(GLOBAL_CONFIG.read_text())
+            cached = data.get("cachedUsageUtilization") or {}
+            account = (data.get("oauthAccount") or {}).get("accountUuid")
+            if not account or cached.get("accountUuid") == account:
+                for entry in (cached.get("utilization") or {}).get("limits") or []:
+                    model = (entry.get("scope") or {}).get("model") or {}
+                    name = model.get("display_name") or model.get("id")
+                    if entry.get("kind") == "weekly_scoped" and name and isinstance(entry.get("percent"), (int, float)):
+                        limits.append({"kind": "seven_day_" + re.sub(r"\W+", "_", str(name).lower()), "label": str(name),
+                                       "percentUsed": entry["percent"], "resetsAt": entry.get("resets_at"),
+                                       "at": cached.get("fetchedAtMs")})
+        except (OSError, ValueError, AttributeError, TypeError):
+            limits = []
+        _SCOPED.update(mtime=mtime, limits=limits)
+    return list(_SCOPED["limits"])
 
 
 def agents_json() -> list[dict] | None:
