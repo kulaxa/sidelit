@@ -71,8 +71,8 @@ class Machine:
 
 
 # ---- what each machine is ------------------------------------------------------------------------
-# The provisioning scripts run with their output on the serial port; a line starting with
-# SIDELIT-VM: is a step this script shows while it waits.
+# The provisioning scripts run with their output on the second serial port (build.log); a line
+# starting with SIDELIT-VM: is a step this script shows while it waits.
 PRELUDE = """\
 set -euxo pipefail
 step() { { set +x; } 2>/dev/null; echo "SIDELIT-VM: $*"; set -x; }
@@ -237,7 +237,7 @@ MINT_CMDLINE = ("boot=casper automatic-ubiquity noprompt username=mint hostname=
 # installer has no copy of it)
 MINT_FINISH = """\
 set -x
-exec > /dev/ttyS0 2>&1
+exec > /dev/ttyS1 2>&1
 echo "SIDELIT-VM: Mint is installed; setting it up"
 T=/target
 echo 'tester ALL=(ALL) NOPASSWD: ALL' > $T/etc/sudoers.d/90-sidelit-vm
@@ -331,7 +331,7 @@ def rendernode() -> str:
     return str(nodes[0])
 
 
-def qemu_args(m: Machine, disk: Path, *, window: bool) -> list[str]:
+def qemu_args(m: Machine, disk: Path, *, window: bool, building: bool) -> list[str]:
     gpu = "virtio-vga-gl" if m.gl else "virtio-vga"
     if window:
         display = "gtk,gl=on" if m.gl else "gtk"
@@ -349,9 +349,12 @@ def qemu_args(m: Machine, disk: Path, *, window: bool) -> list[str]:
         # the screen, for screenshots and input (QEMU's own screendump cannot read a 3D screen)
         "-vnc", f"127.0.0.1:{m.vnc_port - 5900}",
         "-qmp", f"unix:{run / (m.name + '.qmp')},server=on,wait=off",
+        # ttyS0: the kernel's console and a login prompt
         "-serial", f"file:{m.dir / 'serial.log'}",
         "-pidfile", str(run / (m.name + ".pid")),
-    ]
+        # ttyS1, while it is built: what the build's scripts say (on ttyS0 they would be hung up on
+        # once its login prompt starts)
+    ] + (["-serial", f"file:{m.dir / 'build.log'}"] if building else [])
 
 
 def pid(m: Machine) -> int | None:
@@ -364,13 +367,15 @@ def pid(m: Machine) -> int | None:
     return number if b"qemu" in cmdline and m.name.encode() in cmdline else None
 
 
-def launch(m: Machine, disk: Path, *, extra: list[str] = (), window: bool = False) -> subprocess.Popen:
+def launch(m: Machine, disk: Path, *, extra: list[str] = (), window: bool = False,
+           building: bool = False) -> subprocess.Popen:
     if pid(m):
         raise Fail(f"{m.name} is running already: 'vm.py stop {m.name}' first.")
     m.dir.mkdir(parents=True, exist_ok=True)
     (runtime() / (m.name + ".qmp")).unlink(missing_ok=True)
     log = open(m.dir / "qemu.log", "w")
-    proc = subprocess.Popen(qemu_args(m, disk, window=window) + list(extra), stdin=subprocess.DEVNULL,
+    proc = subprocess.Popen(qemu_args(m, disk, window=window, building=building) + list(extra),
+                            stdin=subprocess.DEVNULL,
                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     deadline = time.monotonic() + 30
     while not (runtime() / (m.name + ".qmp")).exists():
@@ -650,12 +655,12 @@ def download(m: Machine) -> Path:
 
 
 def follow(m: Machine, proc: subprocess.Popen, seconds: float) -> str:
-    """Waits for the machine to power off, showing its steps; returns its serial log."""
-    log, shown, deadline = m.dir / "serial.log", 0, time.monotonic() + seconds
+    """Waits for the machine to power off, showing its build's steps; returns what the build said."""
+    log, shown, deadline = m.dir / "build.log", 0, time.monotonic() + seconds
     while proc.poll() is None:
         if time.monotonic() > deadline:
             qmp(m, "quit")
-            raise Fail(f"{m.name} took over {seconds / 60:.0f} minutes; its serial log: {log}")
+            raise Fail(f"{m.name} took over {seconds / 60:.0f} minutes; what it said: {log}")
         lines = log.read_bytes().decode(errors="replace").splitlines() if log.exists() else []
         for line in lines[shown:]:
             line = line.strip("\r\x1b[0m ")
@@ -666,7 +671,7 @@ def follow(m: Machine, proc: subprocess.Popen, seconds: float) -> str:
     return log.read_bytes().decode(errors="replace")
 
 
-def provision_cloud(m: Machine, image: Path, disk: Path):
+def provision_cloud(m: Machine, image: Path, disk: Path, *, window: bool):
     subprocess.run(["qemu-img", "convert", "-O", "qcow2", str(image), str(disk)], check=True)
     subprocess.run(["qemu-img", "resize", "-q", str(disk), DISK], check=True)
     config = {
@@ -678,8 +683,8 @@ def provision_cloud(m: Machine, image: Path, disk: Path):
         }],
         "write_files": [{"path": "/root/sidelit-vm-provision.sh", "permissions": "0755", "content": m.provision}],
         # cloud-init's work ends here: it never runs again, at the base's next boot or a copy's
-        "runcmd": [["bash", "-c", "bash /root/sidelit-vm-provision.sh > /dev/ttyS0 2>&1; "
-                    "echo SIDELIT-VM-BUILD-$? > /dev/ttyS0; touch /etc/cloud/cloud-init.disabled; poweroff"]],
+        "runcmd": [["bash", "-c", "bash /root/sidelit-vm-provision.sh > /dev/ttyS1 2>&1; "
+                    "echo SIDELIT-VM-BUILD-$? > /dev/ttyS1; touch /etc/cloud/cloud-init.disabled; poweroff"]],
     }
     files = {
         "meta-data": f"instance-id: sidelit-{m.name}\nlocal-hostname: {m.name}\n".encode(),
@@ -688,10 +693,11 @@ def provision_cloud(m: Machine, image: Path, disk: Path):
     }
     with Seed(files) as seed:
         say(f"Setting up {m.title} (the first boot installs the desktop: 10 to 40 minutes)")
-        proc = launch(m, disk, extra=["-smbios", f"type=1,serial=ds=nocloud;s={seed.url}/", "-no-reboot"])
-        serial = follow(m, proc, 3 * 3600)
-    if "SIDELIT-VM-BUILD-0" not in serial:
-        raise Fail(f"Setting up {m.name} failed; its serial log: {m.dir / 'serial.log'}")
+        proc = launch(m, disk, extra=["-smbios", f"type=1,serial=ds=nocloud;s={seed.url}/", "-no-reboot"],
+                      window=window, building=True)
+        said = follow(m, proc, 3 * 3600)
+    if "SIDELIT-VM-BUILD-0" not in said:
+        raise Fail(f"Setting up {m.name} failed; what it said: {m.dir / 'build.log'}")
 
 
 def iso_file(iso: Path, path: str) -> bytes:
@@ -737,7 +743,7 @@ def cpio(files: dict[str, bytes]) -> bytes:
     return bytes(out) + b"\x00" * (-len(out) % 512)
 
 
-def install_from_iso(m: Machine, iso: Path, disk: Path):
+def install_from_iso(m: Machine, iso: Path, disk: Path, *, window: bool):
     subprocess.run(["qemu-img", "create", "-q", "-f", "qcow2", str(disk), DISK], check=True)
     kernel, initrd = m.dir / "vmlinuz", m.dir / "initrd"
     kernel.write_bytes(iso_file(iso, "casper/vmlinuz"))
@@ -749,16 +755,16 @@ def install_from_iso(m: Machine, iso: Path, disk: Path):
         initrd.write_bytes(original + b"\x00" * (-len(original) % 512) + cpio({"preseed.cfg": preseed}))
         say(f"Installing {m.title} with its own installer (10 to 30 minutes)")
         proc = launch(m, disk, extra=["-cdrom", str(iso), "-kernel", str(kernel), "-initrd", str(initrd),
-                                      "-append", MINT_CMDLINE, "-no-reboot"])
-        serial = follow(m, proc, 2 * 3600)
+                                      "-append", MINT_CMDLINE, "-no-reboot"], window=window, building=True)
+        said = follow(m, proc, 2 * 3600)
     kernel.unlink()
     initrd.unlink()
-    if "SIDELIT-VM: set up" not in serial:
-        raise Fail(f"Installing {m.name} failed; its serial log: {m.dir / 'serial.log'} ('vm.py build "
+    if "SIDELIT-VM: set up" not in said:
+        raise Fail(f"Installing {m.name} failed; what it said: {m.dir / 'build.log'} ('vm.py build "
                    f"{m.name} --window' shows the installer)")
 
 
-def build(m: Machine, *, again: bool = False):
+def build(m: Machine, *, again: bool = False, window: bool = False):
     base, part = m.dir / "base.qcow2", m.dir / "base.part.qcow2"
     if base.exists() and not again:
         raise Fail(f"{m.name} is built already ('build --again' builds it anew)")
@@ -768,12 +774,12 @@ def build(m: Machine, *, again: bool = False):
     image = download(m)
     part.unlink(missing_ok=True)
     if image.suffix == ".iso":
-        install_from_iso(m, image, part)
+        install_from_iso(m, image, part, window=window)
     else:
-        provision_cloud(m, image, part)
+        provision_cloud(m, image, part, window=window)
     # the first boot: the desktop comes up by itself and lets ssh in (Mint installs ssh now)
     say("Starting it once: the desktop must come up by itself")
-    proc = launch(m, part)
+    proc = launch(m, part, window=window)
     try:
         wait_ssh(m, 30 * 60, proc)
         wait_desktop(m, 10 * 60)
@@ -996,8 +1002,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("machine", choices=sorted(MACHINES))
         return p
 
-    machine("build", "install the machine and keep it as its clean base").add_argument(
-        "--again", action="store_true", help="build it anew")
+    p = machine("build", "install the machine and keep it as its clean base")
+    p.add_argument("--again", action="store_true", help="build it anew")
+    p.add_argument("--window", action="store_true", help="show its screen in a window here")
     p = machine("start", "start a fresh copy of the clean machine, and wait until it is logged in")
     p.add_argument("--resume", action="store_true", help="the last run's disk, as it was left")
     p.add_argument("--window", action="store_true", help="show its screen in a window here")
@@ -1029,7 +1036,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "list":
             listing()
         elif args.command == "build":
-            build(m, again=args.again)
+            build(m, again=args.again, window=args.window)
         elif args.command == "start":
             start(m, resume=args.resume, window=args.window)
         elif args.command == "stop":
