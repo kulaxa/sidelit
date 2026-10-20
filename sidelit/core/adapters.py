@@ -26,9 +26,15 @@ from sidelit.core.model import Slot, Win
 # a Claude that has not been on screen in its terminal for this long has ended there
 CLAUDE_GONE_S = 20.0
 
-IGNORED_APPS = {"", "sidelit","xdg-desktop-portal-cosmic", "xdg-desktop-portal-gtk", "cosmic-osd",
+# windows of the desktop itself, never yours to keep: portals' and polkit's dialogs, COSMIC's
+# pop-ups, Hyprland's own (its "Hyprland Updated" and donation pop-up, welcome, dialogs, run box
+# and screen share picker) and KDE's hidden window that lets X11 apps record the screen
+IGNORED_APPS = {"", "sidelit", "xdg-desktop-portal-cosmic", "xdg-desktop-portal-gtk", "cosmic-osd",
                 "polkit-gnome-authentication-agent-1", "org.freedesktop.impl.portal.desktop.cosmic",
-                "com.system76.CosmicScreenshot", "cosmic-screenshot"}
+                "com.system76.CosmicScreenshot", "cosmic-screenshot",
+                "hyprland-donate-screen", "hyprland-update-screen", "hyprland-welcome", "hyprland-dialog",
+                "hyprland-run", "hyprland-share-picker",
+                "org.kde.xwaylandvideobridge", "xwaylandvideobridge"}
 
 
 @dataclass
