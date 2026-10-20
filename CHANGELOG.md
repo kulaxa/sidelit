@@ -4,7 +4,7 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
-## [Unreleased]
+## [0.7.0] - 2026-10-20
 
 - Halloween's usage card has no jack-o'-lantern by its heading any more.
 - Several sessions in one Terminator window, in tabs or splits: a click on a session's box now
