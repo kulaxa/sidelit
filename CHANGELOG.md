@@ -4,6 +4,14 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.8.1] - 2026-10-20
+
+- Claude Code, Codex or OpenCode installed with npm through nvm, fnm, Volta, Bun or pnpm is
+  found even where your shell's setup is not loaded (the services, the install). Before, Sidelit's
+  plugin could stay out of such a Claude Code, with no usage bars and no status from the plugin.
+- `sidelit start` puts Sidelit's plugin into a Claude Code that does not have it, once; one you
+  took out with `sidelit hooks uninstall` stays out.
+
 ## [0.8.0] - 2026-10-20
 
 - A workspace's other windows are icons right of its name, instead of a row under its sessions.
