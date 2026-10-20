@@ -124,7 +124,7 @@ check_distro() {
                 command -v "$tool" >/dev/null && { pm=${tool%-get}; break; }
             done
             [ -n "$pm" ] ||
-                fail "This installer knows apt, dnf, pacman and zypper, and found none of them here: see \"Other ways to install\" in Sidelit's README."
+                fail "This installer knows apt, dnf, pacman and zypper, and found none of them here: see \"Other ways to install\" at https://github.com/kulaxa/sidelit/blob/main/docs/install.md"
             ;;
     esac
 }
@@ -380,7 +380,7 @@ main() {
     out=$(bash "$dir/install.sh" </dev/null 2>&1)
     status=$?
     printf '%s\n' "$out" >>"$log"
-    # its warnings, the rest is in the log; but not that there is no GTK 4 sidebar (the README's
+    # its warnings, the rest is in the log; but not that there is no GTK 4 sidebar (docs/install.md's
     # to read about, if you like) nor that there is no claude (the end of this says what to do)
     grep -E '^ *(!|✗|sidelit hooks:)' <<<"$out" | grep -v -e gtk4-layer-shell -e 'claude CLI not found' | sed 's/^ */  /'
     [ $status -eq 0 ] || fail "Setting Sidelit up failed (above; all it said is in $(tilde "$log"))."
