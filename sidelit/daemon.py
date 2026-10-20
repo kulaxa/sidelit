@@ -362,6 +362,8 @@ class Daemon:
         for tl in list(self.ws.toplevels.values()):
             if tl.closed or not tl.identifier:
                 continue
+            if tl.app_id and tl.app_id in ad.IGNORED_APPS:
+                continue  # the desktop's own (KDE's hidden recording bridge): no icon, never closed with a workspace
             here = self.ws.workspace_of(tl)
             windows[tl.identifier] = Win(id=tl.identifier, app=tl.app_id or "", title=tl.title or "",
                                          space=here.index if here is not None else None,

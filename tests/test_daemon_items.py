@@ -30,6 +30,61 @@ class ItemFolder(unittest.TestCase):
 
 
 @unittest.skipIf(daemon is None, "needs GLib")
+class Observing(unittest.TestCase):
+    """What the daemon makes of the backend's windows for the engine and the sidebar."""
+
+    def observe(self, *windows: tuple[str, str, int], shells: dict | None = None):
+        """`windows`: (app id, title, pid) each, on workspace 1; `shells`: pid -> the folder its
+        shell is in. The windows of what the daemon sees, by app id, and its folders."""
+        from sidelit.core import adapters as ad
+        from sidelit.core.model import Layout
+        from sidelit.model import Toplevel, Workspace
+        space = Workspace(id="ws-1", coords=(1,), state=1)
+
+        class Desk:
+            preferred_ids, blind = set(), False
+            toplevels = {f"w{i}": Toplevel(identifier=f"w{i}", app_id=app, title=title, pid=pid)
+                         for i, (app, title, pid) in enumerate(windows)}
+
+            def list(self):
+                return [space]
+
+            def workspace_of(self, tl):
+                return space
+
+            def output_of(self, tl):
+                return None
+
+            def output_names(self):
+                return ["eDP-1"]
+
+        d = object.__new__(daemon.Daemon)
+        d.ws, d.chrome, d._copies = Desk(), {}, ""
+        d.journal = lambda kind, **fields: None
+        d.engine = mock.Mock(layout=Layout(), launched_pid={}, ctx=ad.Ctx())
+        d.detector = mock.Mock(agents=[], hooked={})
+        d.detector.claudes_for.return_value = []
+        with mock.patch.object(daemon, "shell_cwd", lambda pid: (shells or {}).get(pid, "")):
+            obs = d.observe(100.0)
+        return ({w.id: w.app for w in obs.windows.values()},
+                {obs.windows[wid].title: here for wid, here in obs.cwd.items()})
+
+    def test_the_desktops_own_windows_are_not_seen(self):
+        """KDE's hidden window that lets X11 apps record the screen is no icon in the sidebar, and
+        does not keep a workspace from being empty; Hyprland's update pop-up neither."""
+        seen, _ = self.observe(("org.kde.xwaylandvideobridge", "Wayland to X Recording bridge — Xwayland", 7),
+                               ("hyprland-donate-screen", "Hyprland Updated", 8), ("org.kde.dolphin", "Home", 9))
+        self.assertEqual(list(seen.values()), ["org.kde.dolphin"])
+
+    def test_a_terminals_folder_from_its_shell(self):
+        """Only where its process is the window's alone: one process can keep several windows."""
+        _, folders = self.observe(("kitty", "kitty", 10), ("foot", "a", 11), ("foot", "b", 11),
+                                  ("org.kde.dolphin", "Home", 12),
+                                  shells={10: "/tmp", 11: "/etc", 12: "/srv"})
+        self.assertEqual(folders, {"kitty": "/tmp"})
+
+
+@unittest.skipIf(daemon is None, "needs GLib")
 class FocusAfterSlide(unittest.TestCase):
     """A session tab's terminal gets the keyboard after COSMIC's workspace slide, not during it
     (activating a window then makes the switch jump instead of slide)."""
