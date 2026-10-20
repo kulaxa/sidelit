@@ -126,6 +126,10 @@ class Agent:
     def model(self, session: str, rec: dict | None) -> str | None:
         return None
 
+    def subagent_model(self, session: str, rec: dict | None, agent_id: str) -> str | None:
+        """The model a subagent of this session runs on (its id from the hook), once known."""
+        return None
+
     def watch(self, sessions: list[str]):
         """The agent's sessions on screen now, each daemon step: an agent that asks for their
         titles off the main loop asks now, when it is time."""

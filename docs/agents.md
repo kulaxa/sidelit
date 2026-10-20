@@ -11,8 +11,9 @@ for the bars. `sidelit hooks install` puts the plugin in every agent it finds,
 For Claude Code, session state comes from Sidelit's plugin (each session's events, and the
 usage limits), from `claude agents --json` (Claude Code's list of running sessions, which its
 docs call the supported way to read session state from outside it) and from the transcripts in
-`~/.claude/projects/` (the session's title and model). Nothing else of Claude Code's is read,
-and nothing of it is written but through its own `claude plugin` commands (apart from taking
+`~/.claude/projects/` (the session's title and model, and each subagent's model from its own
+transcript beside the session's). Nothing else of Claude Code's is read, and nothing of it is
+written but through its own `claude plugin` commands (apart from taking
 out, once, the hook Sidelit 0.5 had written into `~/.claude/settings.json`). For Codex, from
 the plugin's events, its process list (`/proc`), and its app-server (`codex app-server`, over
 stdio: a session's name, the usage limits, whether you trusted the hooks); nothing of Codex's is

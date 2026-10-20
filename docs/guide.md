@@ -85,8 +85,12 @@
   for Codex, once you have trusted it) makes every session report what it is doing as it
   happens: working, waiting for a permission or an answer, done. That is its main thread; the
   subagents it runs are small blocks right after the model, one each, and so is a session it
-  started itself, which never gets a box. It also says which terminal it lives in: by process
-  ancestry for a session the daemon started (or whose window's process the desktop names), else
+  started itself, which never gets a box. A block has its model's colour (Opus orange, Sonnet
+  blue, Haiku green, Fable purple; grey for another model, or until a Claude Code subagent's
+  first reply says which), more than four on one model are one block and the number, and
+  hovering the blocks lists the models and how many of each. It also says which terminal it
+  lives in: by process ancestry for a session the daemon started (or whose window's process the
+  desktop names), else
   by which window had the keyboard when you submitted a prompt (until its first prompt, when you
   started it: a new tab or pane gets its box at once); and which pane, where the terminal says
   (Terminator, tmux, WezTerm, kitty). A box is called by its session's own name, "New session"

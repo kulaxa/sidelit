@@ -215,6 +215,30 @@ class TrackerTest(unittest.TestCase):
         self.hook("s2", "done", 104.0, pid=502, started=101.0, ancestors=[502, 501, CLAUDE_PID, SHELL_PID, TERM_PID, 1])
         self.assertEqual(self.look({"A": a}, 105.0, launched={"A": TERM_PID})["A"]["agents"], 1)
 
+    def test_each_subagent_has_its_model_once_its_transcript_names_it(self):
+        folder = claude.PROJECTS / claude.project_slug("/tmp")
+        (folder / "s1" / "subagents").mkdir(parents=True)
+        main = folder / "s1.jsonl"
+        main.write_text(json.dumps({"type": "assistant", "message": {"model": "claude-opus-5-5"}}) + "\n")
+        (folder / "s1" / "subagents" / "agent-a1.jsonl").write_text(
+            json.dumps({"type": "user", "message": {"role": "user", "content": "look"}}) + "\n" +
+            json.dumps({"type": "assistant", "message": {"model": "claude-haiku-5-5"}}) + "\n")
+        (folder / "s1" / "subagents" / "agent-a2.jsonl").write_text(
+            json.dumps({"type": "user", "message": {"role": "user", "content": "just started"}}) + "\n")
+        a = term("A", "✳ Fix tests")
+        self.d.note_focus(100.0, "A")
+        self.hook("s1", "busy", 101.0, prompt_t=100.5, transcript=str(main), agents={"a1": 101.0, "a2": 101.0})
+        seen = self.look({"A": a}, 102.0)["A"]
+        self.assertEqual((seen["agents"], seen["models"]), (2, ["Haiku 5.5", None]))
+        # (and without the hook's path to the transcript, it is found by the session's id)
+        self.assertEqual(claude.subagent_model("s1", "a1"), "Haiku 5.5")
+        self.assertIsNone(claude.subagent_model("s1", "../a1"))
+        # a session that moved to another folder writes its subagents under that folder's project
+        moved = claude.PROJECTS / claude.project_slug("/tmp/clone") / "s1" / "subagents"
+        moved.mkdir(parents=True)
+        (moved / "agent-a3.jsonl").write_text(json.dumps({"message": {"model": "claude-fable-5-1"}}) + "\n")
+        self.assertEqual(claude.subagent_model("s1", "a3", str(main)), "Fable 5.1")
+
     def test_a_claude_an_app_drives_is_not_the_terminal_you_were_in(self):
         """Its prompts come while you are in another Claude's terminal, and it has no title yet."""
         a = term("A", "✳ Fix tests")
