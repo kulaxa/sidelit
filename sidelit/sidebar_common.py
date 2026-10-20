@@ -540,7 +540,12 @@ class SidebarLogic:
         return None
 
     # ---- updates ----------------------------------------------------------
-    def _check_update(self):
+    def _check_update(self, update: bool = False):
+        """Is a newer release out? Offered under the usage bars if so; `update` (you asked):
+        updated at once, and said in the footer when there is nothing newer."""
+        def say(text):
+            GLib.idle_add(lambda: (self._footer(text, 6), False)[1])
+
         def worker():
             try:
                 with urllib.request.urlopen(LATEST_VERSION_URL, timeout=15) as response:
@@ -550,13 +555,24 @@ class SidebarLogic:
                 # is private: nothing to offer, and nothing worth saying every hour)
                 if getattr(e, "code", None) != 404:
                     print("update check failed:", e, file=sys.stderr)
+                if update:
+                    say("Could not check for updates")
                 return
             ours, theirs = version_tuple(local_version()), version_tuple(latest)
             if ours and theirs and theirs > ours:
                 GLib.idle_add(self._offer_update, latest)
+                if update:
+                    GLib.idle_add(lambda: (self.on_update_clicked(), False)[1])
             else:  # up to date (again): drop an offer made earlier
                 GLib.idle_add(lambda: (self._hide_update(), False)[1])
+                if update:
+                    say(f"Sidelit {local_version()} is the latest")
         threading.Thread(target=worker, daemon=True).start()
+
+    def update_now(self):
+        """'Check for updates': asked now, and updated if there is one."""
+        self._footer("Checking for updates…", 15)
+        self._check_update(update=True)
 
     @staticmethod
     def update_tooltip() -> str:
@@ -774,7 +790,7 @@ class SidebarLogic:
         self.send("restore")
 
     def header_menu(self) -> list:
-        items = [("Put everything back", self.put_back)]
+        items = [("Put everything back", self.put_back), ("Check for updates", self.update_now)]
         recent = self.state.get("recent") or []
         if recent:
             sub = []

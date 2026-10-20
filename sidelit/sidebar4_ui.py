@@ -799,6 +799,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             ("Reopen crashed windows", "relaunch"),
         ], self.set_option, [
             ("Put everything back", "view-refresh-symbolic", self.put_back),
+            ("Check for updates", "software-update-available-symbolic", self.update_now),
             ("Restart sidebar", "system-reboot-symbolic", lambda: self._screens_changed("settings")),
         ])
         self.views.add_named(self.settings, "settings")

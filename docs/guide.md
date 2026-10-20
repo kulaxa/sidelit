@@ -54,8 +54,8 @@
   back to the workspaces. The last 100 are kept.
 - **Settings.** The gear swaps the workspaces for the settings: the theme (the season's, the
   default look, Halloween's, or [one of your own](config.md)); switches for the restore after
-  a login and for reopening windows that crash; and buttons to put everything back and restart the sidebar.
-- **Header menu.** Right-click the header for "Put everything back" (every window to its
+  a login and for reopening windows that crash; and buttons to put everything back, check for updates and restart the sidebar.
+- **Header menu.** Right-click the header for "Check for updates", "Put everything back" (every window to its
   workspace and screen, what went missing reopened), *Recent sessions* (closed ones, one click resumes one on a new workspace)
   and "Restart sidebar". Right-click a tab to forget its missing windows.
 - **Fits the screen.** When the cards do not fit, the sidebar goes compact by itself: each
@@ -72,7 +72,8 @@
 - **Updates.** When a newer release is out, an "Update to X.Y.Z" button appears under the usage
   bars. It opens a terminal that pulls the checkout (or, for a package install, downloads the
   package and installs it with apt or pacman, asking for your password there) and restarts the
-  sidebar. Nothing is installed behind your back.
+  sidebar. Nothing is installed behind your back. The sidebar looks when it starts and every hour;
+  "Check for updates" (the settings, the header menu) looks at once and updates if there is one.
 
 ## Who needs you
 
