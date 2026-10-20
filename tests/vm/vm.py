@@ -341,7 +341,9 @@ def qemu_args(m: Machine, disk: Path, *, window: bool, building: bool) -> list[s
     return [
         "qemu-system-x86_64", "-name", m.name,
         "-machine", "q35,accel=kvm", "-cpu", "host", "-smp", "4", "-m", str(m.memory),
-        "-drive", f"file={disk},if=virtio,discard=unmap",
+        # (unsafe: the guest's flushes are not waited for, which makes installing packages many
+        # times faster on a slow disk; only a crash of this computer can spoil the disk)
+        "-drive", f"file={disk},if=virtio,discard=unmap,cache=unsafe",
         "-nic", f"user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:{m.ssh_port}-:22",
         "-device", "qemu-xhci", "-device", "usb-tablet",
         "-device", f"{gpu},xres={SCREEN[0]},yres={SCREEN[1]}",
