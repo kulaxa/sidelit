@@ -94,9 +94,14 @@ Hyprland itself runs no autostart entries, so Sidelit starts by itself only when
 runs them (uwsm does). Otherwise add one line to your Hyprland config, so it starts at every
 login (the install line says so when it is needed):
 
-- with a classic config (`~/.config/hypr/hyprland.conf`): `exec-once = sidelit start`
+- with a classic config (`~/.config/hypr/hyprland.conf`): `exec-once = ~/.local/bin/sidelit start`
 - with a Lua config (`~/.config/hypr/hyprland.lua`, Hyprland 0.55 and later):
-  `hl.on("hyprland.start", function () hl.exec_cmd("sidelit start") end)`
+  `hl.on("hyprland.start", function () hl.exec_cmd("~/.local/bin/sidelit start") end)`
+
+The line names `sidelit` by its path, where the install line and `install.sh` put it: Hyprland
+started by a login manager often has no `~/.local/bin` on its PATH (greetd on Arch has none), and
+a bare `sidelit start` then does nothing. Installed as a package, Sidelit is in `/usr/bin`, and
+`sidelit start` is enough. The same goes for niri and sway below.
 
 ## On niri
 
@@ -106,7 +111,7 @@ runs none: add this line to `~/.config/niri/config.kdl` (the install line says s
 needed):
 
 ```kdl
-spawn-at-startup "sidelit" "start"
+spawn-at-startup "~/.local/bin/sidelit" "start"
 ```
 
 ## On sway
@@ -117,7 +122,7 @@ them (some distributions' sway sessions do). Otherwise add one line to your sway
 yet, copy `/etc/sway/config` there first):
 
 ```
-exec sidelit start
+exec ~/.local/bin/sidelit start
 ```
 
 ## The GTK 4 sidebar (optional)

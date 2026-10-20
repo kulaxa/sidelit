@@ -34,6 +34,9 @@ tilde() { printf '%s' "${1/#"$HOME"/\~}"; }
 # `sidelit start` (or niri's `"sidelit" "start"`, a path before it too), not commented out
 # (#, // and /- in niri's KDL, -- in Hyprland's Lua)?
 starts_sidelit() { grep -RhsE -- 'sidelit"?[[:space:]]+"?start' "$1" | grep -qvE '^[[:space:]]*(#|//|/-|--)'; }
+# ... with a path before `sidelit` (`~/.local/bin/sidelit start`): a bare `sidelit` is found only
+# on the compositor's own PATH
+starts_sidelit_by_path() { grep -RhsE -- '/sidelit"?[[:space:]]+"?start' "$1" | grep -qvE '^[[:space:]]*(#|//|/-|--)'; }
 
 # ---- the desktop ------------------------------------------------------------------------------
 # An X11 session: as the session says, else an X display and no Wayland one
@@ -397,7 +400,7 @@ main() {
     "$bindir/sidelit" "$action" </dev/null 2>&1 | tee -a "$log" | sed 's/^/  /'
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "Sidelit is installed, but did not start: 'sidelit log' says why."
 
-    local version login=1 hypr=${XDG_CONFIG_HOME:-$HOME/.config}/hypr niri_conf sway_conf=''
+    local version login=1 bare='' hypr=${XDG_CONFIG_HOME:-$HOME/.config}/hypr niri_conf sway_conf='' conf='' line
     niri_conf=${NIRI_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl}
     # (sway reads ~/.sway/config, ~/.config/sway/config, i3's, then /etc/sway/config: it says which)
     [ "$desktop" != sway ] || sway_conf=$(swaymsg -t get_version 2>/dev/null |
@@ -406,18 +409,28 @@ main() {
     version=$(cat "$dir/VERSION")
     # Hyprland, niri and sway themselves run no autostart entries; a session that runs them (uwsm,
     # niri's own session, start systemd's xdg-desktop-autostart.target) starts Sidelit, else it
-    # takes a line in the compositor's config, unless that is there already
-    if [ "$desktop" = hyprland ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null &&
-        ! starts_sidelit "$hypr"; then
-        login=''
-    fi
-    if [ "$desktop" = niri ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null &&
-        ! starts_sidelit "$(dirname "$niri_conf")"; then
-        login=''
-    fi
-    if [ "$desktop" = sway ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null &&
-        ! starts_sidelit "$(dirname "$sway_conf")"; then
-        login=''
+    # takes a line in the compositor's config, unless that is there already. The line names
+    # `sidelit` by its path: a compositor a login manager started may have no ~/.local/bin on its
+    # PATH (greetd's, with Arch's /etc/profile), and this terminal, which got its PATH from the
+    # compositor, says so when it has none either. (Each runs the line's ~ as the home folder:
+    # Hyprland and sway through sh, niri by itself.)
+    case $desktop in
+        hyprland)
+            if [ -f "$hypr/hyprland.lua" ]; then
+                conf=$hypr/hyprland.lua line="hl.on(\"hyprland.start\", function () hl.exec_cmd(\"$(tilde "$bindir")/sidelit start\") end)"
+            else
+                conf=$hypr/hyprland.conf line="exec-once = $(tilde "$bindir")/sidelit start"
+            fi
+            ;;
+        niri) conf=$niri_conf line="spawn-at-startup \"$(tilde "$bindir")/sidelit\" \"start\"" ;;
+        sway) conf=$sway_conf line="exec $(tilde "$bindir")/sidelit start" ;;
+    esac
+    if [ -n "$conf" ] && ! systemctl --user is-active --quiet xdg-desktop-autostart.target 2>/dev/null; then
+        if ! starts_sidelit "$(dirname "$conf")"; then
+            login=''
+        elif [ -z "$on_path" ] && ! starts_sidelit_by_path "$(dirname "$conf")"; then
+            login='' bare=1
+        fi
     fi
     if [ -z "$before" ] && [ -z "$login" ]; then
         echo "${bold}✓ Sidelit $version is installed and started.${plain} Run this line again to update it."
@@ -430,22 +443,17 @@ main() {
     fi
     [ "$desktop" != gnome ] || [ -n "$before" ] ||
         echo "  Next: log out and back in once, so that GNOME loads Sidelit's extension."
-    if [ -z "$login" ] && [ "$desktop" = niri ]; then
-        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$niri_conf"):"
-        echo "    spawn-at-startup \"sidelit\" \"start\""
-    elif [ -z "$login" ] && [ "$desktop" = sway ] && [ "${sway_conf#/etc/}" != "$sway_conf" ]; then
-        echo "  Next: to start Sidelit at every login, copy $sway_conf to ~/.config/sway/config (sway reads"
+    if [ -n "$bare" ]; then
+        echo "  Next: $desktop_name does not find 'sidelit' at login (~/.local/bin is not on its PATH), so the"
+        echo "  line in $(tilde "$conf") that starts Sidelit does nothing then. Change it to:"
+        echo "    $line"
+    elif [ -z "$login" ] && [ "$desktop" = sway ] && [ "${conf#/etc/}" != "$conf" ]; then
+        echo "  Next: to start Sidelit at every login, copy $conf to ~/.config/sway/config (sway reads"
         echo "  that one instead from then on) and add this line to it:"
-        echo "    exec sidelit start"
-    elif [ -z "$login" ] && [ "$desktop" = sway ]; then
-        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$sway_conf"):"
-        echo "    exec sidelit start"
-    elif [ -z "$login" ] && [ -f "$hypr/hyprland.lua" ]; then
-        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$hypr")/hyprland.lua:"
-        echo "    hl.on(\"hyprland.start\", function () hl.exec_cmd(\"sidelit start\") end)"
+        echo "    $line"
     elif [ -z "$login" ]; then
-        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$hypr")/hyprland.conf:"
-        echo "    exec-once = sidelit start"
+        echo "  Next: to start Sidelit at every login, add this line to $(tilde "$conf"):"
+        echo "    $line"
     fi
     command -v claude >/dev/null || command -v codex >/dev/null || command -v opencode >/dev/null ||
         echo "  Next: install Claude Code (curl -fsSL https://claude.ai/install.sh | bash), Codex or OpenCode, then run this line again to connect Sidelit to it."
