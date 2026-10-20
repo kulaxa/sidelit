@@ -19,7 +19,7 @@ USAGE = """usage: sidelit <command>
   reapply                  put every window back on its workspace and screen
   reload                   re-read config.json
   hooks install|uninstall|status   Sidelit's plugin in each coding agent (Claude Code, Codex, OpenCode), which
-                                   reports each session's status
+                                   reports each session's status, and in Terminator, which shows its tab or split
   chrome install|uninstall|status  the bridge to the Chrome extension (windows and their tabs)
   ws ...                   talk to the compositor directly (list, toplevels, activate N, ...)
   open [--app] URL         open a link on the workspace you are looking at

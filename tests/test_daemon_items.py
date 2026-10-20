@@ -1,4 +1,5 @@
 """The daemon's side of an item's workspace: which directory it gets. Needs GLib (skipped without it)."""
+import json
 import os
 import sys
 import tempfile
@@ -372,9 +373,53 @@ class Panes(unittest.TestCase):
             self.assertEqual(panes.focus_commands({"KITTY_WINDOW_ID": "2"})[0], [])  # no remote control
             self.assertEqual(panes.focus_commands({"TERMINATOR_UUID": "urn:uuid:x"})[0], [])
             self.assertEqual(panes.focus_commands({"TMUX_PANE": "%4; rm -rf"})[0], [])
-            self.assertFalse(panes.focus({"TERMINATOR_UUID": "urn:uuid:x"}))
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.object(panes.terminator, "SOCKETS", Path(tmp)):
+                self.assertFalse(panes.focus({"TERMINATOR_UUID": "urn:uuid:x"}))  # no Terminator with the plugin
         with mock.patch.object(panes.shutil, "which", return_value=None):
             self.assertFalse(panes.can_focus({"TMUX_PANE": "%4"}))  # not installed here
+
+    def test_terminator_is_asked_over_its_plugins_socket(self):
+        import socket
+        from sidelit import panes
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(panes.terminator, "SOCKETS", Path(tmp)):
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as listener:
+                listener.bind(str(Path(tmp) / f"{os.getpid()}.sock"))
+                Path(tmp, "999999999.sock").touch()  # a Terminator that is gone
+                self.assertTrue(panes.can_focus({"TERMINATOR_UUID": "urn:uuid:x"}))
+                self.assertTrue(panes.focus({"TERMINATOR_UUID": "urn:uuid:x"}))
+                self.assertEqual(json.loads(listener.recv(4096)), {"focus": "urn:uuid:x"})
+                self.assertFalse(Path(tmp, "999999999.sock").exists())
+            # tmux inside a Terminator pane: tmux's pane, not Terminator's
+            with mock.patch.object(panes.shutil, "which", return_value="/usr/bin/x"):
+                self.assertEqual(panes.terminator_uuid({"TMUX_PANE": "%4", "TERMINATOR_UUID": "urn:uuid:x"}), "")
+            self.assertEqual(panes.terminator_uuid({"TERMINATOR_UUID": "not a uuid"}), "")
+
+
+class TerminatorConfig(unittest.TestCase):
+    """Sidelit's Terminator plugin in enabled_plugins, every other line as it was."""
+
+    def test_enabled_and_taken_out(self):
+        from sidelit import terminator as t
+        mine = "[global_config]\n  tab_position = left\n  enabled_plugins = APTURLHandler\n[keybindings]\n"
+        on = t.with_plugin(mine, True)
+        self.assertEqual(on, "[global_config]\n  tab_position = left\n  enabled_plugins = APTURLHandler, SidelitTerminator\n[keybindings]\n")
+        self.assertEqual(t.with_plugin(on, True), on)
+        self.assertEqual(t.with_plugin(on, False), mine.replace("APTURLHandler", "APTURLHandler,"))
+        self.assertEqual(t.enabled_plugins(on), ["APTURLHandler", "SidelitTerminator"])
+        # one item ends in a comma, none is a lone comma: ConfigObj's lists, as Terminator reads them
+        alone = t.with_plugin("[global_config]\n  enabled_plugins = ,\n", True)
+        self.assertEqual(alone, "[global_config]\n  enabled_plugins = SidelitTerminator,\n")
+        self.assertEqual(t.enabled_plugins(alone), ["SidelitTerminator"])
+        self.assertEqual(t.with_plugin(alone, False), "[global_config]\n  enabled_plugins = ,\n")
+
+    def test_terminators_defaults_kept_when_the_config_does_not_say(self):
+        from sidelit import terminator as t
+        on = t.with_plugin("[global_config]\n  handle_size = 6\n[profiles]\n  [[default]]\n", True)
+        self.assertEqual(t.enabled_plugins(on), t.DEFAULT_PLUGINS + ["SidelitTerminator"])
+        self.assertIn("  handle_size = 6\n", on)
+        self.assertEqual(t.enabled_plugins(t.with_plugin("", True)), t.DEFAULT_PLUGINS + ["SidelitTerminator"])
+        self.assertIsNone(t.enabled_plugins("[profiles]\n  enabled_plugins = X\n"))  # (another section's)
+        self.assertEqual(t.with_plugin("[profiles]\n", False), "[profiles]\n")
 
 
 if __name__ == "__main__":

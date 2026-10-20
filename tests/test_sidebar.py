@@ -105,6 +105,13 @@ class TabInfoTest(unittest.TestCase):
         plain = sidebar.tab_info(tab)
         self.assertEqual((plain["title"], plain["has_claude"], plain["cls"]), ("Port the login", False, None))
 
+    def test_every_open_card_is_headed_by_its_name_or_number(self):
+        tab = {"space": 3, "claudes": [{"key": "s1", "title": "Fix tests"}]}
+        self.assertEqual((sidebar.tab_info(tab)["title"], sidebar.tab_info(tab)["head"]), ("Workspace 3", True))
+        self.assertEqual(sidebar.tab_info({**tab, "name": "API"})["title"], "API")
+        closed = sidebar.tab_info({**tab, "space": None})
+        self.assertEqual((closed["title"], closed["head"]), ("Fix tests", False))
+
 
 if __name__ == "__main__":
     unittest.main()

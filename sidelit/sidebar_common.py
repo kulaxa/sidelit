@@ -337,11 +337,11 @@ def app_info(w: dict, missing: bool = False) -> dict:
 def tab_info(tab: dict, item: dict | None = None) -> dict:
     """Everything a tab shows, from what the daemon sent for it; a workspace opened for an other
     source's item is drawn from that `item` while its source still lists it. Every other
-    workspace is a card: a box per Claude (`boxes`), then an icon per other window (`apps`). A
-    header names it (`head`) only when you named it or it has no Claude: else its first Claude's
-    title says what it is about, once (`title` is that name either way). A line under the
-    header only when there is nothing else to say (`sub`: empty, closed). Its folder shows on
-    hover (`tip`)."""
+    workspace is a card: a box per Claude (`boxes`), then an icon per other window (`apps`). An
+    open workspace is headed (`head`) by its name, else "Workspace N"; a closed one only when it
+    has no Claude, else its first Claude's title says what it was about (`title` either way). A
+    line under the header only when there is nothing else to say (`sub`: empty, closed). Its
+    folder shows on hover (`tip`)."""
     claudes = tab.get("claudes") or []
     c = claudes[0] if claudes else None
     closed = tab.get("space") is None
@@ -355,7 +355,7 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
         apps = [app_info(w) for w in tab.get("windows") or [] if not (w.get("id") and w["id"] in hosts)]
         apps += [app_info(m, missing=True) for m in tab.get("missing") or []]
         named = next((b["title"] for b in boxes if b["title"] != "New session"), "") or tab.get("last_title")
-        title = tab.get("name") or named or (f"Workspace {tab['space']}" if not closed else "Workspace")
+        title = tab.get("name") or (f"Workspace {tab['space']}" if not closed else named or "Workspace")
         state, cls = "other", None
         sub = "" if boxes or apps else "empty"
         cwd = tab.get("cwd") or (c or {}).get("cwd")
@@ -366,7 +366,7 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
     return {"title": title, "sub": sub, "state": state, "cls": cls, "has_claude": bool(c or item),
             "item": bool(item), "session_id": (c or {}).get("session") if len(claudes) == 1 else None,
             "path": home_path(cwd), "closed": closed, "boxes": boxes, "apps": apps, "tip": tip,
-            "head": not item and (bool(tab.get("name")) or not boxes)}
+            "head": not item and (not closed or bool(tab.get("name")) or not boxes)}
 
 
 def tab_classes(tab: dict, info: dict, attention: bool) -> list[tuple[str, bool]]:
@@ -768,9 +768,13 @@ class SidebarLogic:
             items.extend((f"missing: {m['what']}", None) for m in missing[:8])
         return items
 
+    def put_back(self):
+        """Every window home, on its workspace and screen, and what went missing reopened."""
+        self.send("reapply")
+        self.send("restore")
+
     def header_menu(self) -> list:
-        items = [("Put windows back on their workspaces", lambda: self.send("reapply")),
-                 ("Reopen missing windows (restore)", lambda: self.send("restore"))]
+        items = [("Put everything back", self.put_back)]
         recent = self.state.get("recent") or []
         if recent:
             sub = []
@@ -798,6 +802,13 @@ class SidebarLogic:
         if not config.put("theme", name):
             print(f"sidebar: theme {name}: config.json is not JSON, not saved", file=sys.stderr)
         self._apply_theme()
+
+    def set_option(self, key: str, on: bool):
+        """A switch in the settings: saved in config.json, and the daemon, which reads it, told."""
+        self.cfg[key] = on
+        if not config.put(key, on):
+            print(f"sidebar: {key}: config.json is not JSON, not saved", file=sys.stderr)
+        self.send("reload")
 
     def new_menu(self) -> list | None:
         """'+' asks which template to use; with only one configured it just opens it (None)."""

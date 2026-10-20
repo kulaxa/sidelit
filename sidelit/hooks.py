@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from sidelit import claude
+from sidelit import claude, terminator
 
 SETTINGS = claude.CLAUDE_DIR / "settings.json"
 BACKUP = "settings.json.before-sidelit"  # the file as it was before our first change, next to it
@@ -222,14 +223,36 @@ def present(name: str = NAME) -> bool:
                for entries in hooks.values() if isinstance(entries, list) for x in entries)
 
 
+MODS_SINCE = (2, 1, 287)  # the Claude Code that first runs a plugin's mods (the usage bars' usage.js)
+
+
+def claude_version() -> tuple[int, ...] | None:
+    """`claude --version`'s "2.1.304 (Claude Code)" as (2, 1, 304); None when it cannot be told."""
+    binary = claude.claude_binary()
+    if binary is None:
+        return None
+    try:
+        out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=30,
+                             stdin=subprocess.DEVNULL).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.match(r"\s*(\d+)\.(\d+)\.(\d+)", out or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
 def status() -> tuple[bool, list[str]]:
-    """Claude Code's: is the plugin in and enabled, with nothing of Sidelit 0.5's left over?"""
+    """Claude Code's: is the plugin in and enabled, with nothing of Sidelit 0.5's left over? And
+    can this Claude Code run its mod (the usage bars)?"""
     state = plugin_state()
     if state is None:
         said = ["Sidelit's Claude Code plugin is not installed (sidelit hooks install)"]
     else:
         said = [f"Sidelit's Claude Code plugin is installed, {'enabled' if state.get('enabled') else 'disabled'}"
                 f" ({state.get('readFromFolder') or state.get('installPath') or PLUGIN})"]
+        have = claude_version()
+        if have is not None and have < MODS_SINCE:
+            said.append(f"! Claude Code {'.'.join(map(str, have))} cannot run the plugin's mod, so there are no usage"
+                        f" bars: {'.'.join(map(str, MODS_SINCE))} or later can (claude update)")
     if present():
         said.append(f"! {SETTINGS} still has the hook Sidelit 0.5 wrote there (sidelit hooks install takes it out)")
     return state is not None and bool(state.get("enabled")) and not present(), said
@@ -284,5 +307,23 @@ def main(argv: list[str]) -> int:
                 code = code or (0 if ok else 1)
         except (ValueError, RuntimeError, OSError) as e:
             print(f"sidelit hooks: {agent.label}: {e}", file=sys.stderr)
+            code = 1
+    # (not an agent, a terminal: its plugin shows a session's tab or split, terminator.py)
+    if terminator.present() or cmd == "uninstall":
+        try:
+            if cmd == "install":
+                for line in terminator.install():
+                    print(f"✓ {line}")
+            elif cmd == "upgrade":
+                for line in terminator.upgrade():
+                    print(line if line.startswith(" ") else f"sidelit: {line}")
+            elif cmd == "uninstall":
+                for line in terminator.uninstall():
+                    print(f"✓ {line}")
+            else:
+                for line in terminator.status()[1]:  # (optional: does not fail the status)
+                    print(line)
+        except (RuntimeError, OSError) as e:
+            print(f"sidelit hooks: Terminator: {e}", file=sys.stderr)
             code = 1
     return code

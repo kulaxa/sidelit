@@ -33,11 +33,19 @@ AGENT_QUIET_S = 1800  # a subagent not heard from for this long is taken for gon
 TIDY_S = 60  # the record of a session gone this long is deleted
 
 
+# terminal emulators' process names (as /proc says them: 15 characters at most)
+TERMINAL_COMMS = {"terminator", "konsole", "kgx", "kitty", "foot", "alacritty", "gnome-terminal-",
+                  "xfce4-terminal", "mate-terminal", "xterm", "wezterm-gui", "ghostty", "tilix", "ptyxis-agent"}
+
+
 def outer_agent(pid: int, table: dict[int, tuple[int, str]], comms: set[str] | None = None) -> int:
     """The agent process that started agent `pid` (a Claude running `claude -p`, a Codex
-    running `codex exec`), or 0."""
+    running `codex exec`), or 0. Not one above a terminal window: a session in a window an
+    agent opened is yours, in that window."""
     comms = comms if comms is not None else agents_mod.comms()
     for p in ancestors(table.get(pid, (0, ""))[0], table):
+        if table[p][1] in TERMINAL_COMMS:
+            return 0
         if table[p][1] in comms:
             return p
     return 0
