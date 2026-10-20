@@ -20,8 +20,7 @@ update. The reasoning belongs in the commit message.
 - Settings switches for the restore after a login and for reopening crashed windows (both on, as
   before).
 - "Put windows back" and "Reopen missing windows" are one button, "Put everything back".
-- `sidelit hooks status` says when Claude Code is too old to show the usage bars (they need
-  2.1.287 or later).
+- `sidelit hooks status` says when Claude Code is too old to show the usage bars.
 
 ## [0.6.0] - 2026-10-19
 
