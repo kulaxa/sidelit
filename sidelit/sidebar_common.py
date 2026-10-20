@@ -24,7 +24,7 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-from sidelit import agents, config, gnome, launch, sources, themes, version as local_version
+from sidelit import agents, config, gnome, launch, sources, version as local_version
 from sidelit.procs import load_json, login_shell
 from sidelit.tabstate import Attention, note
 
@@ -36,6 +36,7 @@ USAGE_FILE = config.RUNTIME_DIR / "usage.json"
 USAGE_CACHE = config.CONFIG_DIR / "usage-cache.json"
 USAGE_EVERY_S = 15
 USAGE_NAMES = {"five_hour": "Session", "seven_day": "Week", "spend_limit": "Spend limit"}
+USAGE_OLD_S = 900  # a limit read longer ago than this (a model's, from Claude Code's /usage) says when
 # Where releases are published (GitHub releases, see .github/workflows/ci.yml). The version file says what the latest
 # one is, so an update is only ever offered when there is one.
 RELEASES_URL = "https://github.com/kulaxa/sidelit/releases/latest/download"
@@ -92,7 +93,7 @@ def save_json(path: Path, data):
 
 
 # ---- usage limits (what Claude Code measured, through Sidelit's plugin) ------------------------
-def usage_rows(data, now: datetime | None = None) -> list[tuple[str, float, str | None]]:
+def usage_rows(data, now: datetime | None = None) -> list[tuple[str, float, str | None, str | None]]:
     """(label, percent used, when it resets) for each window in what the plugin wrote: the
     session's five hours, the week, a gateway's spend limit. A window whose reset has passed is
     left out (Claude Code drops it too); nothing known, no rows."""
@@ -106,10 +107,19 @@ def usage_rows(data, now: datetime | None = None) -> list[tuple[str, float, str 
         moment = _parse_stamp(resets)
         if moment is not None and moment <= now:
             continue
-        rows.append((USAGE_NAMES.get(kind) or kind.replace("_", " ").capitalize() or "Limit",
-                     float(limit["percentUsed"]), resets if moment is not None else None))
+        caption = limit.get("label") or USAGE_NAMES.get(kind) or kind.replace("_", " ").capitalize() or "Limit"
+        at, read = limit.get("at"), None
+        if isinstance(at, (int, float)) and now.timestamp() - at / 1000 > USAGE_OLD_S:
+            read = f"{datetime.fromtimestamp(at / 1000):%H:%M}"
+        rows.append((caption, float(limit["percentUsed"]), resets if moment is not None else None, read))
     order = list(USAGE_NAMES.values())
     return sorted(rows, key=lambda r: order.index(r[0]) if r[0] in order else len(order))
+
+
+def reset_line(resets: str | None, read: str | None) -> str:
+    """The line under a limit's bar: when it was read, if long ago, and when it resets."""
+    left = countdown(resets)
+    return " · ".join(filter(None, (f"as of {read}" if read else "", f"resets in {left}" if left else "")))
 
 
 def usage_sources() -> list[tuple[str, Path, Path]]:
@@ -433,7 +443,7 @@ class SidebarLogic:
         self.state: dict = {}
         self._snapshot = None
         self._attention = Attention()
-        self._countdowns: list = []  # (label, reset stamp)
+        self._countdowns: list = []  # (label, reset stamp, when it was read)
         self._usage_at: dict = {}    # agent -> when the figures its bars show were measured
         self._usage_rows = None
         self._footer_until = 0.0
@@ -540,7 +550,12 @@ class SidebarLogic:
         return None
 
     # ---- updates ----------------------------------------------------------
-    def _check_update(self):
+    def _check_update(self, update: bool = False):
+        """Is a newer release out? Offered under the usage bars if so; `update` (you asked):
+        updated at once, and said in the footer when there is nothing newer."""
+        def say(text):
+            GLib.idle_add(lambda: (self._footer(text, 6), False)[1])
+
         def worker():
             try:
                 with urllib.request.urlopen(LATEST_VERSION_URL, timeout=15) as response:
@@ -550,13 +565,24 @@ class SidebarLogic:
                 # is private: nothing to offer, and nothing worth saying every hour)
                 if getattr(e, "code", None) != 404:
                     print("update check failed:", e, file=sys.stderr)
+                if update:
+                    say("Could not check for updates")
                 return
             ours, theirs = version_tuple(local_version()), version_tuple(latest)
             if ours and theirs and theirs > ours:
                 GLib.idle_add(self._offer_update, latest)
+                if update:
+                    GLib.idle_add(lambda: (self.on_update_clicked(), False)[1])
             else:  # up to date (again): drop an offer made earlier
                 GLib.idle_add(lambda: (self._hide_update(), False)[1])
+                if update:
+                    say(f"Sidelit {local_version()} is the latest")
         threading.Thread(target=worker, daemon=True).start()
+
+    def update_now(self):
+        """'Check for updates': asked now, and updated if there is one."""
+        self._footer("Checking for updates…", 15)
+        self._check_update(update=True)
 
     @staticmethod
     def update_tooltip() -> str:
@@ -591,6 +617,9 @@ class SidebarLogic:
                         pass
             else:
                 data = load_json(cache, None)
+            if live == USAGE_FILE and isinstance(data, dict):  # (Claude Code's: its models' weeks too)
+                from sidelit import claude
+                data = {**data, "limits": list(data.get("limits") or []) + claude.scoped_limits()}
             rows = usage_rows(data)
             if rows:
                 groups.append((name, rows))
@@ -600,10 +629,10 @@ class SidebarLogic:
         return True
 
     def _tick_countdowns(self):
-        for label, stamp in self._countdowns:
-            left = countdown(stamp)
-            if left:
-                label.set_text("resets in %s" % left)
+        for label, stamp, read in self._countdowns:
+            text = reset_line(stamp, read)
+            if text:
+                label.set_text(text)
         return True
 
     # ---- other sources (sources.py) ----------------------------------------------------
@@ -774,7 +803,7 @@ class SidebarLogic:
         self.send("restore")
 
     def header_menu(self) -> list:
-        items = [("Put everything back", self.put_back)]
+        items = [("Put everything back", self.put_back), ("Check for updates", self.update_now)]
         recent = self.state.get("recent") or []
         if recent:
             sub = []
@@ -788,13 +817,6 @@ class SidebarLogic:
             items.append(("Recent sessions", sub))
         items.append(("Restart sidebar", lambda: self._screens_changed("menu")))
         return items
-
-    def theme_menu(self) -> list:
-        """The themes (themes.py) as menu entries, the one config.json picks ticked (the GTK 3
-        sidebar's; the GTK 4 one has a settings view)."""
-        picked = str(self.cfg.get("theme") or "auto").strip().lower()
-        return [(f"✓  {title}" if name == picked else f"     {title}", lambda n=name: self.set_theme(n))
-                for name, title, _ in themes.choices()]
 
     def set_theme(self, name: str):
         """Saved in config.json, and worn at once."""

@@ -54,8 +54,8 @@
   back to the workspaces. The last 100 are kept.
 - **Settings.** The gear swaps the workspaces for the settings: the theme (the season's, the
   default look, Halloween's, or [one of your own](config.md)); switches for the restore after
-  a login and for reopening windows that crash; and buttons to put everything back and restart the sidebar.
-- **Header menu.** Right-click the header for "Put everything back" (every window to its
+  a login and for reopening windows that crash; and buttons to put everything back, check for updates and restart the sidebar.
+- **Header menu.** Right-click the header for "Check for updates", "Put everything back" (every window to its
   workspace and screen, what went missing reopened), *Recent sessions* (closed ones, one click resumes one on a new workspace)
   and "Restart sidebar". Right-click a tab to forget its missing windows.
 - **Fits the screen.** When the cards do not fit, the sidebar goes compact by itself: each
@@ -68,11 +68,16 @@
   No Claude Code bars? They need Claude Code 2.1.287 or later (`sidelit hooks status` says when
   yours is older), a Pro or Max plan (an API key, a cloud provider's or a gateway's login has no
   such windows), and one finished turn since the plugin went in.
+  A model's own weekly limit (Fable's) is not among what Claude Code hands plugins; Sidelit
+  shows it as Claude Code's `/usage` last read it (Claude Code keeps that reading in its
+  `~/.claude.json`; nothing else in that file is looked at), with the time of that reading once
+  it is a quarter of an hour old. Open `/usage` to bring it up to date.
   OpenCode has no such limits of its own, so it has no bars.
 - **Updates.** When a newer release is out, an "Update to X.Y.Z" button appears under the usage
   bars. It opens a terminal that pulls the checkout (or, for a package install, downloads the
   package and installs it with apt or pacman, asking for your password there) and restarts the
-  sidebar. Nothing is installed behind your back.
+  sidebar. Nothing is installed behind your back. The sidebar looks when it starts and every hour;
+  "Check for updates" (the settings, the header menu) looks at once and updates if there is one.
 
 ## Who needs you
 

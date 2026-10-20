@@ -4,6 +4,17 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.9.0] - 2026-10-20
+
+- The GTK 3 sidebar (where gtk4-layer-shell is missing, as on Ubuntu and Pop!_OS) looks like the
+  GTK 4 one: app icons right of the workspace name, the compact layout on a screen the cards do
+  not fit, and the settings view behind the gear in place of a menu.
+- Fable's own weekly limit has a bar under Claude Code's. Claude Code does not hand it to
+  plugins, so it is the reading Claude Code's `/usage` last made (Claude Code keeps it on disk;
+  Sidelit reads nothing else there, and no login); "as of" says when, once that is a while ago.
+- "Check for updates", in the settings and the header menu: updates at once when a newer release
+  is out, else says this one is the latest.
+
 ## [0.8.1] - 2026-10-20
 
 - Claude Code, Codex or OpenCode installed with npm through nvm, fnm, Volta, Bun or pnpm is

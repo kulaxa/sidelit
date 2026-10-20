@@ -113,5 +113,42 @@ class TabInfoTest(unittest.TestCase):
         self.assertEqual((closed["title"], closed["head"]), ("Fix tests", False))
 
 
+@unittest.skipIf(sidebar is None, "needs GTK 3 and gtk-layer-shell")
+class SettingsPanelTest(unittest.TestCase):
+    LONG = "a label far too long for the sidebar, which would widen it if it asked for all of it"
+
+    def setUp(self):
+        self.picked, self.flipped, self.ran = [], [], []
+        self.panel = sidebar.SettingsPanel(self.picked.append, [(f"Restore after login, {self.LONG}", "restore_on_login")],
+                                           lambda k, on: self.flipped.append((k, on)),
+                                           [(f"Put everything back, {self.LONG}", "view-refresh-symbolic",
+                                             lambda: self.ran.append("put back"))])
+        self.panel.set_themes([("auto", "Seasonal", self.LONG), ("dusk", self.LONG, "")], "dusk")
+        self.panel.set_switches({"restore_on_login": True})
+
+    def cards(self):
+        content = self.panel.get_children()[0].get_child().get_child()
+        return [c for c in content.get_children() if isinstance(c, sidebar.Gtk.Button)]
+
+    def test_the_theme_in_use_is_marked_and_a_click_picks_one(self):
+        themes = self.panel.themes_box.get_children()
+        self.assertEqual([b.get_style_context().has_class("picked") for b in themes], [False, True])
+        themes[0].clicked()
+        self.assertEqual(self.picked, ["auto"])
+
+    def test_a_card_flips_its_switch_and_runs_its_action(self):
+        switch, action = self.cards()
+        self.assertTrue(self.panel.switches["restore_on_login"].get_active())
+        switch.clicked()
+        self.assertEqual(self.flipped, [("restore_on_login", False)])
+        self.assertFalse(self.panel.switches["restore_on_login"].get_active())
+        action.clicked()
+        self.assertEqual(self.ran, ["put back"])
+
+    def test_long_labels_do_not_widen_the_sidebar(self):
+        self.panel.show_all()
+        self.assertLessEqual(self.panel.get_preferred_width()[0], 280)
+
+
 if __name__ == "__main__":
     unittest.main()
