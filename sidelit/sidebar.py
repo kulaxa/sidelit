@@ -105,7 +105,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 /* A workspace is a card: a box per Claude in the order they started, under a header with its
    name (two lines at most) and close button when you named it or it has no Claude (else the
    first Claude's title names it, and its box has the close button). Its folder and shortcut
-   show on hover. Its Claudes share one recessed well, a thin line between them; each has its
+   show on hover. Each Claude has a recessed well of its own, a small gap between them, and its
    own state stripe, a working one is lit from its stripe, one that needs you lit yellow and its
    title too, and the card around it glows softly. Subagents at work are small blocks right
    after the model, in the box's colour. The other windows are a line of small dimmed icons
@@ -118,8 +118,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab.card.attention > .cw-card {{ border-color: rgba(255,214,10,0.35);
   box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
 .cw-head {{ padding: 1px 2px 6px 6px; }}
-.cw-card-name {{ color: rgba(255,255,255,0.94); font-size: 14px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
-.cw-tab.missing .cw-card-name {{ color: rgba(235,235,245,0.45); }}
+.cw-card-name {{ color: rgba(235,235,245,0.45); font-size: 12px; font-weight: 600; }}
 .cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; }}
 .cw-apps {{ padding: 5px 4px 0; min-height: 18px; }}
 .cw-app {{ border-radius: 6px; padding: 2px 3px; opacity: 0.45; -gtk-icon-effect: dim; }}
@@ -128,10 +127,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab .cw-app.missing {{ opacity: 0.25; }}
 .cw-app-tabs, .cw-app-unread {{ color: rgba(235,235,245,0.75); font-size: 10.5px; font-weight: 600; padding-left: 3px; }}
 .cw-well {{ border-radius: 10px; background-color: rgba(22,22,26,0.5); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); }}
-.cw-sep {{ min-height: 1px; background-color: rgba(255,255,255,0.07); margin: 0 8px 0 14px; }}
-.cw-box {{ border-radius: 0; padding: 8px 8px 7px 6px; }}
-.cw-box-hit:first-child > .cw-box {{ border-top-left-radius: 10px; border-top-right-radius: 10px; }}
-.cw-box-hit:last-child > .cw-box {{ border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }}
+.cw-box {{ border-radius: 10px; padding: 8px 8px 7px 6px; }}
 .cw-box-hit:hover > .cw-box {{ background-color: rgba(255,255,255,0.04); }}
 .cw-box.working {{ background-image: linear-gradient(90deg, rgba(255,159,10,0.10), transparent 45%); }}
 .cw-box.attention {{ background-image: linear-gradient(90deg, rgba(255,214,10,0.12), transparent 45%); }}
@@ -982,18 +978,16 @@ class Sidebar(Gtk.Window, SidebarLogic):
         note.set_no_show_all(not info["sub"])
         card.pack_start(note, False, False, 0)
         w.cw_boxes, w.cw_apps = [], []
-        well = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        well.get_style_context().add_class("cw-well")
+        wells = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         for i, box in enumerate(info["boxes"]):
-            if i:
-                sep = Gtk.Box()
-                sep.get_style_context().add_class("cw-sep")
-                well.pack_start(sep, False, False, 0)
+            well = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            well.get_style_context().add_class("cw-well")
             bw = self._make_box(w, box, closes=i == 0 and not info["head"])
             well.pack_start(bw, False, False, 0)
+            wells.pack_start(well, False, False, 0)
             w.cw_boxes.append(bw)
-        well.set_no_show_all(not info["boxes"])
-        card.pack_start(well, False, False, 0)
+        wells.set_no_show_all(not info["boxes"])
+        card.pack_start(wells, False, False, 0)
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         row.get_style_context().add_class("cw-apps")
         for app in info["apps"]:

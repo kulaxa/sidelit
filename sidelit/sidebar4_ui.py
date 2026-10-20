@@ -107,7 +107,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 /* A workspace is a card: a box per Claude in the order they started, under a header with its
    name (two lines at most) and close button when you named it or it has no Claude (else the
    first Claude's title names it, and its box has the close button). Its folder and shortcut
-   show on hover. Its Claudes share one recessed well, a thin line between them; each has its
+   show on hover. Each Claude has a recessed well of its own, a small gap between them, and its
    own state stripe, a working one is lit from its stripe, one that needs you lit yellow and its
    title too, and the card around it glows softly. Subagents at work are small blocks right
    after the model, in the box's colour. The other windows are a line of small grey icons under
@@ -121,8 +121,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab.card.attention {{ border-color: rgba(255,214,10,0.35); box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
 .cw-tab.card.attention:hover {{ box-shadow: 0 0 14px -2px rgba(255,214,10,0.22), 0 8px 20px rgba(0,0,0,0.35); }}
 .cw-head {{ padding: 1px 2px 6px 6px; }}
-.cw-card-name {{ color: rgba(255,255,255,0.94); font-size: 14px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
-.cw-tab.missing .cw-card-name {{ color: rgba(235,235,245,0.45); }}
+.cw-card-name {{ color: rgba(235,235,245,0.45); font-size: 12px; font-weight: 600; }}
 .cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; }}
 .cw-apps {{ padding: 5px 4px 0; min-height: 18px; }}
 .cw-app {{ border-radius: 6px; padding: 2px 3px; filter: grayscale(1); opacity: 0.45;
@@ -132,11 +131,8 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab .cw-app.missing {{ opacity: 0.25; }}
 .cw-app-tabs, .cw-app-unread {{ color: rgba(235,235,245,0.75); font-size: 10.5px; font-weight: 600; padding-left: 3px; }}
 .cw-well {{ border-radius: 10px; background-color: rgba(22,22,26,0.5); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); }}
-.cw-sep {{ min-height: 1px; background-color: rgba(255,255,255,0.07); margin: 0 8px 0 14px; }}
-.cw-box {{ border-radius: 0; padding: 8px 8px 7px 6px;
+.cw-box {{ border-radius: 10px; padding: 8px 8px 7px 6px;
   transition: background-color 160ms ease-out, background-image 160ms ease-out; }}
-.cw-box:first-child {{ border-top-left-radius: 10px; border-top-right-radius: 10px; }}
-.cw-box:last-child {{ border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }}
 /* on the darker well a stripe breathes from .55, or at its faintest it reads as switched off */
 @keyframes cw-box-working {{
   0%   {{ background-color: rgba(255,159,10,0.55); }}
@@ -573,15 +569,35 @@ class HistoryPanel(Gtk.Box):
 class SettingsPanel(Gtk.Box):
     """The gear's view, in place of the workspaces like the history: the themes, each a card
     with a small picture of it (themes.preview), the one in use ringed; picking one wears it at
-    once. Under them the sidebar's own actions. `pick_theme(name)`, `actions` [(text, icon, fn)]."""
+    once. Then the switches, each a card that flips it, and the sidebar's own actions.
+    `pick_theme(name)`, `switches` [(text, config key)] flipped by `flip(key, on)`,
+    `actions` [(text, icon, fn)]."""
 
-    def __init__(self, pick_theme, actions: list):
+    def __init__(self, pick_theme, switches: list, flip, actions: list):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.pick_theme = pick_theme
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.append(label("THEME", "cw-history-day"))
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.append(self.themes_box)
+        content.append(label("OPTIONS", "cw-history-day"))
+        self.switches = {}
+        for text, key in switches:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            name = label(text, "cw-history-title")
+            name.set_hexpand(True)
+            name.set_ellipsize(Pango.EllipsizeMode.END)  # (else it asks for its whole width, and so does the sidebar)
+            row.append(name)
+            switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+            switch.set_can_target(False)  # (the card flips it)
+            switch.set_can_focus(False)
+            row.append(switch)
+            btn = Gtk.Button()
+            btn.set_child(row)
+            btn.add_css_class("cw-setting")
+            btn.connect("clicked", lambda *_, k=key, sw=switch: (sw.set_active(not sw.get_active()), flip(k, sw.get_active())))
+            content.append(btn)
+            self.switches[key] = switch
         content.append(label("SIDEBAR", "cw-history-day"))
         for text, icon, action in actions:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -601,6 +617,10 @@ class SettingsPanel(Gtk.Box):
         scroller.set_child(content)
         scroller.set_vexpand(True)
         self.append(scroller)
+
+    def set_switches(self, cfg: dict):
+        for key, switch in self.switches.items():
+            switch.set_active(bool(cfg.get(key)))  # (config.load fills in the defaults)
 
     def set_themes(self, choices: list, picked: str):
         clear(self.themes_box)
@@ -766,8 +786,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.history = HistoryPanel(self._pick_history, lambda: self._show_history(False))
         self.views.add_named(self.history, "history")
         self.settings = SettingsPanel(self._pick_theme, [
-            ("Put windows back", "view-refresh-symbolic", lambda: self.send("reapply")),
-            ("Reopen missing windows", "window-restore-symbolic", lambda: self.send("restore")),
+            ("Restore after login", "restore_on_login"),
+            ("Reopen crashed windows", "relaunch"),
+        ], self.set_option, [
+            ("Put everything back", "view-refresh-symbolic", self.put_back),
             ("Restart sidebar", "system-reboot-symbolic", lambda: self._screens_changed("settings")),
         ])
         self.views.add_named(self.settings, "settings")
@@ -874,6 +896,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.header_title.set_margin_start(2 if away else 8)
         if view == "settings":
             self.settings.set_themes(themes.choices(), str(self.cfg.get("theme") or "auto").strip().lower())
+            self.settings.set_switches(self.cfg)
         self.views.set_visible_child_name(view)
 
     # ---- history ----------------------------------------------------------------------------
@@ -1118,18 +1141,16 @@ class Sidebar(Gtk.Window, SidebarLogic):
         note.set_visible(bool(info["sub"]))
         w.append(note)
         w.cw_boxes, w.cw_apps = [], []
-        well = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        well.add_css_class("cw-well")
+        wells = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         for i, box in enumerate(info["boxes"]):
-            if i:
-                sep = Gtk.Box()
-                sep.add_css_class("cw-sep")
-                well.append(sep)
+            well = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            well.add_css_class("cw-well")
             bw = self._make_box(w, box, closes=i == 0 and not info["head"])
             well.append(bw)
+            wells.append(well)
             w.cw_boxes.append(bw)
-        well.set_visible(bool(info["boxes"]))
-        w.append(well)
+        wells.set_visible(bool(info["boxes"]))
+        w.append(wells)
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         row.add_css_class("cw-apps")
         for app in info["apps"]:

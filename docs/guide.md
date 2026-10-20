@@ -23,8 +23,9 @@
 - **Click** a tab to switch; keyboard focus lands in the session that has waited longest for
   you, else the one you used last. Switching with the workspace's own shortcut does the same
   when a session there needs you. **Click a box** to go to that session's terminal, and its pane
-  in tmux, WezTerm and kitty (with remote control on); Terminator offers no way to focus a pane
-  from outside, so there its window comes forward.
+  in tmux, WezTerm and kitty (with remote control on), and its tab or split in Terminator (through
+  Sidelit's Terminator plugin, which `sidelit hooks install` puts in; in windows opened since).
+  So several sessions can share one terminal window, in tabs or side by side.
 - **New workspace** (`+`) pins a fresh workspace (on KDE, adds a desktop; on Hyprland and sway,
   the next number; on niri, the empty one at the end of the screen you are on, named) and opens
   a terminal in your home directory, or whatever the template you pick says
@@ -52,16 +53,19 @@
   session resumed, its terminals, folders and web apps reopened one at a time. ← or Esc goes
   back to the workspaces. The last 100 are kept.
 - **Settings.** The gear swaps the workspaces for the settings: the theme (the season's, the
-  default look, Halloween's, or [one of your own](config.md)), and buttons to put windows back,
-  reopen missing ones and restart the sidebar.
-- **Header menu.** Right-click the header for "Put windows back on their workspaces", "Reopen
-  missing windows", *Recent sessions* (closed ones, one click resumes one on a new workspace)
+  default look, Halloween's, or [one of your own](config.md)); switches for the restore after
+  a login and for reopening windows that crash; and buttons to put everything back and restart the sidebar.
+- **Header menu.** Right-click the header for "Put everything back" (every window to its
+  workspace and screen, what went missing reopened), *Recent sessions* (closed ones, one click resumes one on a new workspace)
   and "Restart sidebar". Right-click a tab to forget its missing windows.
 - **Usage.** Your plans' 5-hour and weekly limits sit at the bottom, under each agent's name:
   Claude Code's (on a Pro or Max plan) as it measured them after the last turn of any session,
   through the plugin's mod; Codex's (logged in with ChatGPT) as its app-server says. They appear
   after the first turn (Codex's within seconds of the start), the last ones seen stay through a
   login, and a window whose reset has passed goes. Sidelit never reads your logins for them.
+  No Claude Code bars? They need Claude Code 2.1.287 or later (`sidelit hooks status` says when
+  yours is older), a Pro or Max plan (an API key, a cloud provider's or a gateway's login has no
+  such windows), and one finished turn since the plugin went in.
   OpenCode has no such limits of its own, so it has no bars.
 - **Updates.** When a newer release is out, an "Update to X.Y.Z" button appears under the usage
   bars. It opens a terminal that pulls the checkout (or, for a package install, downloads the

@@ -21,7 +21,8 @@ re-reads it.
 - `templates`, `default_template`: what `+` can open ([below](#templates)).
 - `web_apps`: one-click web app windows, as `[{"name": …, "url": …}]`.
 - `restore_on_login`, `restore_windows`, `restore_delay`, `relaunch`: the restore after a login
-  and after a crash.
+  and after a crash. `restore_on_login` and `relaunch` are switches in the settings too: off,
+  Sidelit brings nothing back by itself (the settings' and the header menu's buttons still do).
 - `ignore_apps`: app ids never kept in the layout.
 - `check_turns`, `check_model`, `check_model_codex`, `check_model_opencode`: the check before a
   tab turns yellow (each agent's sessions are checked through that agent; `check_model_codex`

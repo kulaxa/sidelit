@@ -7,6 +7,20 @@ update. The reasoning belongs in the commit message.
 ## [Unreleased]
 
 - Halloween's usage card has no jack-o'-lantern by its heading any more.
+- Several sessions in one Terminator window, in tabs or splits: a click on a session's box now
+  shows its tab or split, not only the window. This is Sidelit's Terminator plugin, which
+  `sidelit hooks install` (or the next `sidelit start`) puts in; Terminator windows opened from
+  then on have it.
+- Sessions in one workspace each have a box of their own, with a small gap between them, instead
+  of sharing one box split by a thin line.
+- Every open workspace's card is headed by its name, else "Workspace N", above its sessions, in
+  small grey, so the sessions' titles stand out.
+- A session in a terminal window that another agent opened gets its box; it was taken for one
+  that agent started itself.
+- Settings switches for the restore after a login and for reopening crashed windows (both on, as
+  before).
+- "Put windows back" and "Reopen missing windows" are one button, "Put everything back".
+- `sidelit hooks status` says when Claude Code is too old to show the usage bars.
 
 ## [0.6.0] - 2026-10-19
 

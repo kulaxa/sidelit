@@ -212,8 +212,8 @@ class CommonTest(unittest.TestCase):
             {"key": "s3", "session": "s3", "title": "Deploy", "state": "external", "on": "prod deploy",
              "model": "Haiku 5.5"}]}
         info = sidebar_common.tab_info(tab)
-        # named after its first Claude; the folder shows on hover
-        self.assertEqual((info["title"], info["sub"], info["tip"]), ("Pricing API", "", "/src/pricing"))
+        # headed by its number; the folder shows on hover
+        self.assertEqual((info["title"], info["sub"], info["tip"]), ("Workspace 2", "", "/src/pricing"))
         self.assertEqual([(b["glyph"], b["title"], b["sub"], b["cls"], b["agents"], b["calls"]) for b in info["boxes"]], [
             ("◐", "Pricing API", "Opus 5.5", "working", 2, False),  # subagents are dots, not words
             ("✳", "Review tests", "Sonnet 5.5", "idle", 0, True),
@@ -222,15 +222,16 @@ class CommonTest(unittest.TestCase):
         self.assertTrue(classes["card"] and classes["attention"])
         self.assertFalse(classes["claude"] or classes["working"])  # each box carries its own state
         self.assertEqual(dict(sidebar_common.box_classes(info["boxes"][1]))["attention"], True)
-        # no header: the first Claude's title says it once; a name you gave it heads the card
-        self.assertFalse(info["head"])
+        # a name you gave it heads the card instead
+        self.assertTrue(info["head"])
         named = sidebar_common.tab_info({**tab, "name": "Billing"})
         self.assertEqual((named["title"], named["head"]), ("Billing", True))
         self.assertTrue(sidebar_common.tab_info({**tab, "claudes": []})["head"])  # nothing else to name it
-        # a first Claude with no name yet: the next one's, else the last one it had
+        # closed: named after its first Claude with a name, else the last one it had
         unnamed = {"key": "s0", "session": "s0", "title": ""}
-        self.assertEqual(sidebar_common.tab_info({**tab, "claudes": [unnamed, *tab["claudes"]]})["title"], "Pricing API")
-        self.assertEqual(sidebar_common.tab_info({**tab, "claudes": [unnamed], "last_title": "Old"})["title"], "Old")
+        self.assertEqual(sidebar_common.tab_info({**tab, "space": None, "claudes": [unnamed, *tab["claudes"]]})["title"],
+                         "Pricing API")
+        self.assertEqual(sidebar_common.tab_info({**tab, "space": None, "claudes": [unnamed], "last_title": "Old"})["title"], "Old")
         # one Claude: one box, the same card
         one = sidebar_common.tab_info({**tab, "claudes": tab["claudes"][:1]})
         self.assertEqual((len(one["boxes"]), one["session_id"]), (1, "s1"))

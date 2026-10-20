@@ -2,9 +2,10 @@
 
 The hook records what a terminal tells the shells in its panes (plugin/hooks/hook.py,
 PANE_VARS). tmux, WezTerm and kitty (with remote control on) can be asked to show a pane.
-Terminator cannot: its D-Bus interface lists and splits terminals but has no call that focuses
-one, and the terminals Sidelit starts run without it (-u). There the window gets the keyboard
-and you pick the pane yourself.
+Terminator cannot by itself: its D-Bus interface lists and splits terminals but has no call that
+focuses one, and the terminals Sidelit starts run without it (-u). With Sidelit's Terminator
+plugin in (terminator.py) it is asked over the plugin's socket; without it the window gets the
+keyboard and you pick the tab or split yourself.
 """
 from __future__ import annotations
 
@@ -13,6 +14,8 @@ import re
 import shutil
 import subprocess
 import threading
+
+from sidelit import terminator
 
 _PLAIN = re.compile(r"%?[0-9]{1,9}")
 
@@ -35,15 +38,23 @@ def focus_commands(pane: dict | None) -> tuple[list[list[str]], dict]:
     return [], {}
 
 
+def terminator_uuid(pane: dict | None) -> str:
+    """The Terminator terminal a pane is, when nothing inside it (tmux) names a pane of its own."""
+    pane = pane if isinstance(pane, dict) else {}
+    uuid = pane.get("TERMINATOR_UUID") or ""
+    return uuid if uuid.startswith("urn:uuid:") and len(uuid) < 100 and not focus_commands(pane)[0] else ""
+
+
 def can_focus(pane: dict | None) -> bool:
-    return bool(focus_commands(pane)[0])
+    return bool(focus_commands(pane)[0]) or bool(terminator_uuid(pane) and any(terminator.SOCKETS.glob("*.sock")))
 
 
 def focus(pane: dict | None) -> bool:
     """Bring the pane forward, off the caller's thread; whether there was a way to."""
     commands, extra = focus_commands(pane)
     if not commands:
-        return False
+        uuid = terminator_uuid(pane)
+        return terminator.focus(uuid) if uuid else False
 
     def run():
         env = {**os.environ, **extra}
