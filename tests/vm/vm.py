@@ -403,7 +403,10 @@ def qmp(m: Machine, command: str, **arguments):
             stream.write(json.dumps(message) + "\n")
             stream.flush()
             while True:
-                reply = json.loads(stream.readline())
+                line = stream.readline()
+                if not line:  # QEMU went away (as it does on 'quit')
+                    return None
+                reply = json.loads(line)
                 if "error" in reply:
                     raise Fail(f"QEMU: {reply['error'].get('desc')}")
                 if "return" in reply:
@@ -680,7 +683,7 @@ def follow(m: Machine, proc: subprocess.Popen, seconds: float) -> str:
             raise Fail(f"{m.name} took over {seconds / 60:.0f} minutes; what it said: {log}")
         lines = log.read_bytes().decode(errors="replace").splitlines() if log.exists() else []
         for line in lines[shown:]:
-            line = line.strip("\r\x1b[0m ")
+            line = line.strip()
             if line.startswith("SIDELIT-VM: "):
                 say(line[len("SIDELIT-VM: "):])
         shown = len(lines)
@@ -913,12 +916,18 @@ def relogin(m: Machine):
 
 def reboot(m: Machine):
     need_running(m)
+    boot = "cat /proc/sys/kernel/random/boot_id"
+    before = ssh(m, boot).stdout
     say("Restarting")
     ssh(m, "sudo systemctl --no-block reboot", check=False, timeout=20)
-    deadline = time.monotonic() + 120
-    while ssh(m, "true", check=False, timeout=10).returncode == 0 and time.monotonic() < deadline:
-        time.sleep(1)
-    wait_ssh(m, 5 * 60)
+    deadline = time.monotonic() + 5 * 60
+    while True:  # until it answers from its next boot
+        result = ssh(m, boot, check=False, timeout=10)
+        if result.returncode == 0 and result.stdout != before:
+            break
+        if time.monotonic() > deadline:
+            raise Fail(f"{m.name} did not come back within 5 minutes (its serial log: {m.dir / 'serial.log'})")
+        time.sleep(2)
     wait_desktop(m)
     print(f"✓ {m.name} is up again")
 
