@@ -251,6 +251,36 @@ class CommonTest(unittest.TestCase):
             else:
                 self.assertEqual(err.getvalue(), "")
 
+    def test_checking_for_updates_says_so_on_its_button(self):
+        """(and in the footer when the settings are not up: the header menu asked)"""
+        said, footer, later = [], [], []
+
+        class Fake(sidebar_common.SidebarLogic):
+            settings = mock.Mock(set_action=lambda key, text, icon: said.append((key, text, icon)))
+            views = mock.Mock(get_visible_child_name=lambda: "settings")
+
+            def _footer(self, text, seconds):
+                footer.append(text)
+
+        ui = Fake()
+        with mock.patch.object(sidebar_common, "local_version", return_value="0.9.0"), \
+                mock.patch.object(sidebar_common.GLib, "timeout_add_seconds", side_effect=lambda s, fn: later.append(fn)):
+            ui.update_said("checking")
+            ui.update_said("latest")
+            self.assertEqual(said, [("Check for updates", "Checking for updates…", ""),
+                                    ("Check for updates", "Up to date · 0.9.0", "object-select-symbolic")])
+            later[-1]()  # after a while it is the button it was
+            self.assertEqual(said[-1], ("Check for updates", "Check for updates", "software-update-available-symbolic"))
+            self.assertEqual(footer, [])
+            ui.update_said("checking")
+            ui.update_said("failed")
+            n = len(said)
+            later[0]()  # (an earlier answer's timer does not undo a newer one)
+            self.assertEqual(len(said), n)
+            Fake.views = mock.Mock(get_visible_child_name=lambda: "workspaces")
+            ui.update_said("newer", "0.10.0")
+            self.assertEqual(footer, ["Updating to 0.10.0…"])
+
     def test_a_workspace_with_claudes_is_a_box_each(self):
         tab = {"space": 2, "ws": "w1", "cwd": "/src/pricing", "active": False, "claudes": [
             {"key": "s1", "session": "s1", "title": "Pricing API", "state": "busy", "model": "Opus 5.5", "agents": 2,

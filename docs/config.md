@@ -7,10 +7,9 @@ re-reads it.
 - `monitor`: the sidebar's screen, `leftmost`, `largest`, or a model or maker substring.
 - `sidebar`: `auto`, `gtk4` or `gtk3` (see [the GTK 4 sidebar](install.md#the-gtk-4-sidebar-optional)).
 - `theme`: the sidebar's look, also picked in the settings (the gear at the top of the sidebar),
-  which saves it here and changes the look at once. `auto` (the default) is the season's:
-  Halloween's in the two weeks up to October 31 (a cobweb and its spider, bats across the moon,
-  a jack-o'-lantern and usage bars of dripping blood), the usual look otherwise. `default` and
-  `halloween` pick one for good. A theme of your own is a CSS file,
+  which saves it here and changes the look at once: `default` (the usual look) or `halloween`
+  (a cobweb and its spider, bats across the moon, a jack-o'-lantern and usage bars of dripping
+  blood). A theme of your own is a CSS file,
   `~/.config/sidelit/themes/<name>.css`, drawn over the sidebar's own CSS (its classes are in
   `sidelit/sidebar4_ui.py`); it shows in the settings by its name. `SIDELIT_THEME=<name>` in the
   sidebar's environment overrides the config.
