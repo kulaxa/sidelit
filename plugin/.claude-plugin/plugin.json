@@ -1,7 +1,7 @@
 {
   "name": "sidelit",
   "displayName": "Sidelit",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Tells the Sidelit sidebar what each Claude Code session is doing (working, waiting for you, done, its window), and the plan's usage limits for its bars",
   "author": {
     "name": "Mario Jalšovec",
