@@ -4,6 +4,13 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.8.0] - 2026-10-20
+
+- A workspace's other windows are icons right of its name, instead of a row under its sessions.
+- When the cards do not fit the screen, the sidebar goes compact: the usage limits take one line
+  (their resets show on hover), so every card and "New workspace" stay in sight. A screen with
+  room keeps the full layout.
+
 ## [0.7.0] - 2026-10-20
 
 - Halloween's usage card has no jack-o'-lantern by its heading any more.
