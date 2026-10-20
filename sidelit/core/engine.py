@@ -210,6 +210,7 @@ class Engine:
         self.obs_time = now
         if startup_s:
             self.disturb(startup_s, "startup", now)
+        self._forget_system_windows(now)
 
     # ---- small helpers ------------------------------------------------------------------
     def journal(self, kind: str, **fields):
@@ -333,6 +334,13 @@ class Engine:
         self.journal("slot_deleted", slot=slot_id, ws=lw.id if lw else None,
                      what=ad.adapter_of(slot).describe(slot), why=why)
 
+    def _forget_system_windows(self, now: float):
+        """Windows of the desktop itself (adapters.IGNORED_APPS) kept by a Sidelit from before it
+        knew them, such as Hyprland's update pop-up: not kept, nor started again at a login."""
+        for _, slot in list(self.layout.slots()):
+            if slot.app and slot.app in ad.IGNORED_APPS:
+                self._delete_slot(slot.id, "a window of the desktop itself", now)
+
     def _session_ended(self, slot: Slot, ended: list[dict] | None = None):
         """Claudes that ended in a window that stays (all of its, or `ended`): to the recent list."""
         lw, _ = self.layout.find(slot.id)
@@ -345,6 +353,7 @@ class Engine:
         self.obs_time = now
         self.obs = obs
         self.ctx.claude = obs.claude
+        self.ctx.cwd = obs.cwd
         self.ctx.browser = obs.browser
         self._pinned_this_step = False
         prev = self.prev

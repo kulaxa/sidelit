@@ -26,15 +26,22 @@ from sidelit.core.model import Slot, Win
 # a Claude that has not been on screen in its terminal for this long has ended there
 CLAUDE_GONE_S = 20.0
 
-IGNORED_APPS = {"", "sidelit","xdg-desktop-portal-cosmic", "xdg-desktop-portal-gtk", "cosmic-osd",
+# windows of the desktop itself, never yours to keep: portals' and polkit's dialogs, COSMIC's
+# pop-ups, Hyprland's own (its "Hyprland Updated" and donation pop-up, welcome, dialogs, run box
+# and screen share picker) and KDE's hidden window that lets X11 apps record the screen
+IGNORED_APPS = {"", "sidelit", "xdg-desktop-portal-cosmic", "xdg-desktop-portal-gtk", "cosmic-osd",
                 "polkit-gnome-authentication-agent-1", "org.freedesktop.impl.portal.desktop.cosmic",
-                "com.system76.CosmicScreenshot", "cosmic-screenshot"}
+                "com.system76.CosmicScreenshot", "cosmic-screenshot",
+                "hyprland-donate-screen", "hyprland-update-screen", "hyprland-welcome", "hyprland-dialog",
+                "hyprland-run", "hyprland-share-picker",
+                "org.kde.xwaylandvideobridge", "xwaylandvideobridge"}
 
 
 @dataclass
 class Ctx:
     """What an adapter may know beyond the window itself."""
     claude: dict = field(default_factory=dict)          # window id -> Claude session info
+    cwd: dict = field(default_factory=dict)             # terminal window id -> its shell's folder (Obs.cwd)
     known_dirs: list = field(default_factory=list)      # directories Claudes run in, for folder names
     resume_command: Callable[[str, str, str | None], str] | None = None   # (session, cwd, agent) -> shell command
     ignored: set = field(default_factory=set)            # config ignore_apps
@@ -111,15 +118,20 @@ class TerminalAdapter(Adapter):
     state["session"] is the session it shows (resumed on restore, by its agent: state["agent"],
     none for Claude Code), state["more"] the other sessions in the same window (split panes,
     tabs: each comes back in a terminal of its own, Engine._split_claudes), state["cwd"] the
-    directory (from the session, or from a `user@host: dir` prompt title), state["command"] what
-    it was started to run, if that is how it comes back (an other source's item opened in a
-    terminal: its own command resumes it, not a bare `claude`)."""
+    directory (from the session, from a `user@host: dir` prompt title, or from its shell),
+    state["command"] what it was started to run, if that is how it comes back (an other source's
+    item opened in a terminal: its own command resumes it, not a bare `claude`)."""
     name = "terminal"
     launch_mode = "slot"
     launch_after = 0.0
 
     def claims(self, win, ctx):
         return win.app in titles.TERMINAL_APP_IDS
+
+    @staticmethod
+    def folder(win, ctx) -> str | None:
+        """The folder a terminal is in: as its title says (a prompt's), else its shell's."""
+        return titles.cwd_from_prompt_title(win.title) or ctx.cwd.get(win.id) or None
 
     def capture(self, slot, win, ctx, calm, now):
         # a working Claude animates its title glyph: remember the title without it
@@ -164,7 +176,7 @@ class TerminalAdapter(Adapter):
             if st.pop("no_claude_since", None) is not None:
                 changed = True
             return changed
-        prompt = titles.cwd_from_prompt_title(win.title)
+        prompt = self.folder(win, ctx)
         if prompt and st.get("cwd") != prompt and not st.get("session"):
             st["cwd"] = prompt
             changed = True
@@ -198,7 +210,7 @@ class TerminalAdapter(Adapter):
             return 3.0 if claude and claude.get("session") == slot.session else 0.0
         if claude:
             return 0.0
-        prompt = titles.cwd_from_prompt_title(win.title)
+        prompt = self.folder(win, ctx)
         if prompt and prompt == slot.state.get("cwd"):
             return 2.5
         return min(titles.match_score(win.title, slot.title), 1.5)

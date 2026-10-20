@@ -137,5 +137,38 @@ class UpdateCheckout(unittest.TestCase):
         self.assert_left_as_it_is(self.pull())
 
 
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class LoginLine(unittest.TestCase):
+    """Whether a compositor's config starts Sidelit, and by its path: a bare `sidelit` is found
+    only where the compositor has ~/.local/bin on its PATH (Hyprland from greetd on Arch has not)."""
+
+    def check(self, function: str, config: str) -> bool:
+        folder = Path(tempfile.mkdtemp(prefix="sidelit-conf-"))
+        self.addCleanup(shutil.rmtree, folder, True)
+        (folder / "config").write_text(config)
+        # get.sh's functions, without its last line (which runs the install)
+        script = 'eval "$(sed \'$d\' "$1")"; "$2" "$3"'
+        return subprocess.run(["bash", "-c", script, "bash", str(ROOT / "get.sh"), function, str(folder)],
+                              capture_output=True).returncode == 0
+
+    def test_each_compositors_line(self):
+        for config, starts, by_path in [
+            ("exec-once = sidelit start\n", True, False),
+            ("exec-once = ~/.local/bin/sidelit start\n", True, True),
+            ('hl.on("hyprland.start", function () hl.exec_cmd("sidelit start") end)\n', True, False),
+            ('hl.on("hyprland.start", function () hl.exec_cmd("~/.local/bin/sidelit start") end)\n', True, True),
+            ('spawn-at-startup "sidelit" "start"\n', True, False),
+            ('spawn-at-startup "/home/me/.local/bin/sidelit" "start"\n', True, True),
+            ("exec sidelit start\n", True, False),
+            ("exec $HOME/.local/bin/sidelit start\n", True, True),
+            ("# exec-once = ~/.local/bin/sidelit start\n", False, False),
+            ('-- hl.exec_cmd("~/.local/bin/sidelit start")\n', False, False),
+            ("exec-once = waybar\n", False, False),
+        ]:
+            with self.subTest(config=config):
+                self.assertEqual(self.check("starts_sidelit", config), starts)
+                self.assertEqual(self.check("starts_sidelit_by_path", config), by_path)
+
+
 if __name__ == "__main__":
     unittest.main()

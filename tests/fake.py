@@ -75,6 +75,7 @@ class FakeDesktop:
         self.active = 1
         self.windows: dict[str, dict] = {}
         self.claude: dict[str, dict] = {}
+        self.cwd: dict[str, str] = {}        # terminal window id -> the folder its shell is in
         self.browser: dict[str, dict] = {}   # window id -> what the Chrome extension says about it
         self.extensions: set[str] = set()     # extension instances connected (they report their windows)
         self.reports: dict | None = None      # instance -> window ids, while a test holds a report back
@@ -105,6 +106,7 @@ class FakeDesktop:
         self.windows.pop(wid, None)
         self.browser.pop(wid, None)
         self.claude.pop(wid, None)
+        self.cwd.pop(wid, None)
         self._gc()
 
     def crash(self, wid: str):
@@ -226,6 +228,7 @@ class FakeDesktop:
         reported = self.reports if self.reports is not None else \
             {inst: {b["window"] for b in browser.values() if b.get("instance") == inst} for inst in self.extensions}
         self._last_obs = Obs(spaces=spaces, windows=wins, outputs=frozenset(self.outputs), claude=dict(self.claude),
+                             cwd={w: d for w, d in self.cwd.items() if w in self.windows},
                              browser=browser, browser_reported=reported, focused_at=dict(self.focused_at))
         return self._last_obs
 

@@ -31,8 +31,9 @@ CLAUDE_TITLE_RE = re.compile(r"^[^\x00-\x7f]+\s+\S")
 
 # "<folder> — COSMIC Files", "<folder> - Dolphin", Nautilus: just "<folder>"
 FILES_TITLE_RE = re.compile(r"^(?P<name>.+?)(?:\s+[—–-]\s+(?:COSMIC Files|Dolphin|Thunar|Nemo|Files))?$")
-# shell prompt titles: "user@host: ~/path" / "user@host:~/path"
-PROMPT_TITLE_RE = re.compile(r"^[\w.-]+@[\w.-]+:\s*(?P<path>[~/].*)$")
+# shell prompt titles: "user@host: ~/path" / "user@host:~/path" (Ubuntu's and Mint's bash), or
+# the folder alone, "~/path" (kitty's and Ghostty's shell integration, fish)
+PROMPT_TITLE_RE = re.compile(r"^(?:[\w.-]+@[\w.-]+:\s*)?(?P<path>[~/].*)$")
 # generic "document - App" suffixes stripped before comparing titles
 APP_SUFFIX_RE = re.compile(r"\s+[—–-]\s+[^—–-]{2,40}$")
 # A Chrome/Chromium `--app=URL` window reports app id "chrome-<host>__<path with / as _>-<profile>",
@@ -85,12 +86,16 @@ def folder_from_title(app_id: str, title: str) -> str | None:
 
 
 def cwd_from_prompt_title(title: str) -> str | None:
-    """`user@host: ~/x` -> /home/user/x when that directory exists."""
+    """`user@host: ~/x` (or `~/x` alone) -> /home/user/x when that directory exists. A command
+    run by its path (`/usr/bin/top`) is no directory."""
     m = PROMPT_TITLE_RE.match((title or "").strip())
     if not m:
         return None
-    path = os.path.expanduser(m.group("path").split(" ")[0])
-    return path if os.path.isdir(path) else None
+    for path in (m.group("path"), m.group("path").split(" ")[0]):  # (a prompt may add more after a space)
+        path = os.path.expanduser(path)
+        if os.path.isdir(path):
+            return path
+    return None
 
 
 def resolve_folder(name: str, known_dirs: list[str]) -> str | None:

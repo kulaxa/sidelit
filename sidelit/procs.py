@@ -166,6 +166,16 @@ def cwd_of(pid: int) -> str:
         return ""
 
 
+SHELLS = frozenset({"bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "xonsh", "elvish"})
+
+
+def shell_cwd(pid: int, table: dict[int, tuple[int, str]]) -> str:
+    """The folder the shell that process `pid` (a terminal) runs is in, by the process table
+    (proc_table); "" when it runs none, or several in different folders (tabs, split panes)."""
+    found = {cwd_of(p) for p, (ppid, comm) in table.items() if ppid == pid and comm in SHELLS} - {""}
+    return found.pop() if len(found) == 1 else ""
+
+
 def login_shell() -> str:
     if os.environ.get("SHELL"):
         return os.environ["SHELL"]

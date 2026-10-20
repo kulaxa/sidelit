@@ -1,6 +1,7 @@
 """The engine against a fake desktop: the situations that used to go wrong."""
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -504,6 +505,40 @@ class Restarts(Base):
         self.assertEqual(len(lw.slots), 1)
 
 
+class SystemWindows(Base):
+    """Windows of the desktop itself are never yours: Hyprland's update and donation pop-up, KDE's
+    hidden window that lets X11 apps record the screen."""
+
+    def test_they_are_not_kept(self):
+        self.desk.open("hyprland-donate-screen", "Hyprland Updated", 1)
+        self.desk.open("org.kde.xwaylandvideobridge", "Wayland to X Recording bridge — Xwayland", 2)
+        self.engine()
+        self.settle_calm()
+        self.advance(10)
+        self.assertEqual(self.slots(), [])
+        self.assertEqual(self.layout.workspaces, [])  # (the workspaces they are on are empty)
+
+    def test_one_an_older_sidelit_kept_is_forgotten_and_not_started_again(self):
+        self.desk.open("hyprland-donate-screen", "Hyprland Updated", 1)
+        self.desk.open("kitty", "~", 1)
+        self.engine()
+        self.settle_calm()
+        lw = self.keep(1)
+        self.advance(3)
+        pop_up = next(w for w, d in self.desk.windows.items() if d["app"] == "hyprland-donate-screen")
+        self.e._new_slot(self.desk.obs().windows[pop_up], lw, ad.BY_NAME["generic"], self.clock.t, "an older Sidelit")
+        self.assertEqual(sorted(s.app for s in self.slots()), ["hyprland-donate-screen", "kitty"])
+        # a reboot, with this Sidelit
+        self.desk.windows.clear()
+        self.e.drop_pending()
+        self.engine()
+        self.assertEqual([s.app for s in self.slots()], ["kitty"])
+        self.e.start_restore(self.clock.t, "login", delay=1)
+        self.advance(eng.RESTORE_MAX_S + 5, step=2)
+        self.assertEqual(self.desk.launched[0]["type"], "terminal")
+        self.assertNotIn("hyprland-donate-screen", [l.get("app") for l in self.desk.launched])
+
+
 class Migration(Base):
     def test_absorb_waits_for_the_compositor_to_say_where_windows_are(self):
         """Right after connecting, COSMIC has not yet said which workspace a window is on."""
@@ -612,6 +647,42 @@ class Login(Base):
             self.advance(eng.RESTORE_MAX_S + 5, step=2)
             self.assertTrue(self.e.restore.finished)
         self.assertEqual(self.slots(), [])
+
+    def _terminal_after_login(self, title: str, shell_in: str | None = None) -> dict | None:
+        """A plain kitty window on workspace 1 (its shell in `shell_in`, as the daemon reads it from
+        /proc), then a reboot: what the login's restore starts for it."""
+        w = self.desk.open("kitty", title, 1)
+        if shell_in:
+            self.desk.cwd[w] = shell_in
+        self.engine()
+        self.settle_calm()
+        self.keep(1)
+        self.advance(3)
+        self.desk.windows.clear()
+        self.desk.cwd.clear()
+        self.e.drop_pending()
+        self.engine()
+        self.e.start_restore(self.clock.t, "login", delay=1)
+        self.advance(3)
+        return next((l for l in self.desk.launched if l["type"] == "terminal"), None)
+
+    def test_a_terminal_titled_with_its_folder_alone_comes_back_there(self):
+        """kitty's (and Ghostty's) shell integration titles the window with the folder alone."""
+        folder = tempfile.mkdtemp(prefix="sidelit-kitty-")
+        self.addCleanup(os.rmdir, folder)
+        self.assertEqual(self._terminal_after_login(folder), {"type": "terminal", "cwd": folder, "command": None})
+
+    def test_a_terminal_whose_title_says_nothing_comes_back_in_its_shells_folder(self):
+        """Arch's bash sets no title at all: the folder is its shell's."""
+        folder = tempfile.mkdtemp(prefix="sidelit-kitty-")
+        self.addCleanup(os.rmdir, folder)
+        launched = self._terminal_after_login("kitty", shell_in=folder)
+        self.assertEqual(launched, {"type": "terminal", "cwd": folder, "command": None})
+
+    def test_a_prompt_title_goes_before_the_shells_folder(self):
+        """What the window shows (its prompt's folder) goes first: it is what you see in it."""
+        launched = self._terminal_after_login(f"alex@laptop: {HOME}", shell_in="/tmp")
+        self.assertEqual(launched["cwd"], HOME)
 
 
 class Claudes(Base):
