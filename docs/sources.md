@@ -8,7 +8,7 @@ file per source to `~/.config/sidelit/sources/` (yours, never part of this repo)
 {
   "name": "My jobs",
   "url": "http://127.0.0.1:8080/feed",
-  "token_file": "~/.local/share/my-app/feed-token",
+  "token_file": "~/feed.token",
   "every": 10,
   "report": "http://127.0.0.1:8080/report"
 }
