@@ -77,7 +77,7 @@ HALLOWEEN_NIGHT = b"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http:
  </g>
 </svg>"""
 
-# A jack-o'-lantern lit from inside, on the usage card
+# A jack-o'-lantern lit from inside, in the theme's picture in the settings
 HALLOWEEN_PUMPKIN = b"""<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
  <defs>
   <radialGradient id="skin" cx="0.4" cy="0.35" r="0.75">
@@ -194,9 +194,7 @@ HALLOWEEN_CSS = """
 
 .cw-usage { background-color: rgba(46,30,56,0.86); }
 tooltip.background { background-color: rgba(34,20,44,0.97); border-color: rgba(191,90,242,0.35); }
-/* the jack-o'-lantern heads the usage, the ghost is the new workspace's icon (one line each:
-   without the images, css() drops them whole) */
-.usage-agent { padding-left: 19px; background-image: url("{images}/pumpkin.svg"); background-repeat: no-repeat; background-position: left center; background-size: 14px 14px; }
+/* the ghost is the new workspace's icon (one line: without the images, css() drops it whole) */
 button.cw-new image { color: transparent; background-image: url("{images}/ghost.svg"); background-repeat: no-repeat; background-position: center; background-size: 15px 15px; }
 /* the usage is blood: the bar is 16 px, its trough drawn only in its top 6, so the drips hang
    below the fill; running low it glows, nearly out it throbs */
@@ -237,7 +235,7 @@ THEMES = {
     "default": Theme("default", about="Frosted glass, the colours of iOS"),
     "halloween": Theme("halloween", HALLOWEEN_CSS, colors=("#1a0f22", "#2e1e38", "#4c266e", "#bf5af2", "#ff7a1a", "#a6ff4d"),
                        art=HALLOWEEN_ART, about="Cobwebs, bats, candlelight", images=(("web.svg", HALLOWEEN_WEB), ("night.svg", HALLOWEEN_NIGHT),
-                                                  ("pumpkin.svg", HALLOWEEN_PUMPKIN), ("ghost.svg", HALLOWEEN_GHOST),
+                                                  ("ghost.svg", HALLOWEEN_GHOST),
                                                   ("blood.svg", HALLOWEEN_BLOOD), ("drips.svg", HALLOWEEN_MORE_DRIPS))),
 }
 
