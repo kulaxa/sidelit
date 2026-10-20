@@ -42,7 +42,7 @@ else
         fail=1
     fi
     if ! PYTHONPATH="$repo" python3 -c "from sidelit import sidebar4; raise SystemExit(sidebar4.layer_shell_paths() is None)" &>/dev/null; then
-        echo "! gtk4-layer-shell not found: the GTK 3 sidebar runs (see \"The GTK 4 sidebar\" in the README for the smooth one)"
+        echo "! gtk4-layer-shell not found: the GTK 3 sidebar runs (see \"The GTK 4 sidebar\" in docs/install.md for the smooth one)"
     fi
 fi
 if ! command -v claude &>/dev/null && ! command -v codex &>/dev/null && ! command -v opencode &>/dev/null; then
@@ -109,7 +109,7 @@ else
 fi
 echo "  logs: sidelit log   ·   why something happened: sidelit why TEXT"
 echo "  update later with: git -C $repo pull"
-echo "  links on the current workspace: set Terminator's custom_url_handler and \$BROWSER to $bindir/sidelit-open (see README)"
+echo "  links on the current workspace: set Terminator's custom_url_handler and \$BROWSER to $bindir/sidelit-open (see docs/guide.md)"
 case ":$PATH:" in
     *":$bindir:"*) ;;
     *) echo "! $bindir is not on your PATH; add it to your shell rc" ;;
