@@ -52,6 +52,10 @@ class FromTheShell(unittest.TestCase):
         proc.stdout.readline()  # (said once each has started: Popen returns when it runs)
         return proc.pid
 
+    @staticmethod
+    def shell_cwd(pid: int) -> str:
+        return procs.shell_cwd(pid, procs.proc_table())
+
     def folder(self) -> str:
         path = tempfile.mkdtemp(prefix="sidelit-shell-")
         self.addCleanup(os.rmdir, path)
@@ -59,21 +63,21 @@ class FromTheShell(unittest.TestCase):
 
     def test_its_shells_folder(self):
         here = self.folder()
-        self.assertEqual(procs.shell_cwd(self.terminal(("sh", here))), here)
+        self.assertEqual(self.shell_cwd(self.terminal(("sh", here))), here)
 
     def test_tabs_in_one_folder(self):
         here = self.folder()
-        self.assertEqual(procs.shell_cwd(self.terminal(("sh", here), ("sh", here))), here)
+        self.assertEqual(self.shell_cwd(self.terminal(("sh", here), ("sh", here))), here)
 
     def test_tabs_in_different_folders_say_nothing(self):
-        self.assertEqual(procs.shell_cwd(self.terminal(("sh", self.folder()), ("sh", self.folder()))), "")
+        self.assertEqual(self.shell_cwd(self.terminal(("sh", self.folder()), ("sh", self.folder()))), "")
 
     def test_a_program_that_is_no_shell_says_nothing(self):
-        self.assertEqual(procs.shell_cwd(self.terminal(("python", self.folder()))), "")
+        self.assertEqual(self.shell_cwd(self.terminal(("python", self.folder()))), "")
 
     def test_nothing_running_says_nothing(self):
-        self.assertEqual(procs.shell_cwd(self.terminal()), "")
-        self.assertEqual(procs.shell_cwd(999999999), "")
+        self.assertEqual(self.shell_cwd(self.terminal()), "")
+        self.assertEqual(self.shell_cwd(999999999), "")
 
 
 if __name__ == "__main__":

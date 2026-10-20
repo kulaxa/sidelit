@@ -169,40 +169,10 @@ def cwd_of(pid: int) -> str:
 SHELLS = frozenset({"bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "xonsh", "elvish"})
 
 
-def children(pid: int) -> list[int]:
-    """The processes `pid` started (its threads' `children` in /proc; without them, from the
-    whole process table)."""
-    out, listed = [], False
-    try:
-        tasks = os.listdir(f"/proc/{pid}/task")
-    except OSError:
-        return []
-    for tid in tasks:
-        try:
-            with open(f"/proc/{pid}/task/{tid}/children") as f:
-                out += [int(c) for c in f.read().split()]
-            listed = True
-        except (OSError, ValueError):
-            continue
-    if not listed:  # (a kernel built without CONFIG_PROC_CHILDREN)
-        out = [p for p, (ppid, _) in proc_table().items() if ppid == pid]
-    return out
-
-
-def shell_cwd(pid: int) -> str:
-    """The folder the shell that process `pid` (a terminal) runs is in; "" when it runs none, or
-    several in different folders (tabs, split panes)."""
-    found = set()
-    for child in children(pid):
-        try:
-            with open(f"/proc/{child}/comm") as f:
-                if f.read().strip() not in SHELLS:
-                    continue
-        except OSError:
-            continue
-        here = cwd_of(child)
-        if here:
-            found.add(here)
+def shell_cwd(pid: int, table: dict[int, tuple[int, str]]) -> str:
+    """The folder the shell that process `pid` (a terminal) runs is in, by the process table
+    (proc_table); "" when it runs none, or several in different folders (tabs, split panes)."""
+    found = {cwd_of(p) for p, (ppid, comm) in table.items() if ppid == pid and comm in SHELLS} - {""}
     return found.pop() if len(found) == 1 else ""
 
 

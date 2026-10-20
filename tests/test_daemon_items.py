@@ -64,7 +64,7 @@ class Observing(unittest.TestCase):
         d.engine = mock.Mock(layout=Layout(), launched_pid={}, ctx=ad.Ctx())
         d.detector = mock.Mock(agents=[], hooked={})
         d.detector.claudes_for.return_value = []
-        with mock.patch.object(daemon, "shell_cwd", lambda pid: (shells or {}).get(pid, "")):
+        with mock.patch.object(daemon, "shell_cwd", lambda pid, table: (shells or {}).get(pid, "")):
             obs = d.observe(100.0)
         return ({w.id: w.app for w in obs.windows.values()},
                 {obs.windows[wid].title: here for wid, here in obs.cwd.items()})

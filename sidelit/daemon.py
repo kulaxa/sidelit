@@ -384,10 +384,11 @@ class Daemon:
                 found[wid] = {**infos[0], "more": infos[1:]}
         # a terminal's folder from its shell, for one whose title does not say (Arch's bash sets
         # none, kitty only the folder): where its process is this window's alone (a terminal that
-        # keeps all its windows in one process says nothing about which is in which folder)
+        # keeps all its windows in one process says nothing about which is in which folder). By the
+        # detector's process table, read again every second.
         pids = Counter(w.pid for w in windows.values() if w.pid)
         cwd = {wid: here for wid, w in windows.items() if w.app in titles.TERMINAL_APP_IDS and pids[w.pid] == 1
-               for here in [shell_cwd(w.pid)] if here}
+               for here in [shell_cwd(w.pid, self.detector.table)] if here}
         focused_at = dict(getattr(self.ws, "closed_focus", {}))
         focused_at.update({tl.identifier: tl.focused_at for tl in self._tl.values() if getattr(tl, "focused_at", 0)})
         # (a reconnected extension's windows are the last connection's until it reports again)
