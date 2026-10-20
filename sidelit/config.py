@@ -85,9 +85,9 @@ DEFAULT_CONFIG = {
     "monitor": "leftmost",  # leftmost | largest | <model substring, e.g. "Acer">
     # auto: the GTK 4 sidebar when gtk4-layer-shell is installed, else the GTK 3 one; gtk3 | gtk4
     "sidebar": "auto",
-    # the sidebar's look (themes.py): auto (the season's: Halloween's in the two weeks up to it) |
-    # default | halloween | the name of a CSS file in ~/.config/sidelit/themes/
-    "theme": "auto",
+    # the sidebar's look (themes.py): default | halloween | the name of a CSS file in
+    # ~/.config/sidelit/themes/
+    "theme": "default",
     "templates": DEFAULT_TEMPLATES,
     "default_template": "Claude Code",
     # right-click → "Open <name> here": one-click web app windows on a workspace, e.g.

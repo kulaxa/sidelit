@@ -52,8 +52,8 @@
   the first match). Pick one and it comes back on a new workspace: its name and directory, its
   session resumed, its terminals, folders and web apps reopened one at a time. ← or Esc goes
   back to the workspaces. The last 100 are kept.
-- **Settings.** The gear swaps the workspaces for the settings: the theme (the season's, the
-  default look, Halloween's, or [one of your own](config.md)); switches for the restore after
+- **Settings.** The gear swaps the workspaces for the settings: the theme (the default look,
+  Halloween's, or [one of your own](config.md)); switches for the restore after
   a login and for reopening windows that crash; and buttons to put everything back, check for updates and restart the sidebar.
 - **Header menu.** Right-click the header for "Check for updates", "Put everything back" (every window to its
   workspace and screen, what went missing reopened), *Recent sessions* (closed ones, one click resumes one on a new workspace)

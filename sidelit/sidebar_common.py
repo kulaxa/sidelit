@@ -43,6 +43,8 @@ RELEASES_URL = "https://github.com/kulaxa/sidelit/releases/latest/download"
 LATEST_VERSION_URL = RELEASES_URL + "/sidelit_latest_version.txt"
 LATEST_DEB = "sidelit_latest_all.deb"
 LATEST_ARCH = "sidelit-latest-any.pkg.tar.zst"
+UPDATE_ACTION = "Check for updates"  # the settings' button for it, which says how the check went
+UPDATE_SAID_S = 8                    # for this long
 
 # Claude's state -> tab style class (the note on the model line: tabstate.py)
 # "checking": the turn is over and a model is deciding whether Claude needs you; "external": it
@@ -179,6 +181,16 @@ def version_tuple(text: str | None):
     if not text or not re.fullmatch(r"\d+(\.\d+)*", text.strip()):
         return None
     return tuple(int(part) for part in text.strip().split("."))
+
+
+def update_line(state: str, ours: str = "", latest: str = "") -> tuple[str, str]:
+    """What 'Check for updates' says, and its icon ("": a spinner), as it asks and when it knows:
+    idle | checking | latest | newer (it updates to `latest`) | failed."""
+    return {"checking": ("Checking for updates…", ""),
+            "latest": (f"Up to date · {ours}", "object-select-symbolic"),
+            "newer": (f"Updating to {latest}…", "software-update-available-symbolic"),
+            "failed": ("Could not check · try again", "dialog-warning-symbolic"),
+            }.get(state, (UPDATE_ACTION, "software-update-available-symbolic"))
 
 
 def checkout_root() -> str | None:
@@ -592,9 +604,9 @@ class SidebarLogic:
     # ---- updates ----------------------------------------------------------
     def _check_update(self, update: bool = False):
         """Is a newer release out? Offered under the usage bars if so; `update` (you asked):
-        updated at once, and said in the footer when there is nothing newer."""
-        def say(text):
-            GLib.idle_add(lambda: (self._footer(text, 6), False)[1])
+        updated at once, and how the check went said (update_said)."""
+        def say(state, latest=""):
+            GLib.idle_add(lambda: (self.update_said(state, latest), False)[1])
 
         def worker():
             try:
@@ -606,23 +618,37 @@ class SidebarLogic:
                 if getattr(e, "code", None) != 404:
                     print("update check failed:", e, file=sys.stderr)
                 if update:
-                    say("Could not check for updates")
+                    say("failed")
                 return
             ours, theirs = version_tuple(local_version()), version_tuple(latest)
             if ours and theirs and theirs > ours:
                 GLib.idle_add(self._offer_update, latest)
                 if update:
+                    say("newer", latest)
                     GLib.idle_add(lambda: (self.on_update_clicked(), False)[1])
             else:  # up to date (again): drop an offer made earlier
                 GLib.idle_add(lambda: (self._hide_update(), False)[1])
                 if update:
-                    say(f"Sidelit {local_version()} is the latest")
+                    say("latest")
         threading.Thread(target=worker, daemon=True).start()
 
     def update_now(self):
         """'Check for updates': asked now, and updated if there is one."""
-        self._footer("Checking for updates…", 15)
+        self.update_said("checking")
         self._check_update(update=True)
+
+    def update_said(self, state: str, latest: str = ""):
+        """How the check you asked for goes (update_line): on its button while the settings show,
+        else in the footer. The answer stays UPDATE_SAID_S, then the button is itself again."""
+        text, icon = update_line(state, local_version(), latest)
+        self._update_said_n = getattr(self, "_update_said_n", 0) + 1
+        self.settings.set_action(UPDATE_ACTION, text, icon)
+        if self.views.get_visible_child_name() != "settings":
+            self._footer(text, 15 if state == "checking" else UPDATE_SAID_S)
+        if state != "checking":
+            n = self._update_said_n
+            GLib.timeout_add_seconds(UPDATE_SAID_S, lambda: (
+                n == self._update_said_n and self.settings.set_action(UPDATE_ACTION, *update_line("idle")), False)[1])
 
     @staticmethod
     def update_tooltip() -> str:

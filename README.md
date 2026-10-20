@@ -92,7 +92,7 @@ for tab, load [the companion extension](docs/install.md#chrome-windows-and-their
   <tr>
     <td valign="top"><b>Search what you closed.</b> The clock opens the workspaces you closed, by day. Pick one and it comes back with its windows.</td>
     <td valign="top"><b>Back after a login.</b> Sessions resumed, terminals in their folders, windows on their workspace, one at a time.</td>
-    <td valign="top"><b>Themes.</b> Pick one in the settings or write your own CSS. In late October the sidebar dresses up for Halloween.</td>
+    <td valign="top"><b>Themes.</b> Pick one in the settings, Halloween's among them, or write your own CSS.</td>
   </tr>
 </table>
 

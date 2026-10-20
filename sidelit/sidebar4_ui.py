@@ -36,7 +36,8 @@ else:
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
     FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question, countdown, reset_line,
-    day_label, group_blocks, history_lines, item_sub, matches, model_css, tab_classes, tab_snapshot, usage_level,
+    day_label, group_blocks, history_lines, item_sub, matches, model_css, tab_classes, tab_snapshot, update_line,
+    usage_level,
 )
 
 FONT = "'Inter', 'SF Pro Text', 'Fira Sans', 'Cantarell', 'Noto Sans', sans-serif"
@@ -609,11 +610,14 @@ class SettingsPanel(Gtk.Box):
             content.append(btn)
             self.switches[key] = switch
         content.append(label("SIDEBAR", "cw-history-day"))
+        self.actions = {}
         for text, icon, action in actions:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             image = Gtk.Image.new_from_icon_name(icon)
             image.add_css_class("cw-setting-icon")
             row.append(image)
+            spinner = Gtk.Spinner(visible=False)
+            row.append(spinner)
             name = label(text, "cw-history-title")
             name.set_ellipsize(Pango.EllipsizeMode.END)
             row.append(name)
@@ -622,6 +626,7 @@ class SettingsPanel(Gtk.Box):
             btn.add_css_class("cw-setting")
             btn.connect("clicked", lambda *_, fn=action: fn())
             content.append(btn)
+            self.actions[text] = (image, spinner, name)
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.set_child(content)
@@ -631,6 +636,17 @@ class SettingsPanel(Gtk.Box):
     def set_switches(self, cfg: dict):
         for key, switch in self.switches.items():
             switch.set_active(bool(cfg.get(key)))  # (config.load fills in the defaults)
+
+    def set_action(self, key: str, text: str, icon: str):
+        """What an action's button says, and its icon ("": a spinner; a tick in the tick's blue)."""
+        image, spinner, name = self.actions[key]
+        name.set_text(text)
+        if icon:
+            image.set_from_icon_name(icon)
+        image.set_visible(bool(icon))
+        spinner.set_visible(not icon)
+        spinner.set_spinning(not icon)
+        (image.add_css_class if icon == "object-select-symbolic" else image.remove_css_class)("cw-setting-check")
 
     def set_themes(self, choices: list, picked: str):
         clear(self.themes_box)
@@ -809,7 +825,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             ("Reopen crashed windows", "relaunch"),
         ], self.set_option, [
             ("Put everything back", "view-refresh-symbolic", self.put_back),
-            ("Check for updates", "software-update-available-symbolic", self.update_now),
+            (*update_line("idle"), self.update_now),
             ("Restart sidebar", "system-reboot-symbolic", lambda: self._screens_changed("settings")),
         ])
         self.views.add_named(self.settings, "settings")
@@ -921,7 +937,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.header_title.set_text({"history": "History", "settings": "Settings"}.get(view, "Sidelit"))
         self.header_title.set_margin_start(2 if away else 8)
         if view == "settings":
-            self.settings.set_themes(themes.choices(), str(self.cfg.get("theme") or "auto").strip().lower())
+            self.settings.set_themes(themes.choices(), themes.chosen(self.cfg))
             self.settings.set_switches(self.cfg)
         self.views.set_visible_child_name(view)
 

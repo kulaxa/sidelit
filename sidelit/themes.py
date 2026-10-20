@@ -1,7 +1,6 @@
 """The sidebar's themes: CSS drawn over the sidebar's own, with pictures of their own.
 
-config.json's "theme" picks one: "default" (the sidebar as it is), "auto" (the season's theme
-while it is on, Halloween's in the two weeks up to it, else the default) or a theme's name; a
+config.json's "theme" picks one: "default" (the sidebar as it is) or a theme's name; a
 CSS file at ~/.config/sidelit/themes/<name>.css is a theme too, drawn over the default. The
 environment's SIDELIT_THEME wins over the config, to try one out.
 
@@ -9,7 +8,6 @@ Needs no GTK: the sidebars load what this returns.
 """
 from __future__ import annotations
 
-import datetime
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -240,41 +238,32 @@ THEMES = {
 }
 
 
-def seasonal(today: datetime.date) -> str:
-    """The season's theme on `today`: Halloween's in the two weeks up to it."""
-    if today.month == 10 and today.day >= 18:
-        return "halloween"
-    return "default"
+def chosen(cfg: dict | None = None) -> str:
+    """The theme the config names ("default" for none; "auto", the seasonal choice Sidelit no
+    longer has, is the default too)."""
+    name = str((cfg if cfg is not None else config.load()).get("theme") or "default").strip().lower()
+    return "default" if name == "auto" else name
 
 
-def wanted(cfg: dict | None = None, today: datetime.date | None = None) -> str:
-    """The theme's name: the environment's, else the config's, with "auto" made the season's."""
-    name = os.environ.get(ENV) or str((cfg if cfg is not None else config.load()).get("theme") or "auto")
-    name = name.strip().lower()
-    if name == "auto":
-        return seasonal(today or datetime.date.today())
-    return name
+def wanted(cfg: dict | None = None) -> str:
+    """The theme's name: the environment's, else the config's."""
+    return (os.environ.get(ENV) or "").strip().lower() or chosen(cfg)
 
 
-def choices(today: datetime.date | None = None) -> list[tuple[str, str, str]]:
-    """(name, title, a line about it) for every theme there is: "auto" first, then the built-in
-    ones, then the user's CSS files."""
-    season = seasonal(today or datetime.date.today())
-    out = [("auto", "Seasonal", f"{season.capitalize()} now" if season != "default"
-            else "Halloween in late October, else the default")]
-    out += [(name, name.capitalize(), theme.about) for name, theme in THEMES.items()]
+def choices() -> list[tuple[str, str, str]]:
+    """(name, title, a line about it) for every theme there is: the built-in ones, then the
+    user's CSS files."""
+    out = [(name, name.capitalize(), theme.about) for name, theme in THEMES.items()]
     try:
         mine = sorted(f.stem for f in USER_THEMES.glob("*.css"))
     except OSError:
         mine = []
-    return out + [(name, name, f"{USER_THEMES.name}/{name}.css") for name in mine if name not in THEMES and name != "auto"]
+    return out + [(name, name, f"{USER_THEMES.name}/{name}.css") for name in mine if name not in THEMES]
 
 
-def preview(name: str, today: datetime.date | None = None) -> bytes:
+def preview(name: str) -> bytes:
     """A small picture of the theme for the settings, 96×56: three cards, the middle one where
-    you are, their stripes working, waiting and done ("auto": the season's theme)."""
-    if name == "auto":
-        name = seasonal(today or datetime.date.today())
+    you are, their stripes working, waiting and done."""
     theme = THEMES.get(name, THEMES["default"])
     panel, card, active, ring, working, waiting = theme.colors
     width = 62 if theme.art else 80
