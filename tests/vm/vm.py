@@ -119,6 +119,11 @@ EOF
 install -d -o tester -g tester /home/tester/.config
 echo yes > /home/tester/.config/gnome-initial-setup-done
 chown tester: /home/tester/.config/gnome-initial-setup-done
+# no offer to upgrade to the next release (a window in every test), nor updates in the
+# background (which would hold apt's lock while a test installs): it stays as it was built
+mkdir -p /etc/update-manager
+printf '[DEFAULT]\\nPrompt=never\\n' > /etc/update-manager/release-upgrades
+systemctl disable apt-daily.timer apt-daily-upgrade.timer
 """ + DCONF + """\
 systemctl set-default graphical.target
 """
@@ -260,6 +265,8 @@ cat > $T/root/sidelit-vm-dconf.sh <<'DCONF'
 """ + DCONF + """\
 DCONF
 chroot $T sh /root/sidelit-vm-dconf.sh
+# no updates in the background, which would hold apt's lock while a test installs
+chroot $T systemctl disable apt-daily.timer apt-daily-upgrade.timer
 cat > $T/etc/systemd/system/sidelit-vm-ssh.service <<'EOF'
 [Unit]
 Description=ssh for the test machine's driver
@@ -473,19 +480,22 @@ def wait_ssh(m: Machine, seconds: float, proc: subprocess.Popen | None = None):
                f"{m.dir / 'serial.log'})")
 
 
-def session_pid(m: Machine) -> str | None:
-    """The desktop's main process, once the session's environment is in systemd too."""
-    probe = (f"p=$(pgrep -u {USER} -x -o {shlex.quote(m.session)}) && "
-             "systemctl --user show-environment | grep -qE '^(WAYLAND_DISPLAY|DISPLAY)=' && echo $p")
+def desktop_session(m: Machine) -> str | None:
+    """The graphical login's session id, once the desktop's main process runs and the session's
+    environment is in systemd too. (The id, not the process: KDE's shell is a user service that
+    outlives a logout.)"""
+    probe = (f"pgrep -u {USER} -x {shlex.quote(m.session)} >/dev/null && "
+             "systemctl --user show-environment | grep -qE '^(WAYLAND_DISPLAY|DISPLAY)=' && "
+             f"loginctl show-user {USER} -p Display --value")
     result = ssh(m, probe, check=False, timeout=20)
     return result.stdout.decode().strip() or None if result.returncode == 0 else None
 
 
-def wait_desktop(m: Machine, seconds: float = 300, *, not_pid: str | None = None) -> str:
+def wait_desktop(m: Machine, seconds: float = 300, *, not_session: str | None = None) -> str:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        found = session_pid(m)
-        if found and found != not_pid:
+        found = desktop_session(m)
+        if found and found != not_session:
             time.sleep(5)  # panels, the dock, the wallpaper
             return found
         time.sleep(2)
@@ -907,10 +917,16 @@ def sync(m: Machine):
 
 def relogin(m: Machine):
     need_running(m)
-    before = session_pid(m)
+    before = desktop_session(m)
     say("Logging out and back in")
-    ssh(m, "sudo systemctl restart display-manager", check=False, timeout=60)
-    wait_desktop(m, not_pid=before)
+    # A logout ends every process of the user, their systemd user services too (Sidelit's, KDE's
+    # shell), as on a computer where nobody is logged in by ssh: so the login manager stops, the
+    # user's sessions end (this ssh one too: hence from a unit of its own) and it starts again,
+    # logging in by itself (greetd does that once a boot, which that file marks).
+    script = (f"systemctl stop display-manager; loginctl terminate-user {USER}; rm -f /run/greetd.run; "
+              "sleep 2; systemctl start display-manager")
+    ssh(m, f"sudo systemd-run --quiet --no-block --collect sh -c {shlex.quote(script)}", check=False, timeout=60)
+    wait_desktop(m, not_session=before)
     print(f"✓ {m.name} is logged in again")
 
 
