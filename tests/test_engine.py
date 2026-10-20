@@ -1,6 +1,7 @@
 """The engine against a fake desktop: the situations that used to go wrong."""
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -612,6 +613,42 @@ class Login(Base):
             self.advance(eng.RESTORE_MAX_S + 5, step=2)
             self.assertTrue(self.e.restore.finished)
         self.assertEqual(self.slots(), [])
+
+    def _terminal_after_login(self, title: str, shell_in: str | None = None) -> dict | None:
+        """A plain kitty window on workspace 1 (its shell in `shell_in`, as the daemon reads it from
+        /proc), then a reboot: what the login's restore starts for it."""
+        w = self.desk.open("kitty", title, 1)
+        if shell_in:
+            self.desk.cwd[w] = shell_in
+        self.engine()
+        self.settle_calm()
+        self.keep(1)
+        self.advance(3)
+        self.desk.windows.clear()
+        self.desk.cwd.clear()
+        self.e.drop_pending()
+        self.engine()
+        self.e.start_restore(self.clock.t, "login", delay=1)
+        self.advance(3)
+        return next((l for l in self.desk.launched if l["type"] == "terminal"), None)
+
+    def test_a_terminal_titled_with_its_folder_alone_comes_back_there(self):
+        """kitty's (and Ghostty's) shell integration titles the window with the folder alone."""
+        folder = tempfile.mkdtemp(prefix="sidelit-kitty-")
+        self.addCleanup(os.rmdir, folder)
+        self.assertEqual(self._terminal_after_login(folder), {"type": "terminal", "cwd": folder, "command": None})
+
+    def test_a_terminal_whose_title_says_nothing_comes_back_in_its_shells_folder(self):
+        """Arch's bash sets no title at all: the folder is its shell's."""
+        folder = tempfile.mkdtemp(prefix="sidelit-kitty-")
+        self.addCleanup(os.rmdir, folder)
+        launched = self._terminal_after_login("kitty", shell_in=folder)
+        self.assertEqual(launched, {"type": "terminal", "cwd": folder, "command": None})
+
+    def test_a_prompt_title_goes_before_the_shells_folder(self):
+        """What the window shows (its prompt's folder) goes first: it is what you see in it."""
+        launched = self._terminal_after_login(f"alex@laptop: {HOME}", shell_in="/tmp")
+        self.assertEqual(launched["cwd"], HOME)
 
 
 class Claudes(Base):

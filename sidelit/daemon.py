@@ -23,6 +23,7 @@ import signal
 import sys
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 import gi
@@ -32,7 +33,7 @@ gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
 from sidelit import agents, chrome, claude, config, crashes, detect, ipc, launch, panes, session, sources, turncheck, version  # noqa: E402
-from sidelit.procs import load_json, shell_command  # noqa: E402
+from sidelit.procs import load_json, shell_command, shell_cwd  # noqa: E402
 from sidelit.tabstate import Attention  # noqa: E402
 from sidelit.backend import open_client  # noqa: E402
 from sidelit.core import adapters as ad  # noqa: E402
@@ -379,11 +380,17 @@ class Daemon:
             infos = self.detector.claudes_for(w.title, w.pid, wid)
             if infos:  # the first is the window's Claude to the engine; "more": the others in it
                 found[wid] = {**infos[0], "more": infos[1:]}
+        # a terminal's folder from its shell, for one whose title does not say (Arch's bash sets
+        # none, kitty only the folder): where its process is this window's alone (a terminal that
+        # keeps all its windows in one process says nothing about which is in which folder)
+        pids = Counter(w.pid for w in windows.values() if w.pid)
+        cwd = {wid: here for wid, w in windows.items() if w.app in titles.TERMINAL_APP_IDS and pids[w.pid] == 1
+               for here in [shell_cwd(w.pid)] if here}
         focused_at = dict(getattr(self.ws, "closed_focus", {}))
         focused_at.update({tl.identifier: tl.focused_at for tl in self._tl.values() if getattr(tl, "focused_at", 0)})
         # (a reconnected extension's windows are the last connection's until it reports again)
         reported = {inst: {w["id"] for w in c.get("windows") or []} for inst, c in self.chrome.items() if c.get("reported")}
-        return Obs(spaces=spaces, windows=windows, outputs=frozenset(self.ws.output_names()), claude=found,
+        return Obs(spaces=spaces, windows=windows, outputs=frozenset(self.ws.output_names()), claude=found, cwd=cwd,
                    browser=browser, browser_reported=reported, focused_at=focused_at,
                    blind=bool(getattr(self.ws, "blind", False)))
 

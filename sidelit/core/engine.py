@@ -345,6 +345,7 @@ class Engine:
         self.obs_time = now
         self.obs = obs
         self.ctx.claude = obs.claude
+        self.ctx.cwd = obs.cwd
         self.ctx.browser = obs.browser
         self._pinned_this_step = False
         prev = self.prev

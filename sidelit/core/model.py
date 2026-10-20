@@ -58,6 +58,8 @@ class Obs:
     outputs: frozenset
     # window id -> the Claude session it shows: {"session", "title", "status", "cwd"}
     claude: dict[str, dict] = field(default_factory=dict)
+    # terminal window id -> the folder its shell is in, where its process is that window's alone
+    cwd: dict[str, str] = field(default_factory=dict)
     # window id -> the browser window it is, from the extension: {"instance", "window", "tabs", "profile"}
     browser: dict[str, dict] = field(default_factory=dict)
     # extension instance connected now -> the ids of every window in its latest report
