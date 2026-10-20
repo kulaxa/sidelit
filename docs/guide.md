@@ -8,10 +8,10 @@
 
 ## The sidebar
 
-- **Every workspace is a card.** A box for each agent session on it, in the order they
-  started, together in one well: its own title, the model and a state stripe. Sessions in
-  terminals of their own and in split panes or tabs of one terminal window all show. Under
-  them, a small dimmed icon for each other window on the workspace, with a browser window's tab
+- **Every workspace is a card.** Headed by its name, else "Workspace N", then a box for each
+  agent session on it, in the order they started: its own title, the model and a state stripe.
+  Sessions in terminals of their own and in split panes or tabs of one terminal window all show.
+  Right of the name, a small dimmed icon for each other window on the workspace, with a browser window's tab
   count (from Sidelit's Chrome extension) and what an app's title says is unread ("(3) …", as
   Discord, Slack and many web apps put it); the icons take their colour while the pointer is on
   the card, so at a glance only the sessions' states stand out. Hover an icon for its title,
@@ -58,6 +58,8 @@
 - **Header menu.** Right-click the header for "Put everything back" (every window to its
   workspace and screen, what went missing reopened), *Recent sessions* (closed ones, one click resumes one on a new workspace)
   and "Restart sidebar". Right-click a tab to forget its missing windows.
+- **Fits the screen.** When the cards do not fit, the sidebar goes compact by itself: each
+  agent's limits on one line, their resets on hover.
 - **Usage.** Your plans' 5-hour and weekly limits sit at the bottom, under each agent's name:
   Claude Code's (on a Pro or Max plan) as it measured them after the last turn of any session,
   through the plugin's mod; Codex's (logged in with ChatGPT) as its app-server says. They appear

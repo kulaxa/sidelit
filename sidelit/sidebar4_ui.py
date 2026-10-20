@@ -6,6 +6,7 @@ extension runs and docks on the left (gnome.py).
 """
 from __future__ import annotations
 
+import os
 import signal
 import sys
 import time
@@ -110,12 +111,11 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
    show on hover. Each Claude has a recessed well of its own, a small gap between them, and its
    own state stripe, a working one is lit from its stripe, one that needs you lit yellow and its
    title too, and the card around it glows softly. Subagents at work are small blocks right
-   after the model, in the box's colour. The other windows are a line of small grey icons under
-   the well, a browser's tab count and what is unread beside them in dim grey; they take their
-   colour while the pointer is on the card, so at a glance only a Claude's colour stands out.
-   An icon's title shows on hover. A box has room for a two-line title whatever its own (in_room),
-   and a card with a Claude keeps the icons' line without icons, so every card with one Claude
-   is as tall as the next. A card without a Claude is as small as its header. */
+   after the model, in the box's colour. The other windows are small grey icons right of the
+   header's name, a browser's tab count and what is unread beside them in dim grey; they take
+   their colour while the pointer is on the card, so at a glance only a Claude's colour stands
+   out. An icon's title shows on hover. A box has room for a two-line title whatever its own
+   (in_room), so every card with one Claude is as tall as the next. */
 .cw-tab.card {{ padding: 6px; }}
 .cw-tab.card:hover {{ transform: scale(1.02); }}
 .cw-tab.card.attention {{ border-color: rgba(255,214,10,0.35); box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
@@ -124,6 +124,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-card-name {{ color: rgba(235,235,245,0.45); font-size: 12px; font-weight: 600; }}
 .cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; }}
 .cw-apps {{ padding: 5px 4px 0; min-height: 18px; }}
+.cw-head-apps {{ padding: 0; min-height: 0; }}
 .cw-app {{ border-radius: 6px; padding: 2px 3px; filter: grayscale(1); opacity: 0.45;
   transition: opacity 160ms ease-out, filter 160ms ease-out, background-color 160ms ease-out; }}
 .cw-tab:hover .cw-app, .cw-tab.active .cw-app {{ filter: none; opacity: 0.9; }}
@@ -185,6 +186,10 @@ button.cw-close:hover {{ color: #ffffff; }}
 .usage-label {{ color: rgba(235,235,245,0.62); font-size: 82%; }}
 .usage-value {{ color: rgba(255,255,255,0.92); font-size: 82%; font-weight: 600; }}
 .usage-reset {{ color: rgba(235,235,245,0.32); font-size: 72%; }}
+/* compact: each agent's limits side by side on one line, the resets on hover. A bar asks for
+   150 px by default: two of them would widen the sidebar */
+.cw-usage.compact {{ padding-top: 8px; padding-bottom: 8px; }}
+progressbar.usage-bar, progressbar.usage-bar > trough, progressbar.usage-bar > trough > progress {{ min-width: 0; }}
 progressbar.usage-bar > trough {{ min-height: 6px; border-radius: 3px; border: none; background-color: rgba(255,255,255,0.10); }}
 progressbar.usage-bar > trough > progress {{ min-height: 6px; border-radius: 3px; border: none; background-color: #64d2ff; }}
 /* a limit running out turns its bar and number orange, then red */
@@ -777,6 +782,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.set_vexpand(True)
         scroller.set_child(content)
+        # the cards that do not fit the screen make the sidebar compact (_fit)
+        self._compact, self._fit_source = False, 0
+        self.cards_scroller, self.cards_content = scroller, content
+        scroller.get_vadjustment().connect("notify::page-size", lambda *_: self._queue_fit())
         # the clock swaps the workspaces for the history, in place
         self.views = Gtk.Stack()
         self.views.set_vexpand(True)
@@ -800,9 +809,15 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.footer.set_visible(False)
         root.append(self.footer)
 
-        self.usage_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.usage_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.usage_box.add_css_class("cw-usage")
         self.usage_box.set_visible(False)
+        # (both drawn, one shown: the full one is measured even while compact, _fit)
+        self.usage_full = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.usage_compact = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.usage_compact.set_visible(False)
+        self.usage_box.append(self.usage_full)
+        self.usage_box.append(self.usage_compact)
         root.append(self.usage_box)
 
         # "Update to X.Y.Z" appears under the usage bars when a newer release is out
@@ -951,42 +966,62 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
     # ---- usage ------------------------------------------------------------
     def _render_usage(self, groups):
-        """The bars of each agent that has usage limits, under its name."""
-        clear(self.usage_box)
+        """The bars of each agent that has usage limits, under its name; compact, each agent's
+        on one line (its name only when there are two)."""
+        clear(self.usage_full)
+        clear(self.usage_compact)
         self._countdowns = []
         for i, (agent, rows) in enumerate(groups):
             head = label(agent.upper(), "usage-agent")  # (the sidebar's small headings: cw-src-head)
             if i:
                 head.add_css_class("usage-next")
-            self.usage_box.append(head)
+            self.usage_full.append(head)
             self._render_usage_rows(rows)
+            if len(groups) > 1:
+                self.usage_compact.append(label(agent.upper(), "usage-agent"))
+            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+            for caption, percent, resets in rows:
+                cell = self._usage_row(caption, percent)
+                left = countdown(resets)
+                if left:
+                    cell.set_tooltip_text("resets in %s" % left)
+                line.append(cell)
+            self.usage_compact.append(line)
         self.usage_box.set_visible(bool(groups))
+        self._queue_fit()
         return False
+
+    @staticmethod
+    def _usage_row(caption: str, percent: float) -> Gtk.Box:
+        """A limit's name, how much of it is used, and its bar."""
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        name = label(caption, "usage-label")
+        name.set_hexpand(True)
+        name.set_ellipsize(Pango.EllipsizeMode.END)
+        head.append(name)
+        head.append(label("%d%%" % percent, "usage-value", xalign=1))
+        bar = Gtk.ProgressBar()
+        bar.set_fraction(max(0.0, min(percent, 100)) / 100.0)
+        bar.add_css_class("usage-bar")
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        row.add_css_class("usage-row")
+        level = usage_level(percent)
+        if level:
+            bar.add_css_class(level)
+            row.add_css_class(level)
+        row.append(head)
+        row.append(bar)
+        return row
 
     def _render_usage_rows(self, rows):
         for caption, percent, resets in rows:
-            head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-            name = label(caption, "usage-label")
-            name.set_hexpand(True)
-            head.append(name)
-            head.append(label("%d%%" % percent, "usage-value", xalign=1))
-            bar = Gtk.ProgressBar()
-            bar.set_fraction(max(0.0, min(percent, 100)) / 100.0)
-            bar.add_css_class("usage-bar")
-            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-            row.add_css_class("usage-row")
-            level = usage_level(percent)
-            if level:
-                bar.add_css_class(level)
-                row.add_css_class(level)
-            row.append(head)
-            row.append(bar)
+            row = self._usage_row(caption, percent)
             left = countdown(resets)
             if left:
                 cd = label("resets in %s" % left, "usage-reset", xalign=1)
                 row.append(cd)
                 self._countdowns.append((cd, resets))
-            self.usage_box.append(row)
+            self.usage_full.append(row)
 
     # ---- other sources (sources.py) ----------------------------------------------------
     def _draw_sources(self):
@@ -1053,6 +1088,39 @@ class Sidebar(Gtk.Window, SidebarLogic):
         else:  # same tabs: just update text and state classes, no widget churn
             for child, (tab, info, attention) in zip(tabs, rows):
                 self._update_tab(child, tab, info, attention)
+        self._queue_fit()
+
+    # ---- compact: when the cards do not fit the screen ----------------------------------------
+    def _queue_fit(self):
+        if not self._fit_source:
+            self._fit_source = GLib.idle_add(self._fit)
+
+    def _fit(self):
+        """Compact when the cards and the usage, drawn in full, are taller than the room they
+        share: each agent's usage on one line. Decided from the full layout every time, so the
+        sidebar does not swing between the two. SIDELIT_COMPACT=1 or 0 decides instead."""
+        self._fit_source = 0
+        room = self.cards_scroller.get_height() + (self.usage_box.get_height() if self.usage_box.get_visible() else 0)
+        width = self.cards_content.get_width()
+        forced = os.environ.get("SIDELIT_COMPACT", "")
+        if forced in ("0", "1"):
+            self._set_compact(forced == "1")
+        elif room > 0 and width > 0:
+            was = self._compact
+            self._set_compact(False)
+            need = self.cards_content.measure(Gtk.Orientation.VERTICAL, width)[1]
+            if self.usage_box.get_visible():
+                need += self.usage_box.measure(Gtk.Orientation.VERTICAL, self.usage_box.get_width() or width)[1]
+            self._set_compact(need > room)
+            if self._compact != was:
+                print(f"sidebar: {'compact' if self._compact else 'full'} (needs {need} px, has {room})", file=sys.stderr)
+        return False
+
+    def _set_compact(self, on: bool):
+        self._compact = on
+        self.usage_full.set_visible(not on)
+        self.usage_compact.set_visible(on)
+        set_classes(self.usage_box, [("compact", on)])
 
     def _update_tab(self, w, tab, info, attention):
         if w.cw_box_keys != [b["key"] for b in info["boxes"]] or w.cw_app_keys != [a["key"] for a in info["apps"]] \
@@ -1135,12 +1203,18 @@ class Sidebar(Gtk.Window, SidebarLogic):
         set_classes(w, tab_classes(tab, info, attention))
         w.set_tooltip_text(info["tip"] or None)
         w.cw_head, w.cw_name = info["head"], None
+        w.cw_boxes, w.cw_apps = [], []
+        apps = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        apps.add_css_class("cw-apps")
+        for app in info["apps"]:
+            aw = self._make_app(app)
+            apps.append(aw)
+            w.cw_apps.append(aw)
         if info["head"]:
-            w.cw_name = self._card_head(w, info)
+            w.cw_name = self._card_head(w, info, apps)
         note = label(info["sub"], "cw-card-note")
         note.set_visible(bool(info["sub"]))
         w.append(note)
-        w.cw_boxes, w.cw_apps = [], []
         wells = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         for i, box in enumerate(info["boxes"]):
             well = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -1151,20 +1225,15 @@ class Sidebar(Gtk.Window, SidebarLogic):
             w.cw_boxes.append(bw)
         wells.set_visible(bool(info["boxes"]))
         w.append(wells)
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        row.add_css_class("cw-apps")
-        for app in info["apps"]:
-            aw = self._make_app(app)
-            row.append(aw)
-            w.cw_apps.append(aw)
-        row.set_visible(bool(info["apps"] or info["boxes"]))  # (a card with a Claude keeps the line)
-        w.append(row)
+        if not info["head"]:  # (a closed workspace named after its Claude: the icons under it)
+            apps.set_visible(bool(info["apps"]))
+            w.append(apps)
         w.cw_note = note
         w.cw_box_keys, w.cw_app_keys = [b["key"] for b in info["boxes"]], [a["key"] for a in info["apps"]]
         return w
 
-    def _card_head(self, w, info: dict) -> Gtk.Label:
-        """A card's header: its name (two lines at most) and close button."""
+    def _card_head(self, w, info: dict, apps: Gtk.Widget) -> Gtk.Label:
+        """A card's header: its name (two lines at most), its other windows' icons, close."""
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         head.add_css_class("cw-head")
         name = label(info["title"], "cw-card-name")
@@ -1175,6 +1244,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         name.set_ellipsize(Pango.EllipsizeMode.END)
         name.set_valign(Gtk.Align.CENTER)
         head.append(name)
+        apps.add_css_class("cw-head-apps")
+        apps.set_valign(Gtk.Align.CENTER)
+        head.append(apps)
         close = self._close_button(w)
         close.set_valign(Gtk.Align.START)
         head.append(close)
