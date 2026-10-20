@@ -127,7 +127,8 @@ FEDORA_KDE = PRELUDE + """\
 step "Installing KDE Plasma"
 dnf -y install @kde-desktop-environment
 dnf -y remove plasma-welcome || true
-systemctl disable initial-setup.service || true
+# the first-boot wizards that make a user (there is one) and would take the screen
+systemctl disable plasma-setup.service initial-setup.service || true
 systemctl set-default graphical.target
 step "Logging in by itself"
 if [ -e /usr/lib/systemd/system/plasmalogin.service ]; then
@@ -794,6 +795,7 @@ def build(m: Machine, *, again: bool = False, window: bool = False):
     try:
         wait_ssh(m, 30 * 60, proc)
         wait_desktop(m, 10 * 60)
+        time.sleep(30)  # a first login takes its time to show the desktop
         (m.dir / "base.png").write_bytes(screenshot(m))
     finally:
         stop(m, quiet=True)
