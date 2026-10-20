@@ -51,7 +51,8 @@ that matters. It sits at the left of your screen and keeps the map:
   workspace.
 - **Nothing lost when you close it.** A closed workspace goes to a history you can search by
   title, folder or window. One click brings it back, windows and all.
-- **Your limits in sight.** Claude Code's and Codex's 5-hour and weekly usage sit at the bottom.
+- **Your limits in sight.** The 5-hour and weekly usage of Claude Code (on a Pro or Max plan)
+  and Codex (logged in with ChatGPT) sit at the bottom.
 
 ## Install
 
@@ -121,10 +122,11 @@ The whole tour is in [the guide](docs/guide.md).
 ## Works with your agents
 
 Sidelit plugs into Claude Code (✳), Codex (◆) and OpenCode (◎) as an ordinary plugin, installed
-the way each agent installs plugins, so every session reports what it is doing as it happens. It
-reads only what each agent offers for this, changes nothing of theirs except through their own
-plugin commands, and never touches your logins. The details, agent by agent, are in
-[Coding agents](docs/agents.md).
+the way each agent installs plugins (for OpenCode, a file in its plugin folder). From then on,
+sessions report what they are doing as it happens (Codex's once you trust its hooks). Sidelit
+reads only what each agent offers for this and never touches your logins. Beyond its plugin it
+changes nothing of theirs, except once: it takes out the hook an older Sidelit had put in Claude
+Code's settings. The details, agent by agent, are in [Coding agents](docs/agents.md).
 
 ## Commands
 

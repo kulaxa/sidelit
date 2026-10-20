@@ -2,7 +2,7 @@
 
 Sidelit works with Claude Code (✳), Codex (◆) and OpenCode (◎). It plugs into each as a plugin,
 installed the way that agent installs plugins: every session reports what it is doing as it
-happens, and the agent's own measure of your plan's usage limits, where it has one, comes along
+happens (Codex's once you [trust its hooks](#codex)), and the agent's own measure of your plan's usage limits, where it has one, comes along
 for the bars. `sidelit hooks install` puts the plugin in every agent it finds,
 `sidelit hooks status` says where it is in, and `sidelit hooks uninstall` takes it out again.
 
