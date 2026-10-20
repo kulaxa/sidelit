@@ -156,6 +156,12 @@ moving a workspace between them, and `tests/sway_daemon_live.py` a test daemon, 
 need foot and swaymsg. On a real X11 window manager (a session you can spare, or Xvfb with xfwm4, Cinnamon, Marco or Openbox),
 `tests/x11_live.py` checks the X11 backend and a test daemon; it needs xterm.
 
+The whole of it, on other distributions and desktops: `tests/vm/vm.py` builds test machines
+(QEMU with KVM) with Ubuntu and GNOME, Fedora and KDE Plasma, Linux Mint and Cinnamon, and Arch
+and Hyprland, which log in by themselves, and drives them from outside. It installs a checkout
+there with its own `get.sh`, runs commands in the desktop session, logs out and in, restarts,
+takes screenshots, clicks and types; `tests/vm/README.md` says how.
+
 Each agent's adapter is tested against events and answers recorded from the real agent
 (`tests/test_claude.py`, `tests/test_codex.py`, `tests/test_opencode.py`, which runs the
 OpenCode plugin under Node the way OpenCode 1 and 2 each load it, skipped without Node). With
