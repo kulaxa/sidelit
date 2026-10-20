@@ -11,6 +11,42 @@ import os
 from pathlib import Path
 
 
+def _version_key(name: str) -> tuple:
+    """'v20.18.0' -> (20, 18, 0), for the newest first; anything else sorts last."""
+    parts = name.lstrip("v").split(".")
+    return tuple(int(p) for p in parts) if all(p.isdigit() for p in parts) else ()
+
+
+def node_bin_dirs(home: Path | None = None, env: dict | None = None) -> list[str]:
+    """Where Claude Code, Codex and OpenCode land when npm (or bun) installs them through a
+    node version manager: nvm (its newest node first), fnm's default, Volta, Bun, pnpm and npm's
+    usual user prefix. They are on PATH only in an interactive shell, which a service started by
+    systemd or the desktop never had; node itself is in the same folder."""
+    home = home or Path.home()
+    env = os.environ if env is None else env
+    found = []
+    nvm = Path(env.get("NVM_DIR") or home / ".nvm") / "versions" / "node"
+    try:
+        found += [str(p / "bin") for p in sorted(nvm.iterdir(), key=lambda p: _version_key(p.name), reverse=True)]
+    except OSError:
+        pass
+    fnm = Path(env.get("FNM_DIR") or home / ".local/share/fnm") / "aliases" / "default" / "bin"
+    found += [str(fnm), str(Path(env.get("VOLTA_HOME") or home / ".volta") / "bin"), str(home / ".bun/bin"),
+              str(Path(env.get("PNPM_HOME") or home / ".local/share/pnpm")), str(home / ".npm-global/bin")]
+    return [d for d in found if os.path.isdir(d)]
+
+
+def extend_path(env: dict | None = None) -> list[str]:
+    """Add node_bin_dirs to the end of PATH (what is on it already comes first): the folders
+    added."""
+    env = os.environ if env is None else env
+    have = [p for p in (env.get("PATH") or "").split(os.pathsep) if p]
+    extra = [d for d in node_bin_dirs(env=env) if d not in have]
+    if extra:
+        env["PATH"] = os.pathsep.join(have + extra)
+    return extra
+
+
 def load_json(path: Path, default):
     try:
         return json.loads(Path(path).read_text())

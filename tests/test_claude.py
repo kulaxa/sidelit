@@ -556,6 +556,34 @@ THEIRS = {"type": "command", "command": "notify-send done"}
 OLD_HOOK = {"type": "command", "command": "/home/alex/.local/bin/sidelit-hook", "timeout": 5}
 
 
+class NodeBinDirsTest(unittest.TestCase):
+    """An agent npm installed through a node version manager is found off an interactive shell."""
+
+    def test_nvms_newest_first_then_the_others_that_exist(self):
+        from sidelit import procs
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            for d in (".nvm/versions/node/v18.20.4/bin", ".nvm/versions/node/v20.18.0/bin",
+                      ".nvm/versions/node/v9.11.2/bin", ".volta/bin", ".bun/bin"):
+                (home / d).mkdir(parents=True)
+            self.assertEqual(procs.node_bin_dirs(home, env={}), [
+                str(home / ".nvm/versions/node/v20.18.0/bin"), str(home / ".nvm/versions/node/v18.20.4/bin"),
+                str(home / ".nvm/versions/node/v9.11.2/bin"), str(home / ".volta/bin"), str(home / ".bun/bin")])
+            self.assertEqual(procs.node_bin_dirs(Path(tmp) / "nobody", env={}), [])
+
+    def test_path_keeps_its_order_and_gains_only_what_it_lacks(self):
+        from sidelit import procs
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".nvm/versions/node/v20.18.0/bin").mkdir(parents=True)
+            (home / ".bun/bin").mkdir(parents=True)
+            env = {"PATH": f"/usr/bin:{home / '.bun/bin'}", "HOME": tmp}
+            with mock.patch.object(procs.Path, "home", lambda: home):
+                added = procs.extend_path(env)
+            self.assertEqual(added, [str(home / ".nvm/versions/node/v20.18.0/bin")])
+            self.assertEqual(env["PATH"], f"/usr/bin:{home / '.bun/bin'}:{home / '.nvm/versions/node/v20.18.0/bin'}")
+
+
 class PluginTest(unittest.TestCase):
     """`sidelit hooks install|uninstall`: Claude Code's own plugin commands, and the entries Sidelit
     0.5 wrote into settings.json going once the plugin is in."""
@@ -565,7 +593,10 @@ class PluginTest(unittest.TestCase):
         self.calls: list[tuple] = []
         self.answers: dict[str, tuple] = {}
         self.installed = None
+        from sidelit import config
         patches = [mock.patch.object(hooks, "SETTINGS", Path(self.tmp.name) / "settings.json"),
+                   mock.patch.object(config, "CONFIG_DIR", Path(self.tmp.name) / "config"),
+                   mock.patch.object(config, "DRY_RUN", False),
                    mock.patch.object(hooks, "run_claude", self.fake_claude),
                    mock.patch.object(hooks, "plugin_state", lambda: self.installed),
                    mock.patch.object(claude, "claude_binary", lambda: "/usr/bin/claude")]
@@ -628,6 +659,29 @@ class PluginTest(unittest.TestCase):
         self.answers["remove"] = (1, {"outcome": "failed", "failureCode": "not_configured"}, "")
         self.assertEqual(hooks.uninstall(), [])
         self.assertEqual(self.calls, [("marketplace", "remove", "sidelit")])
+
+    def test_sidelit_start_puts_a_missing_plugin_in_once(self):
+        # (a Claude Code the install did not find: npm put it in through nvm, off PATH there)
+        said = hooks.upgrade()
+        self.assertIn(("install", "sidelit@sidelit", "--scope", "user"), self.calls)
+        self.assertTrue(said and "putting it in" in said[0], said)
+        self.calls = []
+        self.assertEqual(hooks.upgrade(), [])  # once: from then on it is yours
+        self.assertEqual(self.calls, [])
+
+    def test_sidelit_start_leaves_a_plugin_you_took_out_out(self):
+        self.installed = {"id": "sidelit@sidelit", "enabled": True}
+        hooks.uninstall()
+        self.installed, self.calls = None, []
+        self.assertEqual(hooks.upgrade(), [])
+        self.assertEqual(self.calls, [])
+
+    def test_sidelit_start_only_notes_a_plugin_already_in(self):
+        self.installed = {"id": "sidelit@sidelit", "enabled": True}
+        self.assertEqual(hooks.upgrade(), [])
+        self.assertEqual(self.calls, [])
+        from sidelit import config
+        self.assertTrue((config.CONFIG_DIR / hooks.OFFERED_FILE).exists())
 
     def test_the_plugin_carries_the_events_the_hook_handles(self):
         plugin = Path(ROOT) / "plugin"

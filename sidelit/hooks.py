@@ -29,6 +29,7 @@ from sidelit import claude, terminator
 SETTINGS = claude.CLAUDE_DIR / "settings.json"
 BACKUP = "settings.json.before-sidelit"  # the file as it was before our first change, next to it
 NAME = "sidelit-hook"  # the command of the entries Sidelit 0.5 wrote
+OFFERED_FILE = "claude-plugin-offered"  # (in ~/.config/sidelit: the plugin went in, or was taken out, once)
 MARKETPLACE = "sidelit"
 PLUGIN = f"sidelit@{MARKETPLACE}"
 
@@ -105,9 +106,20 @@ def install_plugin() -> list[str]:
     return said
 
 
+def _offered():
+    """From now on the plugin is yours to keep or take out: sidelit start leaves it as it is."""
+    from sidelit import config
+    try:
+        config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        (config.CONFIG_DIR / OFFERED_FILE).write_text("Sidelit's plugin went into Claude Code (sidelit hooks install|uninstall)\n")
+    except OSError:
+        pass
+
+
 def install() -> list[str]:
     """The plugin in, then the hook entries Sidelit 0.5 wrote into settings.json out."""
     said = install_plugin()
+    _offered()
     n = retire()
     if n:
         said.append(f"removed the hook Sidelit 0.5 had written into {SETTINGS} "
@@ -116,6 +128,7 @@ def install() -> list[str]:
 
 
 def uninstall() -> list[str]:
+    _offered()  # (taken out, it stays out)
     said = []
     n = retire()
     if n:
@@ -259,13 +272,24 @@ def status() -> tuple[bool, list[str]]:
 
 
 def upgrade() -> list[str]:
-    """`sidelit start`, for Claude Code: the hook Sidelit 0.5 wrote into settings.json becomes the plugin."""
-    if not present():
-        return []
+    """`sidelit start`, for Claude Code: the hook Sidelit 0.5 wrote into settings.json becomes the
+    plugin; and a Claude Code the install did not find (one npm put in through nvm, say, not on
+    PATH where the install ran) gets the plugin, once (taken out again, it stays out)."""
     from sidelit import config
-    said = [f"Sidelit's Claude Code hook is a plugin now: installing it, and taking the old hook out of {SETTINGS}"
-            + (" (dry run: nothing is changed)" if config.DRY_RUN else "")]
-    return said + ([] if config.DRY_RUN else [f"  ✓ {line}" for line in install()])
+    if present():
+        said = [f"Sidelit's Claude Code hook is a plugin now: installing it, and taking the old hook out of {SETTINGS}"
+                + (" (dry run: nothing is changed)" if config.DRY_RUN else "")]
+        return said + ([] if config.DRY_RUN else [f"  ✓ {line}" for line in install()])
+    if claude.claude_binary() is None or (config.CONFIG_DIR / OFFERED_FILE).exists():
+        return []
+    if plugin_state() is not None:  # (in already, from before this note was kept)
+        if not config.DRY_RUN:
+            _offered()
+        return []
+    if config.DRY_RUN:
+        return ["Claude Code is here without Sidelit's plugin: it would go in (dry run: nothing is changed)"]
+    return ["Claude Code is here without Sidelit's plugin: putting it in"] + [f"  ✓ {line}" for line in install()] \
+        + ["  (new sessions report to Sidelit; one already running does after /reload-plugins)"]
 
 
 # ---- the command, over every agent ------------------------------------------------------------
