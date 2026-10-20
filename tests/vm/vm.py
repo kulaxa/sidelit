@@ -13,7 +13,7 @@ tests; README.md beside it says how to use it.
 
 It needs qemu-system-x86, qemu-utils and (for Hyprland's 3D) qemu-system-modules-opengl, and
 read and write access to /dev/kvm. The machines live in $SIDELIT_VMS (default
-~/.local/share/sidelit-vms), about 10 to 20 GB each; their ssh key in
+~/.local/share/sidelit-vms), 2 to 15 GB each; their ssh key in
 ~/.local/state/sidelit-vms.
 """
 from __future__ import annotations
@@ -722,7 +722,7 @@ def provision_cloud(m: Machine, image: Path, disk: Path, *, window: bool):
         "vendor-data": b"",
     }
     with Seed(files) as seed:
-        say(f"Setting up {m.title} (the first boot installs the desktop: 10 to 40 minutes)")
+        say(f"Setting up {m.title} (the first boot installs the desktop: 5 to 20 minutes)")
         proc = launch(m, disk, extra=["-smbios", f"type=1,serial=ds=nocloud;s={seed.url}/", "-no-reboot"],
                       window=window, building=True)
         said = follow(m, proc, 3 * 3600)
@@ -831,7 +831,7 @@ def need_running(m: Machine):
 def start(m: Machine, *, resume: bool = False, window: bool = False):
     base, disk = m.dir / "base.qcow2", m.dir / "run.qcow2"
     if not base.exists():
-        raise Fail(f"{m.name} is not built yet: 'vm.py build {m.name}' (10 to 40 minutes).")
+        raise Fail(f"{m.name} is not built yet: 'vm.py build {m.name}' (8 to 30 minutes).")
     if pid(m):
         raise Fail(f"{m.name} is running already ({describe(m)}).")
     if not (resume and disk.exists()):
