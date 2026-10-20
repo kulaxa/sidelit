@@ -4,6 +4,29 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.10.0] - 2026-10-20
+
+- Subagent blocks take their model's colour (Opus orange, Sonnet blue, Haiku green, Fable
+  purple, grey for another model or one not known yet); more than four on one model are one
+  block and the number, and hovering them lists each model and how many.
+- A workspace card's folder is the first, greyed line of its right-click menu, instead of
+  showing when the pointer is on the card.
+- "Check for updates" in the settings says how it goes on its own button: checking, up to date,
+  could not check, or updating.
+- The themes are Default and Halloween (and your own): "Seasonal" is gone, so Halloween no longer
+  comes by itself in late October. Seasonal was the default, so if Halloween is on now, it turns
+  back to the usual look after the update: pick Halloween in the settings to keep it.
+- Hyprland, niri and sway: the line that starts Sidelit at login names it by its path,
+  `~/.local/bin/sidelit start`. A compositor started by a login manager may not have
+  `~/.local/bin` on its PATH (greetd on Arch), and a bare `sidelit start` then did nothing; the
+  install line says when your config has the bare one.
+- A terminal whose title is only its folder (kitty) or says nothing (bash on Arch) is known to be
+  in its shell's folder, so it comes back there after a login instead of as "terminal in ?".
+- Hyprland's own windows (its update and donation pop-ups, welcome, dialogs, run box and
+  screen-share picker) and KDE's hidden screen-recording bridge are no longer taken for yours:
+  no icon in the sidebar, not reopened after a login, and they no longer keep a workspace from
+  looking empty.
+
 ## [0.9.0] - 2026-10-20
 
 - The GTK 3 sidebar (where gtk4-layer-shell is missing, as on Ubuntu and Pop!_OS) looks like the
