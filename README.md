@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/sidelit.png" width="760" alt="The Sidelit sidebar beside a terminal: a card per workspace, a Claude Code session at work, another one waiting for you in yellow, a Codex session waiting on CI, an OpenCode one done, and the plans' usage limits below">
+  <img src="docs/sidelit.png" width="760" alt="The Sidelit sidebar beside a terminal: a card per workspace, a Claude Code session at work with three subagents in their models' colours, another one waiting for you in yellow, a Codex session waiting on CI, an OpenCode one done, and the plans' usage limits below">
 </p>
 
 <p align="center"><i>Orange: working, or waiting on CI. Yellow: it needs you. Grey: done.</i></p>
@@ -85,7 +85,7 @@ for tab, load [the companion extension](docs/install.md#chrome-windows-and-their
 
 <table>
   <tr>
-    <td width="33%" valign="top"><img src="docs/history.png" alt="The history view: a search for login, and four closed workspaces that match, under Today, Yesterday, Sunday and Friday"></td>
+    <td width="33%" valign="top"><img src="docs/history.png" alt="The history view: a search for login, and four closed workspaces that match, under Today, Monday, Sunday and Saturday"></td>
     <td width="33%" valign="top"><img src="docs/restore.png" alt="The sidebar after a login, with a banner: Restoring windows, 5 of 8 back"></td>
     <td width="33%" valign="top"><img src="docs/halloween.png" alt="The sidebar in its Halloween theme, with a cobweb and a spider"></td>
   </tr>
@@ -100,7 +100,7 @@ for tab, load [the companion extension](docs/install.md#chrome-windows-and-their
 in its folder, a fork of its session, a terminal, or a web app on that workspace.
 
 <p align="center">
-  <img src="docs/menu.png" width="620" alt="A card's right-click menu: open a terminal, a new Claude Code, Codex or OpenCode session in this directory, fork the session, open a web app, rename, forget or close the workspace">
+  <img src="docs/menu.png" width="620" alt="A card's right-click menu, headed by its folder: open a terminal, a new Claude Code, Codex or OpenCode session in this directory, fork the session, open a web app, rename, forget or close the workspace">
 </p>
 
 - **Waiting on CI is not waiting for you.** When a turn ends, a quick check reads how it ended
