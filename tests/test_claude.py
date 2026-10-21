@@ -40,11 +40,13 @@ class TrackerTest(unittest.TestCase):
         self.headless: set[int] = set()
         self._in_terminal = detect.in_terminal
         detect.in_terminal = lambda pid: pid not in self.headless
+        self.tmux: dict[tuple[str, str], list[int]] = {}  # (socket, pane) -> the clients showing it
         self.d = self.detector()
 
     def detector(self, poll=None, started=lambda pid: None):
         poll = poll or (lambda now: (list(self.live.values()), now))
-        return detect.Detector(agents=[claude.ClaudeCode(hook_dir=self.hook_dir, poll=poll)], started=started)
+        return detect.Detector(agents=[claude.ClaudeCode(hook_dir=self.hook_dir, poll=poll)], started=started,
+                               tmux=lambda panes: {k: v for k, v in self.tmux.items() if k in panes})
 
     def tearDown(self):
         claude.PROJECTS = self._saved
@@ -451,6 +453,47 @@ class TrackerTest(unittest.TestCase):
                           "status": "idle", "name": "sidelit-94"}
         self.d.refresh(100.0, force=True, table=self.table)
         self.assertEqual(self.d.sessions, [])
+
+    def in_tmux(self):
+        """A Claude in tmux: under tmux's server (250), shown by a tmux client in terminal A's
+        process (300) or, later, terminal B's (301)."""
+        self.table.update({600: (550, "claude"), 550: (250, "zsh"), 250: (1, "tmux: server"),
+                           260: (TERM_PID, "tmux: client"), 261: (301, "tmux: client")})
+        self.hook("s1", "done", 100.0, pid=600, ancestors=[600, 550, 250, 1],
+                  pane={"TMUX": "/tmp/tmux-1000/default,250,0", "TMUX_PANE": "%3"})
+
+    def test_a_claude_in_tmux_is_in_the_terminal_showing_it(self):
+        self.in_tmux()
+        self.tmux[("/tmp/tmux-1000/default", "%3")] = [260]
+        seen = self.look({"A": term("A", "✳ Resumed")}, 101.0, launched={"A": TERM_PID})
+        self.assertEqual(seen["A"]["session"], "s1")
+        self.assertEqual(seen["A"]["how"], "launch")
+
+    def test_a_claude_in_tmux_follows_the_terminal_it_moves_to(self):
+        """A handover: the session's tmux is detached from A, and B attaches to it."""
+        self.in_tmux()
+        self.tmux[("/tmp/tmux-1000/default", "%3")] = [260]
+        a, b = term("A", "✳ Resumed"), term("B", "✳ Resumed")
+        self.look({"A": a}, 101.0, launched={"A": TERM_PID})
+        self.tmux[("/tmp/tmux-1000/default", "%3")] = [261]
+        seen = self.look({"B": b}, 110.0, launched={"B": 301})
+        self.assertEqual(seen["B"]["session"], "s1")
+
+    def test_a_detached_claude_in_tmux_is_in_no_window(self):
+        self.in_tmux()
+        self.tmux[("/tmp/tmux-1000/default", "%3")] = []
+        seen = self.look({"A": term("A", "mario@pop-os: ~")}, 101.0, launched={"A": TERM_PID})
+        self.assertIsNone(seen["A"])
+
+    def test_tmux_is_asked_which_clients_show_each_pane(self):
+        def run(cmd, **kw):
+            out = {"list-panes": "%3 $1\n%4 $2\n", "list-clients": "260 $1\n261 $1\n"}[cmd[3]]
+            return subprocess.CompletedProcess(cmd, 0, out, "")
+        with mock.patch.object(detect.shutil, "which", return_value="/usr/bin/tmux"), \
+                mock.patch.object(detect.subprocess, "run", side_effect=run) as ran:
+            got = detect.tmux_clients({("/tmp/s", "%3"), ("/tmp/s", "%4"), ("/tmp/s", "%9")})
+        self.assertEqual(got, {("/tmp/s", "%3"): [260, 261], ("/tmp/s", "%4"): []})
+        self.assertEqual(ran.call_args_list[0].args[0][:3], ["tmux", "-S", "/tmp/s"])
 
     def test_mapping_survives_a_daemon_restart(self):
         a, b = term("A", "✳ Fix tests"), term("B", "✳ Fix tests")

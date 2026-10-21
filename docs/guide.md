@@ -96,7 +96,8 @@
   first reply says which), more than four on one model are one block and the number, and
   hovering the blocks lists the models and how many of each. It also says which terminal it
   lives in: by process ancestry for a session the daemon started (or whose window's process the
-  desktop names), else
+  desktop names; a session in tmux counts as in the terminals attached to it, so it follows
+  when you detach it and attach from another one), else
   by which window had the keyboard when you submitted a prompt (until its first prompt, when you
   started it: a new tab or pane gets its box at once); and which pane, where the terminal says
   (Terminator, tmux, WezTerm, kitty). A box is called by its session's own name, "New session"
@@ -158,7 +159,8 @@
   (Chrome, VS Code) are started once and their windows placed as they appear, matched by title
   (Chrome windows tab for tab with [the extension](install.md#chrome-windows-and-their-tabs)).
   Then it switches back to the workspace you were on. Nothing is started in the middle of a
-  session unless you ask (header menu, or `sidelit restore`). A window that fails to come back
+  session unless you ask (header menu, or `sidelit restore`). Only a login to your own desktop
+  counts: another one starting next to it (a VNC desktop on another display) is not one. A window that fails to come back
   three logins in a row is dropped. Config: `restore_on_login`, `restore_windows` (false =
   sessions only), `restore_delay`, `ignore_apps`.
 - **Crashes come back.** A window that goes without you closing it (an app crash, a terminal

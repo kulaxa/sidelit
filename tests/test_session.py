@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sidelit import session  # noqa: E402
 from sidelit.session import Compositor  # noqa: E402
 
+WAYLAND = {"XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-1", "DISPLAY": ":1"}
+
 
 class OncePerCompositor(unittest.TestCase):
     def setUp(self):
@@ -43,7 +45,7 @@ class OncePerCompositor(unittest.TestCase):
                 Path(proc, pid, "comm").write_text(comm + "\n")
                 fields = ["S"] + ["0"] * 18 + [str(start)] + ["0"] * 10
                 Path(proc, pid, "stat").write_text(f"{pid} ({comm}) " + " ".join(fields))
-            comp = session.compositor(proc)
+            comp = session.compositor(proc, WAYLAND)
             self.assertEqual(comp.pid, 4708)
             self.assertAlmostEqual(comp.age, 900.0)
 
@@ -57,9 +59,44 @@ class OncePerCompositor(unittest.TestCase):
                 Path(proc, pid, "comm").write_text(comm + "\n")
                 fields = ["S"] + ["0"] * 18 + [str(start)] + ["0"] * 10
                 Path(proc, pid, "stat").write_text(f"{pid} ({comm}) " + " ".join(fields))
-            comp = session.compositor(proc)
+            comp = session.compositor(proc, WAYLAND)
             self.assertEqual(comp.pid, 2100)
             self.assertTrue(session.needs_restore(comp, Path(proc, "restored")))
+
+
+class OurOwnDesktop(unittest.TestCase):
+    """A VNC desktop next to the one on the screen: each one's window manager starting is that
+    desktop's login, not the other's."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.proc = self.tmp.name
+        Path(self.proc, "uptime").write_text("1000.00 5000.00\n")
+        tick = os.sysconf("SC_CLK_TCK")
+        # COSMIC since the login 900 s ago, a VNC Xfce on :5 started 10 s ago, another on :6
+        for pid, comm, start, display in (("4708", "cosmic-comp", 100, None), ("9000", "xfwm4", 990, ":5.0"),
+                                          ("9100", "xfwm4", 995, ":6")):
+            Path(self.proc, pid).mkdir()
+            Path(self.proc, pid, "comm").write_text(comm + "\n")
+            fields = ["S"] + ["0"] * 18 + [str(start * tick)] + ["0"] * 10
+            Path(self.proc, pid, "stat").write_text(f"{pid} ({comm}) " + " ".join(fields))
+            Path(self.proc, pid, "environ").write_bytes(b"HOME=/home/u\0" + (f"DISPLAY={display}\0".encode() if display else b""))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_on_wayland_a_vnc_desktop_starting_is_not_our_login(self):
+        comp = session.compositor(self.proc, WAYLAND)
+        self.assertEqual(comp.pid, 4708)
+        self.assertFalse(session.needs_restore(comp, Path(self.proc, "restored")))
+
+    def test_on_x11_the_window_manager_of_our_display(self):
+        self.assertEqual(session.compositor(self.proc, {"XDG_SESSION_TYPE": "x11", "DISPLAY": ":5"}).pid, 9000)
+        self.assertEqual(session.compositor(self.proc, {"DISPLAY": "localhost:6.0"}).pid, 9100)
+
+    def test_x11_displays_compare_without_screen_or_local_host(self):
+        self.assertEqual([session.x11_display(d) for d in (":5.0", "localhost:5", "unix:5.1", "host:5", "", None)],
+                         [":5", ":5", ":5", "host:5", "", ""])
 
 
 if __name__ == "__main__":

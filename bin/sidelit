@@ -68,7 +68,9 @@ for v in $(env | sed -n 's/^\(CLAUDE[A-Z0-9_]*\)=.*/\1/p'); do
 done
 unset AI_AGENT
 
-rundir="${XDG_RUNTIME_DIR:-/tmp}/sidelit"
+# a test instance (SIDELIT_HOME) keeps its session variables and pid files in its own folder, as
+# it does everything else (config.py): never the real Sidelit's, which its units would then read
+rundir="${SIDELIT_HOME:-${XDG_RUNTIME_DIR:-/tmp}/sidelit}"
 mkdir -p "$rundir"
 units="sidelit-daemon.service sidelit-sidebar.service"
 log="${XDG_CACHE_HOME:-$HOME/.cache}/sidelit.log"

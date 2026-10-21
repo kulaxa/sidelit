@@ -58,6 +58,10 @@ class OldInstall(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        # a COSMIC session, as its fake /proc has (whatever desktop runs the tests)
+        env = mock.patch.dict(os.environ, {"XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-1"})
+        env.start()
+        self.addCleanup(env.stop)
         root = Path(self.tmp.name)
         self.home = home = root / "home" / "alex"
         run = root / "run"
