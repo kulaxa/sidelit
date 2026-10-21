@@ -35,9 +35,9 @@ else:
 
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
-    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question, countdown, reset_line,
-    day_label, dock_side, group_blocks, history_lines, item_sub, matches, model_css, place_choices, tab_classes, tab_snapshot,
-    update_line, usage_level,
+    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question,
+    compact_wanted, countdown, reset_line, day_label, dock_side, group_blocks, history_lines, item_sub, matches, model_css,
+    place_choices, tab_classes, tab_snapshot, update_line, usage_level,
 )
 
 FONT = "'Inter', 'SF Pro Text', 'Fira Sans', 'Cantarell', 'Noto Sans', sans-serif"
@@ -1189,8 +1189,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
     def _fit(self):
         """Compact when the cards and the usage, drawn in full, are taller than the room they
-        share: each agent's usage on one line. Decided from the full layout every time, so the
-        sidebar does not swing between the two. SIDELIT_COMPACT=1 or 0 decides instead."""
+        share: each agent's usage on one line. Decided from the full layout every time, and back
+        to full only with room to spare (compact_wanted), so the sidebar does not swing between
+        the two. SIDELIT_COMPACT=1 or 0 decides instead."""
         self._fit_source = 0
         room = self.cards_scroller.get_height() + (self.usage_box.get_height() if self.usage_box.get_visible() else 0)
         width = self.cards_content.get_width()
@@ -1203,7 +1204,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             need = self.cards_content.measure(Gtk.Orientation.VERTICAL, width)[1]
             if self.usage_box.get_visible():
                 need += self.usage_box.measure(Gtk.Orientation.VERTICAL, self.usage_box.get_width() or width)[1]
-            self._set_compact(need > room)
+            self._set_compact(compact_wanted(need, room, was))
             if self._compact != was:
                 print(f"sidebar: {'compact' if self._compact else 'full'} (needs {need} px, has {room})", file=sys.stderr)
         return False

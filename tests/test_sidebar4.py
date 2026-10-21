@@ -108,6 +108,15 @@ class CommonTest(unittest.TestCase):
         logic._error.assert_called_once()
         self.assertNotIn("monitor", logic.cfg)
 
+    def test_compact_goes_back_to_full_only_with_room_to_spare(self):
+        # (seen live: full needs 1291 px and has 1286, compact frees 6 more: 1292; without the
+        # spare it went full, then compact, many times a second)
+        wanted = sidebar_common.compact_wanted
+        self.assertTrue(wanted(1291, 1286, compact=False))
+        self.assertTrue(wanted(1291, 1292, compact=True))
+        self.assertFalse(wanted(1291, 1292, compact=False))  # (from full, it fits: it stays full)
+        self.assertFalse(wanted(1291, 1291 + sidebar_common.FIT_SPARE_PX, compact=True))
+
     def test_usage_levels(self):
         self.assertEqual([sidebar_common.usage_level(p) for p in (0, 69, 70, 89, 90, 100)],
                          [None, None, "warn", "warn", "high", "high"])
