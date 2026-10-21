@@ -684,7 +684,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.set_default_size(width, 600)
         self.set_size_request(width, -1)
         if X11_DOCK:  # a dock window, as tall as its screen (after the sizes above)
-            xdock.dock(self, self._monitor, width)
+            xdock.dock(self, self._monitor, width, dock_side(self.cfg), self._strip_unreserved)
 
         self.get_style_context().add_class("cw-window")
         visual = self.get_screen().get_rgba_visual()
@@ -899,11 +899,21 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self._screens_changed("surface closed")
         return True
 
+    def _strip_unreserved(self):
+        """On X11 the sidebar's strip is kept free of windows only at the outer edges of all the
+        screens together (xdock.strut): say so where windows can now cover it (after the
+        footer's "waiting for the daemon", which connecting clears)."""
+        outer = "leftmost" if dock_side(self.cfg) == "left" else "rightmost"
+        text = f"Windows can cover the sidebar here: on X11 it keeps them off only on the {outer} screen."
+        GLib.timeout_add_seconds(2, lambda: (self._footer(text, 20), False)[1])
+
     def _place_on_gnome(self):
-        """Tell GNOME's extension the sidebar is there. GTK 3 does not know a screen's
-        connector name, so it goes on the leftmost screen."""
-        self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
-        gnome.place_sidebar("")
+        """Tell GNOME's extension where the sidebar goes. GTK 3 does not know a screen's
+        connector name: the extension picks the leftmost, rightmost or largest screen itself
+        (a screen named by its model is the leftmost one there)."""
+        rule = str(self.cfg.get("monitor", "leftmost"))
+        self._monitor = self._pick_monitor(rule)
+        gnome.place_sidebar(rule if rule in gnome.SCREEN_RULES else "", dock_side(self.cfg))
 
     # ---- theme ------------------------------------------------------------------------------
     def _apply_theme(self):

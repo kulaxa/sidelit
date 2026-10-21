@@ -1,11 +1,13 @@
 """The X11 backend: which sessions pick it, how desktops keep their ids, and the client against a
 fake X server with a window manager in it (fake_x11.py). Pure Python: nothing here needs an X
 server, python-xlib or GLib (the shortcut chip, which shares GNOME's code, needs GLib)."""
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,6 +69,13 @@ class TheDock(unittest.TestCase):
         # a work area that is another screen's: the whole height
         self.assertEqual(xdock.span((1920, 0, 1920, 1080), (0, 1080, 1920, 1080)), (1920, 0, 1080))
 
+    def test_on_the_right_side(self):
+        # flush with the screen's right edge, above Cinnamon's panel
+        self.assertEqual(xdock.span((0, 0, 1920, 1080), (0, 0, 1920, 1040), 280, "right"), (1640, 0, 1040))
+        # on a second screen, right of the first
+        self.assertEqual(xdock.span((1920, 0, 2560, 1440), (1920, 32, 2280, 1408), 280, "right"), (4200, 32, 1408))
+        self.assertEqual(xdock.span((0, 0, 1920, 1080), (0, 0, 1920, 1040), 280, "left"), (0, 0, 1040))
+
     def test_the_strut(self):
         self.assertEqual(xdock.strut((0, 0, 1920, 1080), [], 280),
                          [280, 0, 0, 0, 0, 1079, 0, 0, 0, 0, 0, 0])
@@ -78,6 +87,45 @@ class TheDock(unittest.TestCase):
                          [2200, 0, 0, 0, 0, 1079])
         # beside it: that screen's strip would go too, so none
         self.assertIsNone(xdock.strut((1920, 0, 1920, 1080), [(0, 0, 1920, 1080)], 280))
+
+    def test_the_strut_on_the_right(self):
+        # one screen: right, right_start_y, right_end_y
+        self.assertEqual(xdock.strut((0, 0, 1920, 1080), [], 280, side="right"),
+                         [0, 280, 0, 0, 0, 0, 0, 1079, 0, 0, 0, 0])
+        # the rightmost of two, below Xfce's top panel, and HiDPI: the X server's pixels
+        self.assertEqual(xdock.strut((1280, 28, 1280, 692), [(0, 0, 1280, 720)], 280, scale=2, side="right"),
+                         [0, 560, 0, 0, 0, 0, 56, 1439, 0, 0, 0, 0])
+        # a screen left of another one, below it: from the X screen's right edge, past the other
+        self.assertEqual(xdock.strut((0, 1080, 1920, 1080), [(1920, 0, 2560, 1080)], 280, side="right")[:8],
+                         [0, 2840, 0, 0, 0, 0, 1080, 2159])
+        # beside it: that screen's strip would go too, so none
+        self.assertIsNone(xdock.strut((0, 0, 1920, 1080), [(1920, 0, 1920, 1080)], 280, side="right"))
+        # (and the left of the rightmost screen is no outer edge either)
+        self.assertIsNone(xdock.strut((1920, 0, 1920, 1080), [(0, 0, 1920, 1080)], 280, side="left"))
+
+    def test_the_dock_goes_on_its_side_and_reserves_its_strip(self):
+        from types import SimpleNamespace as NS
+        from unittest import mock
+        screens = [NS(x=0, y=0, width=1920, height=1080), NS(x=1920, y=0, width=2560, height=1440)]
+        display = NS(get_n_monitors=lambda: 2, get_monitor=lambda i: NS(get_geometry=lambda: screens[i]))
+
+        def monitor(i):
+            return NS(get_geometry=lambda: screens[i], get_workarea=lambda: screens[i], get_display=lambda: display,
+                      get_scale_factor=lambda: 1)
+
+        def placed(i, side):
+            window = mock.Mock()
+            window.get_realized.return_value = True
+            unreserved = mock.Mock()
+            with mock.patch.object(xdock, "_reserve") as reserve, redirect_stderr(io.StringIO()):
+                xdock._Dock(window, monitor(i), 280, side, unreserved).place()
+            return window.move.call_args[0], reserve.call_args[0][1], unreserved.called
+
+        self.assertEqual(placed(1, "right"), ((4200, 0), [0, 280, 0, 0, 0, 0, 0, 1439, 0, 0, 0, 0], False))
+        self.assertEqual(placed(0, "left"), ((0, 0), [280, 0, 0, 0, 0, 1079, 0, 0, 0, 0, 0, 0], False))
+        # between the two screens: placed, but nothing reserved, and the sidebar says why
+        self.assertEqual(placed(0, "right"), ((1640, 0), None, True))
+        self.assertEqual(placed(1, "left"), ((1920, 0), None, True))
 
 
 class TheirApps(unittest.TestCase):
