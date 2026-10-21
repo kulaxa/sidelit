@@ -27,6 +27,7 @@ if _HOME:  # (a unix socket path has to stay under 108 bytes)
     import hashlib
     SOCKET = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / f"sidelit-{hashlib.sha1(_HOME.encode()).hexdigest()[:8]}.sock"
 RESTORED_MARKER = RUNTIME_DIR / "restored"       # which compositor had its windows brought back (session.py)
+HIDDEN_MARKER = RUNTIME_DIR / "hidden"           # the sidebar is hidden (tray.py): a restart keeps it so, a login not
 
 # The terminals Sidelit knows how to start, best first: config.json's "terminal" and
 # "terminal_cmd" default to the first one installed (Terminator's when none is). Each is started

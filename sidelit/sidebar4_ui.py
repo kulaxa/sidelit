@@ -870,6 +870,14 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.header_mark, self.header_title = mark, title
         self._apply_theme()
         GLib.timeout_add_seconds(3600, lambda: (self._apply_theme(), True)[1])  # "auto" turns with the season
+        # out of the way: the tray icon or the app menu brings it back (hide_sidebar)
+        hide_btn = Gtk.Button(icon_name="window-minimize-symbolic")
+        hide_btn.set_has_frame(False)
+        hide_btn.add_css_class("cw-history")
+        hide_btn.set_valign(Gtk.Align.CENTER)
+        hide_btn.connect("clicked", lambda *_: self.hide_sidebar())
+        header.append(hide_btn)
+        self.hide_btn = hide_btn
         # the gear: the settings, a view in place of the workspaces (SettingsPanel)
         menu_btn = Gtk.Button(icon_name="emblem-system-symbolic")
         menu_btn.set_has_frame(False)
@@ -1019,6 +1027,16 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self._monitor = self._pick_monitor(rule)
         connector = (self._monitor.get_connector() or "") if self._monitor is not None else ""
         self._tell_gnome(connector or (rule if rule in gnome.SCREEN_RULES else ""))
+
+    def _set_shown(self, shown: bool):
+        """Hidden, the layer surface (on GNOME the window) is unmapped, and its strip goes with it;
+        shown, it maps again where it was."""
+        if not shown:
+            self.set_visible(False)
+            return
+        self.present()
+        if gnome.hosted():
+            self._place_on_gnome()
 
     def _on_close_request(self, *_):
         """The compositor closes a layer surface whose output vanished."""
@@ -1716,9 +1734,8 @@ def main(fall_back):
         fall_back("the compositor has no layer shell for GTK 4")
     loop = GLib.MainLoop()
     win = Sidebar(layer=not hosted)
-    win.present()
-    if hosted:
-        win._place_on_gnome()
+    if not win.hidden:  # (hidden before a restart: it stays so)
+        win._set_shown(True)
     renderer = win.get_renderer()  # `sidelit log` says which sidebar runs, and how it draws
     print(f"sidebar: GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}, "
           f"{type(renderer).__name__ if renderer else 'no renderer yet'}", file=sys.stderr, flush=True)

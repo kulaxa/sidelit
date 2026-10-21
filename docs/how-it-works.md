@@ -19,7 +19,9 @@ few session variables systemd lacks, such as the input method):
   `sidebar_common.py`; the drawing is GTK 4 (`sidebar4.py` picks it and loads gtk4-layer-shell,
   `sidebar4_ui.py` draws) or, without gtk4-layer-shell, GTK 3 (`sidebar.py`). On GNOME the
   extension runs it instead of systemd (its log is in the journal as `sidelit-sidebar`). On X11
-  it is the GTK 3 one, as a dock window (`xdock.py`).
+  it is the GTK 3 one, as a dock window (`xdock.py`). Its tray icon (`tray.py`) is a
+  StatusNotifierItem with a dbusmenu, and its bus name `io.github.kulaxa.sidelit.Sidebar` is how
+  `sidelit show` (and `start`) bring back a sidebar you hid.
 
 ## The engine
 

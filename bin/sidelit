@@ -6,7 +6,9 @@
 # On GNOME, Sidelit's GNOME Shell extension runs the sidebar while the daemon runs, and the
 # sidebar's log is in the journal as sidelit-sidebar.
 #
-#   sidelit [start]          start both (no-op if running; also what the autostart entry runs)
+#   sidelit [start]          start both (no-op if running, but shows a hidden sidebar; also what
+#                            the autostart entry and the app menu's Sidelit run)
+#   sidelit show|hide|toggle the sidebar (hidden, its strip is the windows'; the tray icon also does it)
 #   sidelit stop|restart|status
 #   sidelit log              follow both logs
 #   sidelit why [TEXT]       why windows were kept, moved, forgotten (the journal)
@@ -165,6 +167,8 @@ case ${1-start} in
     start)
         move_over
         write_session_env
+        # a running sidebar you hid comes back, and one about to start comes up shown
+        python3 -m sidelit show >/dev/null 2>&1 || true
         if have_units; then
             no_test_units
             [ -f "$rundir/sidebar.pid" ] && stop_legacy
@@ -226,7 +230,7 @@ case ${1-start} in
     --foreground|-F)
         exec python3 -m sidelit sidebar
         ;;
-    ws|open|state|layout|why|restore|reapply|reload|ping|hooks|chrome|moveover)
+    ws|open|state|layout|why|restore|reapply|reload|ping|hooks|chrome|moveover|show|hide|toggle)
         exec python3 -m sidelit "$@"
         ;;
     --version|version)

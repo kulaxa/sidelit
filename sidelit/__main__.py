@@ -18,6 +18,7 @@ USAGE = """usage: sidelit <command>
   restore                  start what is missing from the layout now (runs by itself after a login)
   reapply                  put every window back on its workspace and screen
   reload                   re-read config.json
+  show | hide | toggle     the sidebar (hidden, its strip is the windows'; the tray icon also does it)
   hooks install|uninstall|status   Sidelit's plugin in each coding agent (Claude Code, Codex, OpenCode), which
                                    reports each session's status, and in Terminator, which shows its tab or split
   chrome install|uninstall|status  the bridge to the Chrome extension (windows and their tabs)
@@ -34,6 +35,20 @@ def _scrub_claude_env():
     for name in [k for k in os.environ if k.startswith("CLAUDE") and k != "CLAUDE_CONFIG_DIR"]:
         del os.environ[name]
     os.environ.pop("AI_AGENT", None)
+
+
+def _show(cmd: str) -> int:
+    """show, hide, toggle: the running sidebar, over the session bus (tray.py). `show` also
+    forgets that it was hidden, so a sidebar still starting comes up shown (`start` runs it)."""
+    from sidelit import config, tray
+    if cmd == "show":
+        config.HIDDEN_MARKER.unlink(missing_ok=True)
+    if tray.control(cmd.capitalize()):
+        return 0
+    if cmd != "show":
+        print("sidelit: the sidebar is not running (sidelit start)", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _ctl(cmd: str, args: list[str]) -> int:
@@ -136,6 +151,8 @@ def main(argv=None):
     if cmd == "opencode-fork":  # (what a fork of an OpenCode session runs in its new terminal)
         from sidelit.opencode import fork_here
         return fork_here(argv[1] if len(argv) > 1 else "")
+    if cmd in ("show", "hide", "toggle"):
+        return _show(cmd)
     if cmd in ("state", "layout", "why", "restore", "reapply", "reload", "ping"):
         return _ctl(cmd, argv[1:])
     sys.exit(USAGE)

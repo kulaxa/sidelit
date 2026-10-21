@@ -24,7 +24,7 @@ from pathlib import Path
 
 from gi.repository import GLib
 
-from sidelit import agents, config, gnome, launch, sources, version as local_version
+from sidelit import agents, config, gnome, launch, sources, tray, version as local_version
 from sidelit.procs import load_json, login_shell
 from sidelit.tabstate import Attention, note
 
@@ -517,6 +517,14 @@ def close_question(tab: dict) -> tuple[str, str] | None:
 SEPARATOR = ("", None, "separator")
 
 
+def quit_sidelit():
+    """sidelit stop: the daemon and the sidebar (in a session of its own, as the sidebar goes)."""
+    root = checkout_root()
+    exe = (root + "/bin/sidelit") if root else (shutil.which("sidelit") or str(Path.home() / ".local/bin/sidelit"))
+    subprocess.Popen([exe, "stop"], start_new_session=True, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 class SidebarLogic:
     """The sidebar's behaviour, shared by both toolkits (see the module docstring)."""
 
@@ -539,6 +547,8 @@ class SidebarLogic:
         self._items: dict[tuple, dict] = {}  # (source key, item id) -> the item, as last fetched
         self._bound: set[tuple] = set()      # the items with a workspace of their own, as the group shows
         self._asked: set[tuple] = set()      # items whose workspace was asked for on their own
+        self._hidden = config.HIDDEN_MARKER.exists()  # (hidden before this process: a restart)
+        self.tray = None
 
     def _start_timers(self):
         GLib.timeout_add_seconds(10, self._tick_countdowns)
@@ -548,6 +558,10 @@ class SidebarLogic:
         GLib.timeout_add_seconds(3600, lambda: (self._check_update(), True)[1])
         GLib.timeout_add(1000, self._tick_footer)
         GLib.timeout_add_seconds(3, self._refresh_sources)
+        self.tray = tray.Tray(LOGO_SVG, self.tray_menu, self.toggle_hidden, self.show_sidebar, self.hide_sidebar)
+        self.tray.hidden = self._hidden
+        self.tray.on_registered = lambda _on: self.hide_btn.set_tooltip_text(self.hide_tooltip())
+        self.hide_btn.set_tooltip_text(self.hide_tooltip())
 
     # ---- daemon ------------------------------------------------------------------------
     def _on_connection(self, up: bool):
@@ -611,6 +625,56 @@ class SidebarLogic:
             os.kill(os.getpid(), signal.SIGTERM)
             return False
         os.execv(sys.executable, [sys.executable, "-m", "sidelit", "sidebar"])
+
+    # ---- hidden ---------------------------------------------------------------------------
+    @property
+    def hidden(self) -> bool:
+        return self._hidden
+
+    def hide_sidebar(self):
+        """Out of the way, its strip given back to the windows: the tray icon, or Sidelit in the
+        app menu (sidelit start), brings it back. A restart keeps it hidden (HIDDEN_MARKER)."""
+        if self._hidden:
+            return
+        self._hidden = True
+        try:
+            config.HIDDEN_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            config.HIDDEN_MARKER.touch()
+        except OSError as exc:
+            print(f"sidebar: hidden, but a restart will show it: {exc}", file=sys.stderr, flush=True)
+        self._set_shown(False)
+        self.tray.set_hidden(True)
+
+    def show_sidebar(self, view: str | None = None):
+        if view:
+            self._show_view(view)
+        if not self._hidden:
+            return
+        self._hidden = False
+        config.HIDDEN_MARKER.unlink(missing_ok=True)
+        self._set_shown(True)
+        self.tray.set_hidden(False)
+
+    def toggle_hidden(self):
+        if self._hidden:
+            self.show_sidebar()
+        else:
+            self.hide_sidebar()
+
+    def hide_tooltip(self) -> str:
+        where = "its icon in the panel" if self.tray is not None and self.tray.registered else "Sidelit in the app menu"
+        return f"Hide the sidebar ({where} brings it back)"
+
+    def tray_menu(self) -> list:
+        """The tray icon's right-click menu: (label, action), None a line."""
+        return [
+            ("Show sidebar" if self._hidden else "Hide sidebar", self.toggle_hidden),
+            ("Settings", lambda: self.show_sidebar("settings")),
+            ("Put everything back", self.put_back),
+            None,
+            ("Restart sidebar", lambda: self._screens_changed("menu")),
+            ("Quit Sidelit", quit_sidelit),
+        ]
 
     # ---- footer -------------------------------------------------------------------------
     def _footer(self, text: str, seconds: float):
@@ -844,6 +908,8 @@ class SidebarLogic:
             else:  # a Claude handing back to you: the daemon says which
                 attention = any(b["calls"] for b in info["boxes"])
             rows.append((tab, info, attention))
+        if self.tray is not None:  # (a hidden sidebar's icon says when sessions want you)
+            self.tray.set_wanting(sum(1 for _tab, _info, attention in rows if attention))
         if bound_items(self.state.get("tabs") or []) != self._bound:
             self._draw_sources()  # an item got its own workspace, or lost it
         self._open_wanted()

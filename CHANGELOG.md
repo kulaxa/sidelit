@@ -4,6 +4,26 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.11.0] - 2026-10-21
+
+- The sidebar can be hidden: the button left of the gear gives its strip back to your windows,
+  and Sidelit's new icon in the panel's tray brings it back. The icon's menu also has the
+  settings, "Put everything back", "Restart sidebar" and "Quit Sidelit", and while the sidebar
+  is hidden it wears a yellow dot when a session waits for you. Without a tray (GNOME without
+  the AppIndicator extension), Sidelit in the app menu or `sidelit show` brings it back.
+- The sidebar docks on the left or the right side, on the leftmost or the rightmost screen,
+  picked under POSITION in the settings. Every desktop takes it: COSMIC, KDE, Hyprland, niri,
+  sway, GNOME and X11. On GNOME the right side needs the extension from this release, which
+  GNOME Shell loads at your next login; until then the footer says why it stays left.
+- The usage card no longer flickers between its full and compact layouts on a screen where the
+  cards only just fit.
+- Closing a workspace asks in a popover under its card instead of a dialog window. The dialog
+  could open on another screen's workspace, out of sight, and while it waited the sidebar took
+  no clicks at all.
+- In the compact sidebar a usage limit's name is cut short before it runs into its number
+  ("Sessi… 38%"), and hovering the cell names it in full.
+- On GNOME the settings' "Restart sidebar" restarts it; before, clicking it did nothing.
+
 ## [0.10.0] - 2026-10-20
 
 - Subagent blocks take their model's colour (Opus orange, Sonnet blue, Haiku green, Fable
