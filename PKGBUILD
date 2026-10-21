@@ -6,7 +6,7 @@
 # pkgver is checked against VERSION in CI — bump both together.
 
 pkgname=sidelit
-pkgver=0.10.0
+pkgver=0.11.0
 pkgrel=1
 pkgdesc='A workspace sidebar for COSMIC, KDE Plasma, GNOME, Hyprland, niri, sway and X11 desktops: one tab per workspace with its coding agent, and a daemon that keeps the layout'
 arch=('any')
