@@ -2,7 +2,7 @@
 //
 // Sidelit on GNOME: what Sidelit's daemon and sidebar need from GNOME Shell, which has no
 // Wayland protocol for it. desktop.js gives the daemon GNOME's workspaces and windows over
-// D-Bus; sidebar.js runs the sidebar and keeps it docked on the left.
+// D-Bus; sidebar.js runs the sidebar and keeps it docked on the left or right of a screen.
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 

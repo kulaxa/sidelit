@@ -86,6 +86,11 @@ const INTERFACE = `<node>
       <arg type="s" direction="in" name="output"/>
       <arg type="b" direction="out" name="done"/>
     </method>
+    <method name="PlaceSidebarAt">
+      <arg type="s" direction="in" name="output"/>
+      <arg type="s" direction="in" name="side"/>
+      <arg type="b" direction="out" name="done"/>
+    </method>
     <method name="FocusSidebar">
       <arg type="b" direction="out" name="done"/>
     </method>
@@ -562,11 +567,19 @@ export class Desktop {
     }
 
     /**
-     * The sidebar says which monitor it goes on (connector name, '' for the leftmost). Its
-     * width is its window's own.
+     * The sidebar says which monitor it goes on (connector name, '' for the leftmost), on its
+     * left edge. Its width is its window's own. (A sidebar from before PlaceSidebarAt calls this.)
      */
     PlaceSidebarAsync([output], invocation) {
-        this._fromSidebar(invocation, pid => this._sidebar?.place(pid, output));
+        this._fromSidebar(invocation, pid => this._sidebar?.place(pid, output, 'left'));
+    }
+
+    /**
+     * The sidebar says which monitor it goes on (connector name; '' or 'leftmost', 'rightmost',
+     * 'largest' for the extension to pick it) and on which edge of it ('left' or 'right').
+     */
+    PlaceSidebarAtAsync([output, side], invocation) {
+        this._fromSidebar(invocation, pid => this._sidebar?.place(pid, output, side));
     }
 
     /**
