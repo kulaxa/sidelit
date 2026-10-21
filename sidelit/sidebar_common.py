@@ -183,6 +183,25 @@ def version_tuple(text: str | None):
     return tuple(int(part) for part in text.strip().split("."))
 
 
+# Where the sidebar goes, picked in the settings: (config key, what its card says, [(value, what
+# its segment says)]). The screens are offered only where there is more than one.
+PLACE_ROWS = [("side", "Side", [("left", "Left"), ("right", "Right")]),
+              ("monitor", "Screen", [("leftmost", "Leftmost"), ("rightmost", "Rightmost")])]
+
+
+def dock_side(cfg: dict) -> str:
+    """The screen edge the sidebar docks at: the left one unless config.json says right."""
+    return "right" if cfg.get("side") == "right" else "left"
+
+
+def place_choices(cfg: dict, screens: int) -> list:
+    """The settings' rows for where the sidebar goes: (key, title, now, [(value, label)]). `now`
+    is what config.json says; a monitor it names otherwise ("largest", a model) matches no
+    segment, and the row says it."""
+    now = {"side": dock_side(cfg), "monitor": str(cfg.get("monitor", "leftmost"))}
+    return [(key, title, now[key], options) for key, title, options in PLACE_ROWS[:2 if screens > 1 else 1]]
+
+
 def update_line(state: str, ours: str = "", latest: str = "") -> tuple[str, str]:
     """What 'Check for updates' says, and its icon ("": a spinner), as it asks and when it knows:
     idle | checking | latest | newer (it updates to `latest`) | failed."""
@@ -539,7 +558,7 @@ class SidebarLogic:
         self.daemon.request(method, done, **params)
 
     # ---- screens --------------------------------------------------------------------------
-    def _screens_changed(self, reason: str):
+    def _screens_changed(self, reason: str, delay_s: float = 3):
         """Start over on the screen the config picks. Re-mapping a live layer surface onto a
         changing output hung GTK inside a compositor round-trip; a fresh process maps its
         sidebar through the ordinary startup path. Nothing is lost: the daemon has it all.
@@ -553,8 +572,8 @@ class SidebarLogic:
         if self._restart_pending:
             return
         self._restart_pending = True
-        print(f"sidebar: screens changed ({reason}); restarting in 3 s", file=sys.stderr, flush=True)
-        GLib.timeout_add_seconds(3, self._restart_self)
+        print(f"sidebar: screens changed ({reason}); restarting in {delay_s:g} s", file=sys.stderr, flush=True)
+        GLib.timeout_add(int(delay_s * 1000), self._restart_self)
 
     def _replace_on_gnome(self):
         self._restart_pending = False
@@ -891,6 +910,18 @@ class SidebarLogic:
         if not config.put("theme", name):
             print(f"sidebar: theme {name}: config.json is not JSON, not saved", file=sys.stderr)
         self._apply_theme()
+
+    def set_place(self, key: str, value: str):
+        """A side or screen picked in the settings: saved in config.json, and the sidebar starts
+        over there (a layer surface is placed when it maps: _screens_changed)."""
+        if str(self.cfg.get(key)) == value:
+            return
+        if not config.put(key, value):
+            self._error("config.json is not JSON (half edited?): the sidebar stays where it is")
+            return
+        self.cfg[key] = value
+        self._footer("Moving the sidebar…", 10)
+        self._screens_changed(f"settings: {key} {value}", delay_s=0.5)
 
     def set_option(self, key: str, on: bool):
         """A switch in the settings: saved in config.json, and the daemon, which reads it, told."""

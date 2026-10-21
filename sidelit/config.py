@@ -82,7 +82,8 @@ DEFAULT_CONFIG = {
     "width": 280,
     "terminal": DEFAULT_TERMINAL[0],      # a shell in {cwd}
     "terminal_cmd": DEFAULT_TERMINAL[1],  # {command} run in {cwd}
-    "monitor": "leftmost",  # leftmost | largest | <model substring, e.g. "Acer">
+    "monitor": "leftmost",  # leftmost | rightmost | largest | <model substring, e.g. "Acer">
+    "side": "left",         # the screen edge the sidebar docks at: left | right
     # auto: the GTK 4 sidebar when gtk4-layer-shell is installed, else the GTK 3 one; gtk3 | gtk4
     "sidebar": "auto",
     # the sidebar's look (themes.py): default | halloween | the name of a CSS file in

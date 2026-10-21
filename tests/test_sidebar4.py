@@ -78,6 +78,36 @@ class CommonTest(unittest.TestCase):
         self.assertIn(".cw-box .cw-dots .cw-dot.cw-m-opus", css)
         self.assertIn(".cw-tip .cw-tip-row.cw-dot.cw-m-other", css)
 
+    def test_the_settings_offer_a_side_and_with_two_screens_a_screen(self):
+        self.assertEqual(sidebar_common.dock_side({}), "left")
+        self.assertEqual(sidebar_common.dock_side({"side": "right"}), "right")
+        self.assertEqual(sidebar_common.dock_side({"side": "top"}), "left")
+        one = sidebar_common.place_choices({"side": "right", "monitor": "leftmost"}, 1)
+        self.assertEqual([(k, now, [v for v, _l in options]) for k, _t, now, options in one],
+                         [("side", "right", ["left", "right"])])
+        two = sidebar_common.place_choices({"monitor": "rightmost"}, 2)
+        self.assertEqual([(k, now) for k, _t, now, _o in two], [("side", "left"), ("monitor", "rightmost")])
+        # a screen config.json names by its model matches no segment: the row says it
+        _k, _t, now, options = sidebar_common.place_choices({"monitor": "Acer"}, 2)[1]
+        self.assertEqual(now, "Acer")
+        self.assertNotIn(now, [v for v, _l in options])
+
+    def test_picking_a_place_saves_it_and_restarts_the_sidebar_there(self):
+        logic = sidebar_common.SidebarLogic()
+        logic.cfg = {"side": "left"}
+        logic._footer, logic._error = mock.Mock(), mock.Mock()
+        logic._screens_changed = mock.Mock()
+        with mock.patch.object(sidebar_common.config, "put", return_value=True) as put:
+            logic.set_place("side", "right")
+            logic.set_place("side", "right")  # (already there: nothing to do)
+        put.assert_called_once_with("side", "right")
+        self.assertEqual(logic.cfg["side"], "right")
+        logic._screens_changed.assert_called_once()
+        with mock.patch.object(sidebar_common.config, "put", return_value=False):
+            logic.set_place("monitor", "rightmost")
+        logic._error.assert_called_once()
+        self.assertNotIn("monitor", logic.cfg)
+
     def test_usage_levels(self):
         self.assertEqual([sidebar_common.usage_level(p) for p in (0, 69, 70, 89, 90, 100)],
                          [None, None, "warn", "warn", "high", "high"])
