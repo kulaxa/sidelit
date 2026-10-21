@@ -227,6 +227,13 @@ button.cw-history:hover {{ color: #ffffff; background-color: rgba(255,255,255,0.
 popover.cw-pop > contents {{ background-color: #2c2c2e; border: 1px solid rgba(255,255,255,0.10); border-radius: 14px;
   color: rgba(255,255,255,0.92); }}
 popover.cw-pop > arrow {{ background-color: #2c2c2e; border-color: rgba(255,255,255,0.10); }}
+.cw-ask-title {{ font-weight: 600; }}
+.cw-ask-detail {{ color: rgba(235,235,245,0.6); font-size: 88%; }}
+popover.cw-pop button.cw-ask-button {{ color: rgba(255,255,255,0.92); background: rgba(255,255,255,0.08); border: none;
+  box-shadow: none; text-shadow: none; border-radius: 10px; padding: 4px 14px; }}
+popover.cw-pop button.cw-ask-button:hover {{ background: rgba(255,255,255,0.16); }}
+popover.cw-pop button.cw-ask-button.default {{ color: #ffffff; background: rgba(10,132,255,0.85); }}
+popover.cw-pop button.cw-ask-button.default:hover {{ background: rgba(10,132,255,1.0); }}
 /* The history is a view of the sidebar itself: the clock swaps the cards for it and the
    header for "← History". A recessed search field, day headings like the usage section's,
    and every closed workspace a card, as wide as the workspaces' cards. */
@@ -440,6 +447,57 @@ class Menu:
     def popup_above(self):
         self.popover.set_position(Gtk.PositionType.TOP)
         self.popover.popup()
+
+    def _dispose(self):
+        if self.popover.get_parent() is not None:
+            self.popover.unparent()
+        return False
+
+
+class Question:
+    """A question in a popover off `parent`, pointing at what it is about. Not a dialog window:
+    a layer surface can't parent one, so the compositor puts it on any workspace, and there,
+    unseen, its grab takes every click off the sidebar. A click elsewhere or Esc is the first
+    button's answer (Cancel); `buttons` are (label, callback or None), the last one the default."""
+
+    def __init__(self, parent: Gtk.Widget, message: str, detail: str, buttons: list):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for side in ("start", "end", "top", "bottom"):
+            getattr(box, f"set_margin_{side}")(10)
+        for text, css in ((message, "cw-ask-title"), (detail, "cw-ask-detail")):
+            if text:
+                line = label(text, css)
+                line.set_wrap(True)
+                line.set_max_width_chars(32)
+                box.append(line)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.END)
+        row.set_margin_top(4)
+        for text, answer in buttons:
+            self.default = Gtk.Button(label=text)
+            self.default.add_css_class("cw-ask-button")
+            self.default.connect("clicked", lambda *_, cb=answer: self._answer(cb))
+            row.append(self.default)
+        self.default.add_css_class("default")
+        box.append(row)
+        self.popover = Gtk.Popover()
+        self.popover.add_css_class("cw-pop")
+        self.popover.set_has_arrow(False)
+        self.popover.set_child(box)
+        self.popover.set_parent(parent)
+        self.popover.connect("closed", lambda p: GLib.idle_add(self._dispose))
+
+    def popup_at(self, spot: tuple[float, float, float, float]):
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = (int(v) for v in spot)
+        self.popover.set_pointing_to(rect)
+        self.popover.set_position(Gtk.PositionType.BOTTOM)
+        self.popover.popup()
+        self.default.grab_focus()
+
+    def _answer(self, answer):
+        self.popover.popdown()
+        if answer is not None:
+            answer()
 
     def _dispose(self):
         if self.popover.get_parent() is not None:
@@ -793,6 +851,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header.add_css_class("cw-header")
         header.set_margin_bottom(2)
+        self.header_box = header
         self.back_btn = Gtk.Button(icon_name="go-previous-symbolic")
         self.back_btn.set_has_frame(False)
         self.back_btn.set_tooltip_text("Back to the workspaces")
@@ -1633,26 +1692,23 @@ class Sidebar(Gtk.Window, SidebarLogic):
         if question is None:
             self.send("close", **self._where(tab))
             return
-        dialog = Gtk.AlertDialog()
-        dialog.set_message(question[0])
-        dialog.set_detail(question[1])
-        dialog.set_buttons(["Cancel", "Close"])
-        dialog.set_cancel_button(0)
-        dialog.set_default_button(1)
-
-        def answered(d, result):
-            try:
-                choice = d.choose_finish(result)
-            except GLib.Error:  # dismissed
-                return
-            if choice == 1:
-                self.send("close", **self._where(tab))
-        dialog.choose(None, None, answered)
+        Question(self.root_box, *question, [("Cancel", None),
+                                            ("Close", lambda: self.send("close", **self._where(tab)))]
+                 ).popup_at(self._spot(tab))
 
     def _error(self, msg: str):
-        dialog = Gtk.AlertDialog()
-        dialog.set_message(msg)
-        dialog.show(None)
+        Question(self.root_box, msg, "", [("OK", None)]).popup_at(self._spot(None))
+
+    def _spot(self, tab: dict | None) -> tuple[float, float, float, float]:
+        """Where a question points, in the panel: under `tab`'s card, or the header."""
+        target = self.header_box
+        for w in children(self.list_box):
+            if tab is not None and getattr(w, "cw_tab", {}).get("key") == tab.get("key"):
+                target = w
+        ok, rect = target.compute_bounds(self.root_box)
+        if not ok:
+            return 0, 0, self.root_box.get_width(), 1
+        return rect.get_x(), rect.get_y(), rect.get_width(), rect.get_height()
 
 
 def main(fall_back):
