@@ -110,7 +110,8 @@ class _Dock:
 def dock(window, monitor, width: int, side: str = "left", unreserved=None):
     """Make `window` (a Gtk.Window, not shown yet) the sidebar's dock on the `side` (left or
     right) of `monitor` (a Gdk.Monitor; None: wherever GTK puts it). `unreserved()` is called
-    once if its strip cannot be reserved there (another screen lies beyond that edge)."""
+    once if its strip cannot be reserved there (another screen lies beyond that edge). The dock
+    it returns (None without a monitor) places it again after it was hidden."""
     import gi
     gi.require_version("Gdk", "3.0")
     from gi.repository import Gdk, GLib
@@ -121,13 +122,14 @@ def dock(window, monitor, width: int, side: str = "left", unreserved=None):
     window.set_keep_above(True)
     window.stick()  # on every desktop
     if monitor is None:
-        return
+        return None
     d = _Dock(window, monitor, width, side, unreserved)
     d.place()
     window.set_default_size(width, d.placed[2])
     # the strut once it has an X window, before it is mapped (and after the sidebar picked its visual)
     window.connect("realize", lambda w: d.reserve())
     GLib.timeout_add_seconds(CHECK_S, d.check)
+    return d
 
 
 def _reserve(window, values: list | None):

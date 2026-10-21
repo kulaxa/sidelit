@@ -679,8 +679,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.connect("delete-event", self._on_delete)
         self.set_default_size(width, 600)
         self.set_size_request(width, -1)
+        self._xdock = None
         if X11_DOCK:  # a dock window, as tall as its screen (after the sizes above)
-            xdock.dock(self, self._monitor, width, dock_side(self.cfg), self._strip_unreserved)
+            self._xdock = xdock.dock(self, self._monitor, width, dock_side(self.cfg), self._strip_unreserved)
 
         self.get_style_context().add_class("cw-window")
         visual = self.get_screen().get_rgba_visual()
@@ -746,6 +747,14 @@ class Sidebar(Gtk.Window, SidebarLogic):
         menu_btn.set_valign(Gtk.Align.CENTER)
         menu_btn.connect("clicked", lambda *_: self._show_view("settings"))
         header.pack_end(menu_btn, False, False, 0)
+        # out of the way: the tray icon or the app menu brings it back (hide_sidebar)
+        hide_btn = Gtk.Button.new_from_icon_name("window-minimize-symbolic", Gtk.IconSize.MENU)
+        hide_btn.set_relief(Gtk.ReliefStyle.NONE)
+        hide_btn.get_style_context().add_class("cw-history")
+        hide_btn.set_valign(Gtk.Align.CENTER)
+        hide_btn.connect("clicked", lambda *_: self.hide_sidebar())
+        header.pack_end(hide_btn, False, False, 0)
+        self.hide_btn = hide_btn
         self.header_mark, self.header_title, self.history_btn, self.menu_btn = mark, title, history_btn, menu_btn
         self._apply_theme()
         GLib.timeout_add_seconds(3600, lambda: (self._apply_theme(), True)[1])  # "auto" turns with the season
@@ -1676,6 +1685,18 @@ class Sidebar(Gtk.Window, SidebarLogic):
                 return
         self.send("close", **self._where(tab))
 
+    def _set_shown(self, shown: bool):
+        """Hidden, the window is unmapped, and its strip (layer shell, X11's strut, GNOME's
+        extension) goes with it; shown, it maps again where it was."""
+        if not shown:
+            self.hide()
+            return
+        self.show()
+        if self._xdock is not None:  # (the window manager may have put it anywhere)
+            self._xdock.place()
+        if gnome.hosted():
+            self._place_on_gnome()
+
     def _error(self, msg: str):
         d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR,
                               buttons=Gtk.ButtonsType.OK, text=msg)
@@ -1685,9 +1706,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
 def main():
     win = Sidebar()
-    win.show_all()
-    if gnome.hosted():
-        win._place_on_gnome()
+    win.get_child().show_all()
+    if not win.hidden:  # (hidden before a restart: it stays so)
+        win._set_shown(True)
 
     def stop(*_):
         """SIGTERM (systemd) or Ctrl+C: leave the main loop, and die anyway 3 s later, so a

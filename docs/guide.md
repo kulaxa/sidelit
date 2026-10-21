@@ -55,6 +55,12 @@
 - **Settings.** The gear swaps the workspaces for the settings: the theme (the default look,
   Halloween's, or [one of your own](config.md)); switches for the restore after
   a login and for reopening windows that crash; and buttons to put everything back, check for updates and restart the sidebar.
+- **Hide it.** The button left of the gear hides the sidebar, and its strip goes back to your
+  windows. Sidelit's icon in the panel's tray brings it back with a click (on COSMIC a click
+  opens its menu: Show sidebar); its menu also has the settings, "Put everything back",
+  "Restart sidebar" and "Quit Sidelit". While it is hidden and a session waits for you, the icon
+  wears a yellow dot. Without a tray (GNOME without the AppIndicator extension), Sidelit in the
+  app menu or `sidelit show` brings it back. A restart keeps it hidden; a new login shows it.
 - **Header menu.** Right-click the header for "Check for updates", "Put everything back" (every window to its
   workspace and screen, what went missing reopened), *Recent sessions* (closed ones, one click resumes one on a new workspace)
   and "Restart sidebar". Right-click a tab to forget its missing windows.
@@ -196,6 +202,7 @@ sidelit stop|restart|status|log
 sidelit why TEXT       # why a window was kept, moved or forgotten (TEXT: a workspace, title, app)
 sidelit restore        # start what is missing from the layout now (runs by itself after a login)
 sidelit reapply        # put every window back on its workspace and screen
+sidelit show           # bring a hidden sidebar back (also: hide, toggle)
 sidelit state|layout   # what the daemon sees / keeps, as JSON
 sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N [OUTPUT]
 sidelit open URL       # open a link on the current workspace (above)

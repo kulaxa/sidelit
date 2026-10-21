@@ -136,6 +136,7 @@ sidelit stop|restart|status|log
 sidelit why TEXT       # why a window was kept, moved or forgotten
 sidelit restore        # reopen what is missing, now
 sidelit reapply        # put every window back on its workspace and screen
+sidelit show           # bring a hidden sidebar back (also: hide, toggle)
 ```
 
 Every command is in [the guide](docs/guide.md#commands).
