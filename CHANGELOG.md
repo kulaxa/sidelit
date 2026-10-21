@@ -6,6 +6,11 @@ update. The reasoning belongs in the commit message.
 
 ## [0.11.0] - 2026-10-21
 
+- The sidebar can be hidden: the button left of the gear gives its strip back to your windows,
+  and Sidelit's new icon in the panel's tray brings it back. The icon's menu also has the
+  settings, "Put everything back", "Restart sidebar" and "Quit Sidelit", and while the sidebar
+  is hidden it wears a yellow dot when a session waits for you. Without a tray (GNOME without
+  the AppIndicator extension), Sidelit in the app menu or `sidelit show` brings it back.
 - The sidebar docks on the left or the right side, on the leftmost or the rightmost screen,
   picked under POSITION in the settings. Every desktop takes it: COSMIC, KDE, Hyprland, niri,
   sway, GNOME and X11. On GNOME the right side needs the extension from this release, which
