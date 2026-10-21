@@ -4,6 +4,14 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.12.0] - 2026-10-21
+
+- A session running in tmux gets its box in the terminal showing it, and keeps it when you
+  detach and attach from another terminal. Before, Sidelit could not tell which window showed
+  it: such sessions piled onto one card, and after a restart Sidelit could reopen them twice.
+- A second desktop starting next to yours (a VNC one on another display) no longer makes
+  Sidelit restore as if you had logged in.
+
 ## [0.11.0] - 2026-10-21
 
 - The sidebar can be hidden: the button left of the gear gives its strip back to your windows,
