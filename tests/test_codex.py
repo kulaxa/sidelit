@@ -66,6 +66,8 @@ class HookTest(unittest.TestCase):
     def run_hook(self, event, parent=None):
         """The hook run by a process called codex, as Codex's own (`parent` its arguments), or by us."""
         env = {**os.environ, "SIDELIT_HOME": self.home, "TERMINATOR_UUID": "urn:uuid:server"}
+        for var in ("TMUX", "TMUX_PANE", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET"):
+            env.pop(var, None)  # (the terminal the tests run in names its pane too)
         payload = json.dumps({**COMMON, **event})
         if parent is None:
             r = subprocess.run([sys.executable, "-I", HOOK, "codex"], input=payload, text=True,
