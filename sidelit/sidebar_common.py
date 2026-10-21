@@ -203,6 +203,18 @@ def place_choices(cfg: dict, screens: int) -> list:
     return [(key, title, now[key], options) for key, title, options in PLACE_ROWS[:2 if screens > 1 else 1]]
 
 
+# The full layout and the compact one do not leave exactly the same room (the usage card's
+# padding differs, and a theme's bars may): going back to full wants this much to spare, or at
+# the edge each layout finds the other fits and the sidebar swings many times a second.
+FIT_SPARE_PX = 32
+
+
+def compact_wanted(need: int, room: int, compact: bool) -> bool:
+    """Compact when the cards and the usage, drawn in full, `need` more than the `room` they
+    share; back to full only when they fit with FIT_SPARE_PX to spare."""
+    return need > room - (FIT_SPARE_PX if compact else 0)
+
+
 def update_line(state: str, ours: str = "", latest: str = "") -> tuple[str, str]:
     """What 'Check for updates' says, and its icon ("": a spinner), as it asks and when it knows:
     idle | checking | latest | newer (it updates to `latest`) | failed."""
