@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 from sidelit import agents as agents_mod
@@ -51,6 +53,34 @@ def outer_agent(pid: int, table: dict[int, tuple[int, str]], comms: set[str] | N
     return 0
 
 
+def tmux_clients(panes: set[tuple[str, str]]) -> dict[tuple[str, str], list[int]]:
+    """(socket, pane) -> the processes of the tmux clients showing that pane's session: the
+    terminals a session in tmux is on screen in, none while it is detached. The socket is the
+    first field of the pane's $TMUX ("" for tmux's default)."""
+    out: dict[tuple[str, str], list[int]] = {}
+    if not panes or not shutil.which("tmux"):
+        return out
+    for sock in {s for s, _ in panes}:
+        base = ["tmux"] + (["-S", sock] if sock else [])
+        try:
+            listed = subprocess.run(base + ["list-panes", "-a", "-F", "#{pane_id} #{session_id}"],
+                                    capture_output=True, text=True, timeout=2).stdout
+            attached = subprocess.run(base + ["list-clients", "-F", "#{client_pid} #{session_id}"],
+                                      capture_output=True, text=True, timeout=2).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        session_of = dict(line.split(" ", 1) for line in listed.splitlines() if " " in line)
+        shown: dict[str, list[int]] = {}
+        for line in attached.splitlines():
+            pid, _, session = line.partition(" ")
+            if pid.isdigit():
+                shown.setdefault(session, []).append(int(pid))
+        for s, pane in panes:
+            if s == sock and pane in session_of:
+                out[(s, pane)] = shown.get(session_of[pane], [])
+    return out
+
+
 def pane_id(pane) -> str:
     """Which pane of its terminal an agent runs in, from what the hook recorded; "" when the
     terminal does not say."""
@@ -81,12 +111,18 @@ class Detector:
     -p`, a test harness), are only counted while they work, and never take a window. Nor does an
     agent with no terminal (an app driving it), whose prompts are no one typing.
 
-    `agents`: the adapters (agents.every()); `started(pid)` when a process started, which
-    orders the sessions of a window. The window mapping is kept in `windows`, so a daemon
-    restart keeps it."""
+    A session in tmux runs under tmux's server, not under the terminal it is on screen in: the
+    process ancestry of the tmux clients showing it stands in for the terminal's (tmux_clients),
+    so it is placed as one run in the terminal itself, and follows when another terminal attaches.
 
-    def __init__(self, agents=None, ttl: float = 1.0, started=process_started, windows: Path | None = None):
+    `agents`: the adapters (agents.every()); `started(pid)` when a process started, which
+    orders the sessions of a window; `tmux` asks tmux for its clients (tmux_clients). The window
+    mapping is kept in `windows`, so a daemon restart keeps it."""
+
+    def __init__(self, agents=None, ttl: float = 1.0, started=process_started, windows: Path | None = None,
+                 tmux=tmux_clients):
         from sidelit import config
+        self.tmux_clients = tmux
         self.agents = list(agents if agents is not None else agents_mod.every())
         self.by_name = {a.name: a for a in self.agents}
         self.comms = {a.comm for a in self.agents}
@@ -212,6 +248,7 @@ class Detector:
                 rec["outer"] = outer_agent(pid, self.table, self.comms)
                 rec["windowless"] = bool(rec["outer"]) or not in_terminal(pid)
                 out[rec["session"]] = rec
+        self._through_tmux(out)
         self.inner = {}
         for rec in out.values():
             if rec["outer"] and rec.get("state") in ("busy", "waiting"):
@@ -231,6 +268,21 @@ class Detector:
                 if old["session"] in self.window_of and newest["session"] not in self.window_of:
                     self.window_of[newest["session"]] = self.window_of[old["session"]]
         return out
+
+    def _through_tmux(self, recs: dict[str, dict]):
+        """Add to each tmux session's ancestry that of the tmux clients showing it now."""
+        where: dict[str, tuple[str, str]] = {}
+        for sid, rec in recs.items():
+            pane = rec.get("pane") if isinstance(rec.get("pane"), dict) else {}
+            if pane.get("TMUX_PANE") and pane.get("TMUX"):
+                where[sid] = (str(pane["TMUX"]).split(",")[0], str(pane["TMUX_PANE"]))
+        if not where:
+            return
+        clients = self.tmux_clients(set(where.values()))
+        for sid, key in where.items():
+            extra = [p for client in clients.get(key, []) for p in ancestors(client, self.table)]
+            if extra:
+                recs[sid]["ancestors"] = list(recs[sid].get("ancestors") or []) + extra
 
     # ---- the mapping
     def assign(self, windows: dict, launched_pid: dict[str, int] | None = None):
