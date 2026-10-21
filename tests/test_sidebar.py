@@ -150,5 +150,31 @@ class SettingsPanelTest(unittest.TestCase):
         self.assertLessEqual(self.panel.get_preferred_width()[0], 280)
 
 
+@unittest.skipIf(sidebar is None, "needs GTK 3 and gtk-layer-shell")
+class UsageRowTest(unittest.TestCase):
+    def lay_out(self, width=None):
+        """A limit's name and number in a row that wide (by default, just wide enough for both):
+        (the gap between them, whether the name was cut short)."""
+        row = sidebar.Sidebar._usage_row("Session", 38)
+        row.show_all()
+        name, value = row.get_children()[0].get_children()
+        width = width or name.get_preferred_width()[1] + value.get_preferred_width()[1]
+        row.get_preferred_width()
+        row.get_preferred_height_for_width(width)
+        rect = sidebar.Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = 0, 0, width, 40
+        row.size_allocate(rect)
+        left, right = name.get_allocation(), value.get_allocation()
+        self.assertEqual(right.x + right.width, width)  # (the number at the right edge)
+        return right.x - (left.x + left.width), name.get_layout().is_ellipsized()
+
+    def test_a_name_gives_way_rather_than_touch_its_number(self):
+        # (three limits side by side, compact: just room for both, none for a gap)
+        gap, cut = self.lay_out()
+        self.assertGreaterEqual(gap, 6)
+        self.assertTrue(cut)
+        self.assertEqual(self.lay_out(300), (6, False))  # (one to a line: the name whole)
+
+
 if __name__ == "__main__":
     unittest.main()

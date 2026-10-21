@@ -1009,7 +1009,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
             line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
             for caption, percent, resets, read in rows:
                 cell = self._usage_row(caption, percent)
-                cell.set_tooltip_text(reset_line(resets, read) or None)
+                # (on hover, its name in full and when it resets)
+                cell.set_tooltip_text(" · ".join(filter(None, (caption, reset_line(resets, read)))) or None)
                 line.append(cell)
             self.usage_compact.append(line)
         self.usage_box.set_visible(bool(groups))
@@ -1019,7 +1020,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
     @staticmethod
     def _usage_row(caption: str, percent: float) -> Gtk.Box:
         """A limit's name, how much of it is used, and its bar."""
-        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        # (a gap between the two: three limits side by side leave a name too little room, and it
+        # gives way, "Sessi…", rather than run into its number)
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         name = label(caption, "usage-label")
         name.set_hexpand(True)
         name.set_ellipsize(Pango.EllipsizeMode.END)
