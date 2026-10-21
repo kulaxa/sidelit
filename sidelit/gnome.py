@@ -147,14 +147,18 @@ def hosted() -> bool:
 def _sidebar_call(method: str, args: GLib.Variant | None = None, bus: Gio.DBusConnection | None = None,
                   unknown_ok: bool = False) -> bool | None:
     """Call the extension for the sidebar: its answer, False when the call failed (it is said
-    why), and with `unknown_ok` None when the extension has no such method (an older one)."""
+    why), and with `unknown_ok` None when the extension is there but has no such method (an
+    older one)."""
     try:
         bus = bus or Gio.bus_get_sync(Gio.BusType.SESSION, None)
         reply = bus.call_sync(SHELL, PATH, IFACE, method, args, GLib.VariantType("(b)"),
                               Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
         return bool(reply.unpack()[0])
     except GLib.Error as exc:
-        if unknown_ok and "org.freedesktop.DBus.Error.UnknownMethod" in (exc.message or ""):
+        # (GDBus says UnknownMethod for a missing object too, but names the method only when
+        # the object is there without it: "No such method “PlaceSidebarAt”")
+        text = exc.message or ""
+        if unknown_ok and "org.freedesktop.DBus.Error.UnknownMethod" in text and method in text:
             return None
         print(f"sidebar: GNOME Shell: {method}: {exc.message}", file=sys.stderr, flush=True)
         return False

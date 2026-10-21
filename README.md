@@ -38,7 +38,7 @@ and is waiting for an answer, which one is only waiting on CI, where that Chrome
 shortcut takes you back.
 
 Sidelit is built to take as much of that off you as it can, so your attention goes to the work
-that matters. It sits at the left of your screen and keeps the map:
+that matters. It sits at the side of your screen, left or right, and keeps the map:
 
 - **No agent forgotten.** Every workspace is a card, and every session on it says whether it is
   working, waiting for you or done. When one hands back to you, its card turns yellow. One that

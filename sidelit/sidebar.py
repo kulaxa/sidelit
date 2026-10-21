@@ -913,7 +913,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         (a screen named by its model is the leftmost one there)."""
         rule = str(self.cfg.get("monitor", "leftmost"))
         self._monitor = self._pick_monitor(rule)
-        gnome.place_sidebar(rule if rule in gnome.SCREEN_RULES else "", dock_side(self.cfg))
+        self._tell_gnome(rule if rule in gnome.SCREEN_RULES else "")
 
     # ---- theme ------------------------------------------------------------------------------
     def _apply_theme(self):
@@ -944,10 +944,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.header_title.set_margin_start(2 if away else 8)
         if view == "settings":
             self.settings.set_themes(themes.choices(), themes.chosen(self.cfg))
-            # (only a layer surface takes its side and screen so far; X11's dock and GNOME's
-            # extension keep it on the left of the leftmost screen)
+            # (a layer surface, X11's dock and GNOME's extension all take its side and screen)
             screens = Gdk.Display.get_default().get_n_monitors()
-            self.settings.set_places(place_choices(self.cfg, screens) if GtkLayerShell is not None else [])
+            self.settings.set_places(place_choices(self.cfg, screens))
             self.settings.set_switches(self.cfg)
         self.views.set_visible_child_name(view)
 

@@ -108,6 +108,32 @@ class CommonTest(unittest.TestCase):
         logic._error.assert_called_once()
         self.assertNotIn("monitor", logic.cfg)
 
+    def test_on_gnome_the_extension_is_told_the_side(self):
+        logic = sidebar_common.SidebarLogic()
+        logic.cfg = {"side": "right"}
+        logic._footer = mock.Mock()
+        with mock.patch.object(sidebar_common.gnome, "place_sidebar", return_value="right") as place:
+            logic._tell_gnome("DP-1")
+        place.assert_called_once_with("DP-1", "right")
+        logic._footer.assert_not_called()
+        # an extension GNOME Shell loaded before an update docks it on the left: the footer says why
+        with mock.patch.object(sidebar_common.gnome, "place_sidebar", return_value="left"):
+            logic._tell_gnome("DP-1")
+        self.assertIn("log out and back in", logic._footer.call_args[0][0])
+
+    def test_on_gnome_a_pick_moves_the_sidebar_without_a_restart(self):
+        logic = sidebar_common.SidebarLogic()
+        logic._place_on_gnome, logic._footer, logic.footer = mock.Mock(), mock.Mock(), mock.Mock()
+        logic._restart_pending = True
+        logic.footer.get_text.return_value = sidebar_common.MOVING
+        logic._replace_on_gnome()
+        logic._place_on_gnome.assert_called_once()
+        logic._footer.assert_called_once_with("", 0)  # (it is there: "Moving the sidebar…" goes)
+        self.assertFalse(logic._restart_pending)
+        logic.footer.get_text.return_value = "Sidelit 0.11.0 is out"
+        logic._replace_on_gnome()
+        logic._footer.assert_called_once()  # (another message stays)
+
     def test_usage_levels(self):
         self.assertEqual([sidebar_common.usage_level(p) for p in (0, 69, 70, 89, 90, 100)],
                          [None, None, "warn", "warn", "high", "high"])

@@ -291,6 +291,62 @@ def _sidebar_checks(c):
     while time.monotonic() < end and not placed(info := _sidebar_window()):
         spin(0.3)
     check("in the same place", placed(info), info)
+    _right_side_checks(state)
+
+
+def _restart_sidebar(state):
+    """Kill the sidebar, which the extension starts again (and which reads config.json anew)."""
+    pid = state()["pid"]
+    os.kill(pid, 9)
+    spin(10, lambda: (s := state()).get("shown") and s.get("pid") not in (0, pid))
+
+
+def _until(ok, seconds=10):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and not ok(info := _sidebar_window()):
+        spin(0.3)
+    return info
+
+
+def _right_side_checks(state):
+    """config.json's "side": "right" (the settings' Side): on the right edge, beside a dock there."""
+    from sidelit import config
+    before = config.load().get("side", "left")
+    if not config.put("side", "right"):
+        check("config.json takes the side", False)
+        return
+    try:
+        _restart_sidebar(state)
+
+        def right_of(gap):
+            def ok(i):
+                if not isinstance(i, dict) or i["width"] <= 0:
+                    return False
+                right = i["monitor"]["x"] + i["monitor"]["width"]
+                return i["x"] + i["width"] == right - gap and i["area"]["x"] + i["area"]["width"] == i["x"]
+            return ok
+        info = _until(right_of(0))
+        check("on the right side: flush with the screen's right edge, windows left of it", right_of(0)(info), info)
+        if not isinstance(info, dict):
+            return
+        check("below the top bar, as tall as the work area",
+              info["y"] == info["area"]["y"] and info["height"] == info["area"]["height"], info)
+        # a dock already on the right (Dash to Dock can be there): the sidebar goes beside it
+        shell_eval("""(() => {
+            const St = imports.gi.St, m = Main.layoutManager.primaryMonitor;
+            const a = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
+            globalThis._fakeDock = new St.Widget({x: m.x + m.width - 64, y: a.y, width: 64, height: a.height,
+                reactive: false});
+            Main.layoutManager.addChrome(globalThis._fakeDock, {affectsStruts: true});
+        })()""")
+        info = _until(right_of(64), 5)
+        check("beside a dock already on the right, and windows beside both", right_of(64)(info), info)
+        shell_eval("(() => { Main.layoutManager.removeChrome(globalThis._fakeDock); globalThis._fakeDock.destroy(); })()")
+        info = _until(right_of(0), 5)
+        check("and back on the edge when that dock goes", right_of(0)(info), info)
+    finally:
+        config.put("side", before)
+        _restart_sidebar(state)
 
 
 def _sidebar_window():
