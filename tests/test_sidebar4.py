@@ -134,6 +134,23 @@ class CommonTest(unittest.TestCase):
         logic._replace_on_gnome()
         logic._footer.assert_called_once()  # (another message stays)
 
+    def test_on_gnome_only_restart_sidebar_restarts_it(self):
+        """A pick or a screen change re-places the window GNOME's extension docks; the menu's
+        and the settings' Restart sidebar end this process, which the extension starts again."""
+        with mock.patch.object(sidebar_common.gnome, "hosted", return_value=True), \
+                mock.patch.object(sidebar_common.GLib, "timeout_add_seconds") as soon, \
+                mock.patch.object(sidebar_common.GLib, "timeout_add") as later, \
+                mock.patch("sys.stderr"):
+            for reason, restarts in (("settings: side right", False), ("monitor added", False),
+                                     ("menu", True), ("settings", True)):
+                logic = sidebar_common.SidebarLogic()
+                logic._restart_pending = False
+                soon.reset_mock()
+                later.reset_mock()
+                logic._screens_changed(reason)
+                self.assertEqual(later.called, restarts, reason)
+                self.assertEqual(soon.called, not restarts, reason)
+
     def test_usage_levels(self):
         self.assertEqual([sidebar_common.usage_level(p) for p in (0, 69, 70, 89, 90, 100)],
                          [None, None, "warn", "warn", "high", "high"])

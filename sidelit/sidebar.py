@@ -495,10 +495,7 @@ class SettingsPanel(Gtk.Box):
         content.pack_start(self._label("THEME", "cw-history-day"), False, False, 0)
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.pack_start(self.themes_box, False, False, 0)
-        # (hidden where the sidebar cannot be moved yet: set_places with no choices)
-        self.places_head = self._label("POSITION", "cw-history-day")
-        self.places_head.set_no_show_all(True)
-        content.pack_start(self.places_head, False, False, 0)
+        content.pack_start(self._label("POSITION", "cw-history-day"), False, False, 0)
         self.places_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.pack_start(self.places_box, False, False, 0)
         content.pack_start(self._label("OPTIONS", "cw-history-day"), False, False, 0)
@@ -575,7 +572,6 @@ class SettingsPanel(Gtk.Box):
         button: its segments are the buttons."""
         for child in self.places_box.get_children():
             self.places_box.remove(child)
-        self.places_head.set_visible(bool(choices))
         for key, title, now, options in choices:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             row.get_style_context().add_class("cw-setting")

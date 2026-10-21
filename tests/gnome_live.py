@@ -228,9 +228,27 @@ def main() -> int:
 
 
 def _sidebar_checks(c):
-    """The extension runs the sidebar while the daemon's bus name is held (it is: by `c`)."""
+    """The extension runs the sidebar while the daemon's bus name is held (it is: by `c`). On
+    the left of the leftmost screen first (config.json's defaults, whatever it says now), then
+    on the right; config.json is left as it was."""
+    from sidelit import config
     state = lambda: json.loads(c._bus_call(gnome.SHELL, gnome.PATH, gnome.IFACE, "GetState")[0])["sidebar"]  # noqa: E731
-    spin(25, lambda: state().get("shown"))
+    before = config.load()
+    config.put("side", "left")
+    config.put("monitor", "leftmost")
+    try:
+        spin(25, lambda: state().get("shown"))
+        if (before["side"], before["monitor"]) != ("left", "leftmost"):
+            _restart_sidebar(state)  # (it read config.json before the lines above)
+        _left_side_checks(c, state)
+        _right_side_checks(state)
+    finally:
+        for key in ("side", "monitor"):
+            config.put(key, before[key])
+        _restart_sidebar(state)
+
+
+def _left_side_checks(c, state):
     check("the extension runs the sidebar", state().get("running") and state().get("shown"), state())
     info = None
     end = time.monotonic() + 10
@@ -291,14 +309,15 @@ def _sidebar_checks(c):
     while time.monotonic() < end and not placed(info := _sidebar_window()):
         spin(0.3)
     check("in the same place", placed(info), info)
-    _right_side_checks(state)
 
 
 def _restart_sidebar(state):
-    """Kill the sidebar, which the extension starts again (and which reads config.json anew)."""
+    """Kill the sidebar, which the extension starts again (and which reads config.json anew):
+    after a pause that grows while it keeps stopping, up to a minute (sidebar.js RESTART_MS)."""
     pid = state()["pid"]
-    os.kill(pid, 9)
-    spin(10, lambda: (s := state()).get("shown") and s.get("pid") not in (0, pid))
+    if pid > 0:  # (0 is none: os.kill(0) would kill this test's own process group)
+        os.kill(pid, 9)
+    spin(70, lambda: (s := state()).get("shown") and s.get("pid") not in (0, pid))
 
 
 def _until(ok, seconds=10):
@@ -308,54 +327,68 @@ def _until(ok, seconds=10):
     return info
 
 
-def _right_side_checks(state):
-    """config.json's "side": "right" (the settings' Side): on the right edge, beside a dock there."""
-    from sidelit import config
-    before = config.load().get("side", "left")
-    if not config.put("side", "right"):
-        check("config.json takes the side", False)
-        return
-    try:
-        _restart_sidebar(state)
+def _right_of(gap):
+    """Is the sidebar `gap` from its screen's right edge, with windows (the work area) left of it?"""
+    def ok(i):
+        if not isinstance(i, dict) or i["width"] <= 0:
+            return False
+        right = i["monitor"]["x"] + i["monitor"]["width"]
+        return i["x"] + i["width"] == right - gap and i["area"]["x"] + i["area"]["width"] == i["x"]
+    return ok
 
-        def right_of(gap):
-            def ok(i):
-                if not isinstance(i, dict) or i["width"] <= 0:
-                    return False
-                right = i["monitor"]["x"] + i["monitor"]["width"]
-                return i["x"] + i["width"] == right - gap and i["area"]["x"] + i["area"]["width"] == i["x"]
-            return ok
-        info = _until(right_of(0))
-        check("on the right side: flush with the screen's right edge, windows left of it", right_of(0)(info), info)
-        if not isinstance(info, dict):
-            return
-        check("below the top bar, as tall as the work area",
-              info["y"] == info["area"]["y"] and info["height"] == info["area"]["height"], info)
-        # a dock already on the right (Dash to Dock can be there): the sidebar goes beside it
-        shell_eval("""(() => {
-            const St = imports.gi.St, m = Main.layoutManager.primaryMonitor;
-            const a = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
-            globalThis._fakeDock = new St.Widget({x: m.x + m.width - 64, y: a.y, width: 64, height: a.height,
-                reactive: false});
-            Main.layoutManager.addChrome(globalThis._fakeDock, {affectsStruts: true});
-        })()""")
-        info = _until(right_of(64), 5)
-        check("beside a dock already on the right, and windows beside both", right_of(64)(info), info)
-        shell_eval("(() => { Main.layoutManager.removeChrome(globalThis._fakeDock); globalThis._fakeDock.destroy(); })()")
-        info = _until(right_of(0), 5)
-        check("and back on the edge when that dock goes", right_of(0)(info), info)
-    finally:
-        config.put("side", before)
-        _restart_sidebar(state)
+
+def _right_side_checks(state):
+    """config.json's "side": "right" (the settings' Side): on the right edge, beside a dock there,
+    and with two screens on the rightmost one ("monitor": "rightmost")."""
+    from sidelit import config
+    config.put("side", "right")
+    _restart_sidebar(state)
+    info = _until(_right_of(0))
+    check("on the right side: flush with the screen's right edge, windows left of it", _right_of(0)(info), info)
+    if not isinstance(info, dict):
+        return
+    check("below the top bar, as tall as the work area",
+          info["y"] == info["area"]["y"] and info["height"] == info["area"]["height"], info)
+    # a dock already on the right (Dash to Dock can be there): the sidebar goes beside it
+    m, a = info["monitor"], info["area"]
+    shell_eval(f"""(() => {{
+        const St = imports.gi.St;
+        globalThis._fakeDock = new St.Widget({{x: {m["x"] + m["width"] - 64}, y: {a["y"]}, width: 64,
+            height: {a["height"]}, reactive: false}});
+        Main.layoutManager.addChrome(globalThis._fakeDock, {{affectsStruts: true}});
+    }})()""")
+    info = _until(_right_of(64), 5)
+    check("beside a dock already on the right, and windows beside both", _right_of(64)(info), info)
+    shell_eval("(() => { Main.layoutManager.removeChrome(globalThis._fakeDock); globalThis._fakeDock.destroy(); })()")
+    info = _until(_right_of(0), 5)
+    check("and back on the edge when that dock goes", _right_of(0)(info), info)
+    if not isinstance(info, dict) or len(info["monitors"]) < 2:
+        print("skip the rightmost screen: there is one", flush=True)
+        return
+    # (a headless GNOME Shell has two with two --virtual-monitor)
+    edge = max(o["x"] + o["width"] for o in info["monitors"])
+    config.put("monitor", "rightmost")
+    _restart_sidebar(state)
+    on_rightmost = lambda i: _right_of(0)(i) and i["monitor"]["x"] + i["monitor"]["width"] == edge  # noqa: E731
+    info = _until(on_rightmost)
+    check("on the rightmost screen's right edge", on_rightmost(info), info)
+    config.put("side", "left")
+    _restart_sidebar(state)
+    left = lambda i: isinstance(i, dict) and i["x"] == i["monitor"]["x"] \
+        and i["monitor"]["x"] + i["monitor"]["width"] == edge and i["area"]["x"] == i["x"] + i["width"]  # noqa: E731
+    info = _until(left)
+    check("and on its left edge, between the two screens, windows still beside it", left(info), info)
 
 
 def _sidebar_window():
     return shell_eval("""(() => {
         const w = global.display.list_all_windows().find(w => w.get_title() === 'Sidelit');
         if (!w) return null;
-        const r = w.get_frame_rect(), m = Main.layoutManager.primaryMonitor;
-        const area = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
+        // (its own screen, and every screen's geometry)
+        const r = w.get_frame_rect(), m = Main.layoutManager.monitors[w.get_monitor()];
+        const area = Main.layoutManager.getWorkAreaForMonitor(w.get_monitor());
         return JSON.stringify({x: r.x, y: r.y, width: r.width, height: r.height, type: w.get_window_type(),
+            monitors: Main.layoutManager.monitors.map(o => ({x: o.x, y: o.y, width: o.width, height: o.height})),
             dock: w.get_window_type() === Meta.WindowType.DOCK, sticky: w.is_on_all_workspaces(),
             skip: w.is_skip_taskbar(), area: {x: area.x, y: area.y, width: area.width, height: area.height},
             monitor: {x: m.x, y: m.y, width: m.width, height: m.height}, panel: Main.panel.height});

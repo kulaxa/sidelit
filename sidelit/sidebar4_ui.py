@@ -35,7 +35,7 @@ else:
 
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
-    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question, countdown, reset_line,
+    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question, reset_line,
     day_label, dock_side, group_blocks, history_lines, item_sub, matches, model_css, place_choices, tab_classes, tab_snapshot,
     update_line, usage_level,
 )
@@ -604,9 +604,7 @@ class SettingsPanel(Gtk.Box):
         content.append(label("THEME", "cw-history-day"))
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.append(self.themes_box)
-        # (hidden where the sidebar cannot be moved yet: set_places with no choices)
-        self.places_head = label("POSITION", "cw-history-day")
-        content.append(self.places_head)
+        content.append(label("POSITION", "cw-history-day"))
         self.places_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.append(self.places_box)
         content.append(label("OPTIONS", "cw-history-day"))
@@ -671,7 +669,6 @@ class SettingsPanel(Gtk.Box):
         (key, title, now, [(value, label)]) each (place_choices). The card is a box, not a
         button: its segments are the buttons."""
         clear(self.places_box)
-        self.places_head.set_visible(bool(choices))
         for key, title, now, options in choices:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             row.add_css_class("cw-setting")

@@ -564,8 +564,9 @@ class SidebarLogic:
         changing output hung GTK inside a compositor round-trip; a fresh process maps its
         sidebar through the ordinary startup path. Nothing is lost: the daemon has it all.
 
-        On GNOME the extension places the window: it is only told the screen again."""
-        if gnome.hosted() and reason != "menu":
+        On GNOME the extension places the window: it is only told the screen again, unless you
+        asked for a restart (Restart sidebar, in the menu or the settings)."""
+        if gnome.hosted() and reason not in ("menu", "settings"):
             if not self._restart_pending:
                 self._restart_pending = True
                 GLib.timeout_add_seconds(1, self._replace_on_gnome)
