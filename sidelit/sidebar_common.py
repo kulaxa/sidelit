@@ -183,10 +183,10 @@ def version_tuple(text: str | None):
     return tuple(int(part) for part in text.strip().split("."))
 
 
-# Where the sidebar goes, picked in the settings: (config key, value, what its card says). The
-# screens are offered only where there is more than one.
-PLACE_SIDES = [("side", "left", "Left side"), ("side", "right", "Right side")]
-PLACE_SCREENS = [("monitor", "leftmost", "Leftmost screen"), ("monitor", "rightmost", "Rightmost screen")]
+# Where the sidebar goes, picked in the settings: (config key, what its card says, [(value, what
+# its segment says)]). The screens are offered only where there is more than one.
+PLACE_ROWS = [("side", "Side", [("left", "Left"), ("right", "Right")]),
+              ("monitor", "Screen", [("leftmost", "Leftmost"), ("rightmost", "Rightmost")])]
 
 
 def dock_side(cfg: dict) -> str:
@@ -195,11 +195,11 @@ def dock_side(cfg: dict) -> str:
 
 
 def place_choices(cfg: dict, screens: int) -> list:
-    """The settings' cards for where the sidebar goes: (key, value, title, picked). A monitor
-    config.json names otherwise ("largest", a model) has no card picked."""
+    """The settings' rows for where the sidebar goes: (key, title, now, [(value, label)]). `now`
+    is what config.json says; a monitor it names otherwise ("largest", a model) matches no
+    segment, and the row says it."""
     now = {"side": dock_side(cfg), "monitor": str(cfg.get("monitor", "leftmost"))}
-    return [(key, value, title, now[key] == value)
-            for key, value, title in PLACE_SIDES + (PLACE_SCREENS if screens > 1 else [])]
+    return [(key, title, now[key], options) for key, title, options in PLACE_ROWS[:2 if screens > 1 else 1]]
 
 
 def update_line(state: str, ours: str = "", latest: str = "") -> tuple[str, str]:

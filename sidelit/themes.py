@@ -216,10 +216,14 @@ button.cw-update:hover { background: rgba(255,122,26,0.26); }
 .cw-history-day, .cw-restore-title { color: #ffb347; }
 .cw-restore { background-color: rgba(60,30,80,0.88); }
 popover.cw-pop > contents, popover.cw-pop > arrow { background-color: #241a2c; }
-.cw-history-view list > row.cw-history-row, button.cw-setting { background-color: rgba(46,30,56,0.86); }
+.cw-history-view list > row.cw-history-row, .cw-setting { background-color: rgba(46,30,56,0.86); }
 .cw-history-view list > row.cw-history-row:hover, button.cw-setting:hover { background-color: rgba(60,40,74,0.92); }
 button.cw-setting.picked { background-color: rgba(76,38,110,0.90); border-color: rgba(191,90,242,0.55); }
 button.cw-setting.picked:hover { background-color: rgba(88,46,126,0.94); }
+.cw-seg { background-color: rgba(14,8,20,0.55); }
+button.cw-seg-item.picked { background-color: rgba(76,38,110,0.95); border-color: rgba(191,90,242,0.55); }
+button.cw-seg-item.picked:hover { background-color: rgba(88,46,126,0.94); }
+button.cw-seg-item:focus { outline-color: rgba(191,90,242,0.6); }
 .cw-setting-check { color: #bf5af2; }
 """
 

@@ -232,14 +232,26 @@ progressbar.usage-bar {{ -GtkProgressBar-min-horizontal-bar-width: 0; }}  /* (GT
 .cw-older:hover {{ background: rgba(255,255,255,0.12); color: #ffffff; }}
 /* The settings are a view like the history: the gear swaps the cards for them and the header
    for "← Settings". Every theme a card with a small picture of it, the one in use ringed in
-   the colour of where you are; under them what the header's right click offers, as cards too.
+   the colour of where you are; under them where it goes: a card a setting, its two choices a
+   segmented control at the right, recessed like a Claude's well, the one in use a small picked
+   card; then the switches and what the header's right click offers, as cards too.
    (A card's gap is set in code, card(): GTK 3 ignores CSS margins on a button.) */
-button.cw-setting {{ background-color: rgba(62,62,68,0.84); background-image: none; border: 1px solid rgba(255,255,255,0.10);
+.cw-setting {{ background-color: rgba(62,62,68,0.84); background-image: none; border: 1px solid rgba(255,255,255,0.10);
   border-radius: 16px; padding: 8px 12px; box-shadow: none; text-shadow: none; -gtk-icon-shadow: none; outline-style: none;
   transition: background-color 160ms ease-out, border-color 160ms ease-out; }}
 button.cw-setting:hover {{ background-color: rgba(80,80,88,0.92); }}
 button.cw-setting.picked {{ background-color: rgba(40,92,116,0.88); border-color: rgba(100,210,255,0.45); }}
 button.cw-setting.picked:hover {{ background-color: rgba(48,104,130,0.92); }}
+.cw-seg {{ background-color: rgba(22,22,26,0.5); border-radius: 9px; padding: 2px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); }}
+button.cw-seg-item {{ min-height: 20px; min-width: 0; padding: 1px 8px; margin: 0; border: 1px solid transparent;
+  border-radius: 7px; background: none; background-image: none; box-shadow: none; text-shadow: none;
+  -gtk-icon-shadow: none; outline-style: none; color: rgba(235,235,245,0.62); font-size: 12px; font-weight: 600;
+  transition: background-color 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out; }}
+button.cw-seg-item:hover {{ background-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.92); }}
+button.cw-seg-item.picked {{ background-color: rgba(40,92,116,0.95); border-color: rgba(100,210,255,0.45); color: #ffffff; }}
+button.cw-seg-item.picked:hover {{ background-color: rgba(48,104,130,0.95); }}
+button.cw-seg-item:focus {{ outline-style: solid; outline-width: 2px; outline-offset: -2px; outline-color: rgba(100,210,255,0.55); }}
 .cw-theme-pic {{ border-radius: 6px; }}
 .cw-setting-check {{ color: #64d2ff; }}
 .cw-setting-icon {{ color: rgba(235,235,245,0.6); }}
@@ -558,21 +570,44 @@ class SettingsPanel(Gtk.Box):
         (ctx.add_class if icon == "object-select-symbolic" else ctx.remove_class)("cw-setting-check")
 
     def set_places(self, choices: list):
-        """The side and screen cards, (key, value, title, picked) each (place_choices)."""
+        """A card per setting of where the sidebar goes, its choices a segmented control:
+        (key, title, now, [(value, label)]) each (place_choices). The card is a box, not a
+        button: its segments are the buttons."""
         for child in self.places_box.get_children():
             self.places_box.remove(child)
         self.places_head.set_visible(bool(choices))
-        for key, value, title, picked in choices:
+        for key, title, now, options in choices:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            row.pack_start(self._label(title, "cw-history-title"), True, True, 0)
-            check = Gtk.Image.new_from_icon_name("object-select-symbolic", Gtk.IconSize.MENU)
-            check.get_style_context().add_class("cw-setting-check")
-            check.set_opacity(1.0 if picked else 0.0)
-            row.pack_start(check, False, False, 0)
-            btn = self._card(row, lambda k=key, v=value: self.pick_place(k, v))
-            if picked:
-                btn.get_style_context().add_class("picked")
-            self.places_box.pack_start(btn, False, False, 0)
+            row.get_style_context().add_class("cw-setting")
+            card(row)
+            row.set_margin_top(4)
+            row.set_margin_bottom(4)
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, valign=Gtk.Align.CENTER)
+            texts.pack_start(self._label(title, "cw-history-title"), False, False, 0)
+            if now not in [value for value, _ in options]:  # ("largest", a model: config.json's word)
+                texts.pack_start(self._label(now, "cw-history-sub"), False, False, 0)
+            row.pack_start(texts, True, True, 0)
+            seg = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, homogeneous=True, valign=Gtk.Align.CENTER)
+            seg.get_style_context().add_class("cw-seg")
+            for value, text in options:
+                btn = Gtk.Button(label=text, relief=Gtk.ReliefStyle.NONE)
+                btn.get_style_context().add_class("cw-seg-item")
+                if value == now:
+                    btn.get_style_context().add_class("picked")
+                btn.connect("clicked", lambda b, k=key, v=value, s=seg, t=texts: self._pick_segment(s, b, t, k, v))
+                seg.pack_start(btn, True, True, 0)
+            row.pack_start(seg, False, False, 0)
+            row.show_all()
+            self.places_box.pack_start(row, False, False, 0)
+
+    def _pick_segment(self, seg, btn, texts, key: str, value: str):
+        """The pick shows at once; the sidebar follows half a second later (set_place)."""
+        for child in seg.get_children():
+            child.get_style_context().remove_class("picked")
+        btn.get_style_context().add_class("picked")
+        for extra in texts.get_children()[1:]:  # (config.json's word for the screen, now replaced)
+            texts.remove(extra)
+        self.pick_place(key, value)
 
     def set_themes(self, choices: list, picked: str):
         for child in self.themes_box.get_children():

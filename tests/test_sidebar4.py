@@ -83,12 +83,14 @@ class CommonTest(unittest.TestCase):
         self.assertEqual(sidebar_common.dock_side({"side": "right"}), "right")
         self.assertEqual(sidebar_common.dock_side({"side": "top"}), "left")
         one = sidebar_common.place_choices({"side": "right", "monitor": "leftmost"}, 1)
-        self.assertEqual([(k, v, picked) for k, v, _t, picked in one], [("side", "left", False), ("side", "right", True)])
+        self.assertEqual([(k, now, [v for v, _l in options]) for k, _t, now, options in one],
+                         [("side", "right", ["left", "right"])])
         two = sidebar_common.place_choices({"monitor": "rightmost"}, 2)
-        self.assertEqual([v for _k, v, _t, picked in two if picked], ["left", "rightmost"])
-        # a screen config.json names by its model has no card picked
-        self.assertEqual([v for k, v, _t, picked in sidebar_common.place_choices({"monitor": "Acer"}, 2)
-                          if k == "monitor" and picked], [])
+        self.assertEqual([(k, now) for k, _t, now, _o in two], [("side", "left"), ("monitor", "rightmost")])
+        # a screen config.json names by its model matches no segment: the row says it
+        _k, _t, now, options = sidebar_common.place_choices({"monitor": "Acer"}, 2)[1]
+        self.assertEqual(now, "Acer")
+        self.assertNotIn(now, [v for v, _l in options])
 
     def test_picking_a_place_saves_it_and_restarts_the_sidebar_there(self):
         logic = sidebar_common.SidebarLogic()

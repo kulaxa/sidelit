@@ -247,13 +247,25 @@ button.cw-older {{ color: rgba(235,235,245,0.7); font-size: 12px; font-weight: 6
 button.cw-older:hover {{ background: rgba(255,255,255,0.12); color: #ffffff; }}
 /* The settings are a view like the history: the gear swaps the cards for them and the header
    for "← Settings". Every theme a card with a small picture of it, the one in use ringed in
-   the colour of where you are; under them what the header's right click offers, as cards too. */
-button.cw-setting {{ background-color: rgba(62,62,68,0.84); border: 1px solid rgba(255,255,255,0.10);
+   the colour of where you are; under them where it goes: a card a setting, its two choices a
+   segmented control at the right, recessed like a Claude's well, the one in use a small picked
+   card; then the switches and what the header's right click offers, as cards too. */
+.cw-setting {{ background-color: rgba(62,62,68,0.84); border: 1px solid rgba(255,255,255,0.10);
   border-radius: 16px; margin: 4px 8px; padding: 8px 12px; box-shadow: none; text-shadow: none; outline: none;
   transition: background-color 160ms ease-out, border-color 160ms ease-out; }}
 button.cw-setting:hover {{ background-color: rgba(80,80,88,0.92); }}
 button.cw-setting.picked {{ background-color: rgba(40,92,116,0.88); border-color: rgba(100,210,255,0.45); }}
 button.cw-setting.picked:hover {{ background-color: rgba(48,104,130,0.92); }}
+.cw-seg {{ background-color: rgba(22,22,26,0.5); border-radius: 9px; padding: 2px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); }}
+button.cw-seg-item {{ min-height: 20px; min-width: 0; padding: 1px 8px; margin: 0; border: 1px solid transparent;
+  border-radius: 7px; background: none; box-shadow: none; text-shadow: none; outline: none;
+  color: rgba(235,235,245,0.62); font-size: 12px; font-weight: 600;
+  transition: background-color 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out; }}
+button.cw-seg-item:hover {{ background-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.92); }}
+button.cw-seg-item.picked {{ background-color: rgba(40,92,116,0.95); border-color: rgba(100,210,255,0.45); color: #ffffff; }}
+button.cw-seg-item.picked:hover {{ background-color: rgba(48,104,130,0.95); }}
+button.cw-seg-item:focus-visible {{ outline: 2px solid rgba(100,210,255,0.55); outline-offset: -2px; }}
 .cw-theme-pic {{ border-radius: 6px; }}
 .cw-setting-check {{ color: #64d2ff; }}
 .cw-setting-icon {{ color: rgba(235,235,245,0.6); }}
@@ -655,26 +667,43 @@ class SettingsPanel(Gtk.Box):
         (image.add_css_class if icon == "object-select-symbolic" else image.remove_css_class)("cw-setting-check")
 
     def set_places(self, choices: list):
-        """The side and screen cards, (key, value, title, picked) each (place_choices)."""
+        """A card per setting of where the sidebar goes, its choices a segmented control:
+        (key, title, now, [(value, label)]) each (place_choices). The card is a box, not a
+        button: its segments are the buttons."""
         clear(self.places_box)
         self.places_head.set_visible(bool(choices))
-        for key, value, title, picked in choices:
+        for key, title, now, options in choices:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            row.add_css_class("cw-setting")
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True, valign=Gtk.Align.CENTER)
             name = label(title, "cw-history-title")
-            name.set_hexpand(True)
             name.set_ellipsize(Pango.EllipsizeMode.END)
-            row.append(name)
-            check = Gtk.Image.new_from_icon_name("object-select-symbolic")
-            check.add_css_class("cw-setting-check")
-            check.set_opacity(1.0 if picked else 0.0)
-            row.append(check)
-            btn = Gtk.Button()
-            btn.set_child(row)
-            btn.add_css_class("cw-setting")
-            if picked:
-                btn.add_css_class("picked")
-            btn.connect("clicked", lambda *_, k=key, v=value: self.pick_place(k, v))
-            self.places_box.append(btn)
+            texts.append(name)
+            if now not in [value for value, _ in options]:  # ("largest", a model: config.json's word)
+                sub = label(now, "cw-history-sub")
+                sub.set_ellipsize(Pango.EllipsizeMode.END)
+                texts.append(sub)
+            row.append(texts)
+            seg = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, homogeneous=True, valign=Gtk.Align.CENTER)
+            seg.add_css_class("cw-seg")
+            for value, text in options:
+                btn = Gtk.Button(label=text)
+                btn.add_css_class("cw-seg-item")
+                if value == now:
+                    btn.add_css_class("picked")
+                btn.connect("clicked", lambda b, k=key, v=value, s=seg, t=texts: self._pick_segment(s, b, t, k, v))
+                seg.append(btn)
+            row.append(seg)
+            self.places_box.append(row)
+
+    def _pick_segment(self, seg, btn, texts, key: str, value: str):
+        """The pick shows at once; the sidebar follows half a second later (set_place)."""
+        for child in children(seg):
+            child.remove_css_class("picked")
+        btn.add_css_class("picked")
+        for extra in children(texts)[1:]:  # (config.json's word for the screen, now replaced)
+            texts.remove(extra)
+        self.pick_place(key, value)
 
     def set_themes(self, choices: list, picked: str):
         clear(self.themes_box)

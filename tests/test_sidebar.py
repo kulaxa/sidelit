@@ -118,8 +118,9 @@ class SettingsPanelTest(unittest.TestCase):
     LONG = "a label far too long for the sidebar, which would widen it if it asked for all of it"
 
     def setUp(self):
-        self.picked, self.flipped, self.ran = [], [], []
-        self.panel = sidebar.SettingsPanel(self.picked.append, [(f"Restore after login, {self.LONG}", "restore_on_login")],
+        self.picked, self.placed, self.flipped, self.ran = [], [], [], []
+        self.panel = sidebar.SettingsPanel(self.picked.append, lambda k, v: self.placed.append((k, v)),
+                                           [(f"Restore after login, {self.LONG}", "restore_on_login")],
                                            lambda k, on: self.flipped.append((k, on)),
                                            [(f"Put everything back, {self.LONG}", "view-refresh-symbolic",
                                              lambda: self.ran.append("put back"))])
@@ -146,8 +147,24 @@ class SettingsPanelTest(unittest.TestCase):
         self.assertEqual(self.ran, ["put back"])
 
     def test_long_labels_do_not_widen_the_sidebar(self):
+        self.panel.set_places(sidebar.place_choices({"monitor": self.LONG}, 2))
         self.panel.show_all()
         self.assertLessEqual(self.panel.get_preferred_width()[0], 280)
+
+    def test_a_segment_shows_the_place_in_use_and_a_click_picks_another(self):
+        self.panel.set_places(sidebar.place_choices({"side": "left", "monitor": "largest"}, 2))
+        side, screen = self.panel.places_box.get_children()
+        segments = [row.get_children()[1].get_children() for row in (side, screen)]
+        picked = [[b.get_style_context().has_class("picked") for b in seg] for seg in segments]
+        self.assertEqual(picked, [[True, False], [False, False]])  # ("largest": neither, and said)
+        self.assertEqual([lbl.get_text() for lbl in screen.get_children()[0].get_children()], ["Screen", "largest"])
+        segments[1][1].clicked()
+        self.assertEqual(self.placed, [("monitor", "rightmost")])
+        self.assertTrue(segments[1][1].get_style_context().has_class("picked"))
+        self.assertEqual(len(screen.get_children()[0].get_children()), 1)
+        # one screen: only the side
+        self.panel.set_places(sidebar.place_choices({}, 1))
+        self.assertEqual(len(self.panel.places_box.get_children()), 1)
 
 
 @unittest.skipIf(sidebar is None, "needs GTK 3 and gtk-layer-shell")
