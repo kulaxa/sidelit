@@ -163,8 +163,8 @@
   workspaces it appends there) go back to their workspaces; they stay remembered as belonging on
   the missing screen and move back when it returns. The daemon has no window of its own, so a
   screen change cannot take it down; the sidebar restarts itself onto the screen config
-  `monitor` picks (`leftmost`, `largest`, or a model or maker substring), and follows when you
-  rearrange or resize screens and a different one becomes the pick.
+  `monitor` picks (`leftmost`, `rightmost`, `largest`, or a model or maker substring), and
+  follows when you rearrange or resize screens and a different one becomes the pick.
 - **Why did that happen?** Every decision is journaled (`~/.local/state/sidelit/journal.jsonl`):
   `sidelit why Home` shows what was kept, moved, forgotten or started on the workspace called
   Home, and why.

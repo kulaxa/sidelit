@@ -49,8 +49,8 @@ else:
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402,F401 (names the tests and older callers use)
     FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items, box_classes,
-    box_room, close_question, countdown, reset_line, day_label, group_blocks, group_items, history_lines, item_sub, matches,
-    model_css, tab_classes, tab_info, tab_snapshot, update_line, usage_level,
+    box_room, close_question, countdown, reset_line, day_label, dock_side, group_blocks, group_items, history_lines, item_sub, matches,
+    model_css, place_choices, tab_classes, tab_info, tab_snapshot, update_line, usage_level,
 )
 
 FONT = "'Inter', 'SF Pro Text', 'Fira Sans', 'Cantarell', 'Noto Sans', sans-serif"
@@ -471,17 +471,24 @@ def svg_image(svg: bytes, width: int, height: int, scale: int = 1) -> Gtk.Image 
 class SettingsPanel(Gtk.Box):
     """The gear's view, in place of the workspaces like the history: the themes, each a card
     with a small picture of it (themes.preview), the one in use ringed; picking one wears it at
-    once. Then the switches, each a card that flips it, and the sidebar's own actions.
-    `pick_theme(name)`, `switches` [(text, config key)] flipped by `flip(key, on)`,
-    `actions` [(text, icon, fn)]."""
+    once. Then where the sidebar goes (its side, its screen), the switches, each a card that
+    flips it, and the sidebar's own actions.
+    `pick_theme(name)`, `pick_place(key, value)`, `switches` [(text, config key)] flipped by
+    `flip(key, on)`, `actions` [(text, icon, fn)]."""
 
-    def __init__(self, pick_theme, switches: list, flip, actions: list):
+    def __init__(self, pick_theme, pick_place, switches: list, flip, actions: list):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.pick_theme = pick_theme
+        self.pick_theme, self.pick_place = pick_theme, pick_place
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.pack_start(self._label("THEME", "cw-history-day"), False, False, 0)
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.pack_start(self.themes_box, False, False, 0)
+        # (hidden where the sidebar cannot be moved yet: set_places with no choices)
+        self.places_head = self._label("POSITION", "cw-history-day")
+        self.places_head.set_no_show_all(True)
+        content.pack_start(self.places_head, False, False, 0)
+        self.places_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.pack_start(self.places_box, False, False, 0)
         content.pack_start(self._label("OPTIONS", "cw-history-day"), False, False, 0)
         self.switches = {}
         for text, key in switches:
@@ -550,6 +557,23 @@ class SettingsPanel(Gtk.Box):
         ctx = image.get_style_context()
         (ctx.add_class if icon == "object-select-symbolic" else ctx.remove_class)("cw-setting-check")
 
+    def set_places(self, choices: list):
+        """The side and screen cards, (key, value, title, picked) each (place_choices)."""
+        for child in self.places_box.get_children():
+            self.places_box.remove(child)
+        self.places_head.set_visible(bool(choices))
+        for key, value, title, picked in choices:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            row.pack_start(self._label(title, "cw-history-title"), True, True, 0)
+            check = Gtk.Image.new_from_icon_name("object-select-symbolic", Gtk.IconSize.MENU)
+            check.get_style_context().add_class("cw-setting-check")
+            check.set_opacity(1.0 if picked else 0.0)
+            row.pack_start(check, False, False, 0)
+            btn = self._card(row, lambda k=key, v=value: self.pick_place(k, v))
+            if picked:
+                btn.get_style_context().add_class("picked")
+            self.places_box.pack_start(btn, False, False, 0)
+
     def set_themes(self, choices: list, picked: str):
         for child in self.themes_box.get_children():
             self.themes_box.remove(child)
@@ -607,7 +631,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
             GtkLayerShell.init_for_window(self)
             GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
             GtkLayerShell.set_namespace(self, "sidelit")
-            for edge in (GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM):
+            docked = GtkLayerShell.Edge.RIGHT if dock_side(self.cfg) == "right" else GtkLayerShell.Edge.LEFT
+            for edge in (docked, GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM):
                 GtkLayerShell.set_anchor(self, edge, True)
             GtkLayerShell.set_exclusive_zone(self, width)
             if self._monitor is not None:
@@ -742,7 +767,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.views.add_named(scroller, "workspaces")
         self.history = HistoryPanel(self._pick_history, lambda: self._show_history(False))
         self.views.add_named(self.history, "history")
-        self.settings = SettingsPanel(self._pick_theme, [
+        self.settings = SettingsPanel(self._pick_theme, self.set_place, [
             ("Restore after login", "restore_on_login"),
             ("Reopen crashed windows", "relaunch"),
         ], self.set_option, [
@@ -821,6 +846,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
             return max(mons, key=lambda m: m.get_geometry().width * m.get_geometry().height)
         if rule == "leftmost":
             return min(mons, key=lambda m: (m.get_geometry().x, m.get_geometry().y))
+        if rule == "rightmost":
+            return max(mons, key=lambda m: (m.get_geometry().x + m.get_geometry().width, -m.get_geometry().y))
         for m in mons:
             if rule.lower() in (m.get_model() or "").lower() or rule.lower() in (m.get_manufacturer() or "").lower():
                 return m
@@ -872,6 +899,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.header_title.set_margin_start(2 if away else 8)
         if view == "settings":
             self.settings.set_themes(themes.choices(), themes.chosen(self.cfg))
+            # (only a layer surface takes its side and screen so far; X11's dock and GNOME's
+            # extension keep it on the left of the leftmost screen)
+            screens = Gdk.Display.get_default().get_n_monitors()
+            self.settings.set_places(place_choices(self.cfg, screens) if GtkLayerShell is not None else [])
             self.settings.set_switches(self.cfg)
         self.views.set_visible_child_name(view)
 
