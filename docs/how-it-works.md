@@ -68,7 +68,7 @@ the sidebar hides those controls. What each desktop's quirks mean for you is in
   signal, and the workspace and window actions), and `sidebar.js` starts the sidebar while the
   daemon holds `io.github.kulaxa.sidelit`, the way Desktop Icons NG runs its window: GNOME then
   knows that window as its own and makes it a dock (every workspace, above windows, out of the
-  overview, the dash and Alt+Tab), and an invisible strip at the left edge, counted like the top
+  overview, the dash and Alt+Tab), and an invisible strip at its edge (left or right), counted like the top
   bar, keeps windows beside it.
 - **Hyprland.** `hyprland.py` talks to Hyprland's two sockets (in
   `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/`): `.socket.sock` for requests

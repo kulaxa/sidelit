@@ -6,8 +6,9 @@
 // layer shell); GNOME has none, so the way Desktop Icons NG runs its own window, this
 // extension starts the sidebar itself and tells GNOME that window is a dock: on every
 // workspace, above other windows, out of the overview, the dash and Alt+Tab. An invisible
-// strip at the left edge, which GNOME counts like the top bar, keeps maximized windows
-// beside it. A dock or panel already on the left keeps its place; the sidebar goes next to it.
+// strip at the screen's left edge (or its right one, as the sidebar asks), which GNOME counts
+// like the top bar, keeps maximized windows beside it. A dock or panel already on that edge
+// keeps its place; the sidebar goes next to it.
 //
 // The sidebar runs while Sidelit's daemon does (it owns io.github.kulaxa.sidelit on the
 // session bus). It is the program `sidelit` from ~/.local/bin, the PATH or /usr/bin, run as
@@ -57,7 +58,8 @@ export class SidebarHost {
         this._restartId = 0;
         this._window = null;          // its main window, once it has shown
         this._waiting = new Set();    // its windows that may still turn into the main one (no title yet)
-        this._output = '';            // the screen the sidebar asked for (PlaceSidebar)
+        this._output = '';            // the screen the sidebar asked for (PlaceSidebar, PlaceSidebarAt)
+        this._side = 'left';          // and the edge: 'left' or 'right'
         this._connectors = null;     // the monitors' connector names, until they change
         this._strip = null;           // the invisible actor that reserves the strip
         this._dropStripId = 0;
@@ -130,10 +132,11 @@ export class SidebarHost {
         }
     }
 
-    place(pid, output) {
+    place(pid, output, side) {
         if (!this.isSidebarProcess(pid))
             return false;
         this._output = output;
+        this._side = side === 'right' ? 'right' : 'left';
         this._place();
         return true;
     }
@@ -304,29 +307,41 @@ export class SidebarHost {
         this.onWindowChanged?.();
     }
 
+    /**
+     * The monitor the sidebar asked for: by its connector name, else by Sidelit's rule for it
+     * ('rightmost', 'largest'; the GTK 3 sidebar knows no connector names), else the leftmost,
+     * Sidelit's default.
+     *
+     * @returns {number}
+     */
     _monitorIndex() {
         const monitors = Main.layoutManager.monitors;
         this._connectors ??= connectors();
         const named = this._output ? this._connectors.indexOf(this._output) : -1;
         if (named >= 0)
             return named;
-        let best = 0;  // Sidelit's default: the leftmost screen
+        const better = {
+            rightmost: (m, b) => m.x + m.width > b.x + b.width || (m.x + m.width === b.x + b.width && m.y < b.y),
+            largest: (m, b) => m.width * m.height > b.width * b.height,
+        }[this._output] ?? ((m, b) => m.x < b.x || (m.x === b.x && m.y < b.y));
+        let best = 0;
         monitors.forEach((m, i) => {
-            const b = monitors[best];
-            if (m.x < b.x || (m.x === b.x && m.y < b.y))
+            if (better(m, monitors[best]))
                 best = i;
         });
         return best;
     }
 
     /**
-     * How far from the monitor's left edge other things already reserve space (a dock, a
-     * panel): the sidebar goes right of them. GNOME Shell keeps no list of them but its own.
+     * How far from the monitor's left (or right) edge other things already reserve space (a
+     * dock, a panel): the sidebar goes beside them. GNOME Shell keeps no list of them but its own.
      *
      * @param {object} monitor - its geometry
+     * @param {string} side - 'left' or 'right'
      * @returns {number}
      */
-    _leftInset(monitor) {
+    _inset(monitor, side) {
+        const left = monitor.x, right = monitor.x + monitor.width;
         let inset = 0;
         for (const data of Main.layoutManager._trackedActors ?? []) {
             if (!data.affectsStruts || data.actor === this._strip)
@@ -334,11 +349,14 @@ export class SidebarHost {
             const [x, y] = data.actor.get_transformed_position();
             const [w, h] = data.actor.get_transformed_size();
             const x1 = Math.round(x), x2 = Math.round(x + w), y1 = Math.round(y), y2 = Math.round(y + h);
-            // along the left edge, not across the whole width (a top or bottom bar), and on this monitor
-            if (x1 > monitor.x || x2 <= monitor.x || x2 >= monitor.x + monitor.width ||
-                y2 <= monitor.y || y1 >= monitor.y + monitor.height)
+            // on this monitor, and not across its whole width (a top or bottom bar)
+            if (y2 <= monitor.y || y1 >= monitor.y + monitor.height || (x1 <= left && x2 >= right))
                 continue;
-            inset = Math.max(inset, x2 - monitor.x);
+            // along that edge
+            if (side === 'right' && x1 < right && x2 >= right)
+                inset = Math.max(inset, right - x1);
+            else if (side !== 'right' && x1 <= left && x2 > left)
+                inset = Math.max(inset, x2 - left);
         }
         return inset;
     }
@@ -365,11 +383,14 @@ export class SidebarHost {
         const width = now.width;
         if (width <= 0)
             return;  // (not drawn yet: it says how wide it is with its first frame)
-        const inset = this._leftInset(monitor);
-        this._reserve(monitor.x, monitor.y, inset + width, monitor.height);
+        // the strip from the screen's edge, over a dock already there, to the sidebar's far side
+        const inset = this._inset(monitor, this._side);
+        const right = this._side === 'right';
+        const stripX = right ? monitor.x + monitor.width - inset - width : monitor.x;
+        this._reserve(stripX, monitor.y, inset + width, monitor.height);
         // from below the top bar to the bottom of what windows may use
         const area = Main.layoutManager.getWorkAreaForMonitor(index);
-        const [x, y, h] = [monitor.x + inset, area.y, area.height];
+        const [x, y, h] = [right ? stripX : monitor.x + inset, area.y, area.height];
         if (now.x !== x || now.y !== y || now.height !== h)
             win.move_resize_frame(false, x, y, width, h);
     }

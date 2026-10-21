@@ -54,7 +54,7 @@ And on X11:
 
 - **Cinnamon** (Linux Mint's default), **Xfce** and **MATE**, or any other window manager that
   keeps the standard EWMH hints (Openbox, Budgie's): workspaces are the window manager's
-  desktops, and the sidebar is a panel on the left that maximised windows stop beside. As on
+  desktops, and the sidebar is a panel on the left (or right) that maximised windows stop beside. As on
   KDE, desktops stay until you remove them, so there is no pinning, and they cannot be
   reordered, so tabs cannot be dragged.
 - Not on X11: KDE Plasma and GNOME (use their Wayland sessions). Not on Wayland: Cinnamon's
@@ -89,8 +89,8 @@ Claude session.
 GNOME lets no app see or arrange other windows, and has no place for a panel like
 the sidebar, so Sidelit's GNOME Shell extension does both: it lists the workspaces and windows
 for the daemon and switches, keeps and moves them when it asks, and it runs the sidebar, docked
-on the left of every workspace with that strip kept free (beside Ubuntu's dock when that is on
-the left). `sidelit stop` makes it take the sidebar away and free the strip. It stays on while
+on the left (or right) of every workspace with that strip kept free (beside Ubuntu's dock when
+that is on the same side). `sidelit stop` makes it take the sidebar away and free the strip. It stays on while
 the screen is locked, so the workspaces Sidelit keeps are still there when you come back, and
 changes nothing then. An empty workspace disappears unless Sidelit keeps it (it keeps each one
 you work on, as on COSMIC); with a fixed number of workspaces (Settings → Multitasking), '+'
@@ -106,8 +106,11 @@ turned off and on, it numbers its workspaces anew and the client gives each one 
 had, by position and the windows on it. Window ids are GNOME's own and the pids come with them.
 The extension uses GNOME Shell internals in two places, both checked against GNOME 46, 48, 50
 and 51: the workspace tracker's `_checkWorkspaces` (to keep pinned workspaces) and the layout
-manager's tracked chrome (to put the sidebar beside a dock already on the left). Each GNOME
-release (every six months) needs the extension's `shell-version` raised after a check.
+manager's tracked chrome (to put the sidebar beside a dock already on its side). Each GNOME
+release (every six months) needs the extension's `shell-version` raised after a check. The
+sidebar tells the extension its screen and side with `PlaceSidebarAt`; an extension GNOME Shell
+loaded before an update has `PlaceSidebar` alone, and the sidebar falls back to it (on the left)
+until the next login.
 
 ### Hyprland
 
@@ -197,7 +200,10 @@ release (every six months) needs the extension's `shell-version` raised after a 
   to none of the tabs.
 - **Screens.** A window is on the screen its middle is on, and goes to another one with
   `_NET_MOVERESIZE_WINDOW` (a maximised one is maximised there again). The sidebar's strip is
-  reserved from the left edge of the whole X screen, so it belongs on the leftmost screen (the
-  `monitor` default); it leaves room for the desktop's own panels.
+  reserved from the left edge of the whole X screen, or on the right side from its right edge:
+  so on the left it belongs on the leftmost screen (the `monitor` default), on the right on the
+  rightmost one. Elsewhere (between two screens) it docks, but windows can go under it, and the
+  sidebar says so. It leaves room for the desktop's own panels at the top and bottom, not for a
+  panel already on its side.
 - **Login.** The window manager starting (cinnamon, xfwm4, marco…) is what tells the daemon to
   bring windows back.

@@ -7,9 +7,11 @@ re-reads it.
 - `monitor`: the sidebar's screen, `leftmost`, `rightmost`, `largest`, or a model or maker
   substring.
 - `side`: the screen edge it docks at, `left` or `right`. The settings (the gear) pick both, the
-  side and, with more than one screen, the leftmost or rightmost one; the sidebar starts over
-  there at once. So far only where it is a layer-shell panel (COSMIC, KDE, Hyprland, niri, sway):
-  on GNOME and X11 it stays on the left, and the settings do not offer it.
+  side and, with more than one screen, the leftmost or rightmost one; the sidebar moves there at
+  once. On X11 maximised windows stop beside it only on the outer edges of all your screens
+  together (the left of the leftmost one, the right of the rightmost one); elsewhere they can go
+  under it, and the sidebar says so. On GNOME, after an update from a Sidelit that had no `side`,
+  it stays on the left until you log out and back in, which loads the updated extension.
 - `sidebar`: `auto`, `gtk4` or `gtk3` (see [the GTK 4 sidebar](install.md#the-gtk-4-sidebar-optional)).
 - `theme`: the sidebar's look, also picked in the settings (the gear at the top of the sidebar),
   which saves it here and changes the look at once: `default` (the usual look) or `halloween`

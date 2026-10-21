@@ -144,21 +144,47 @@ def hosted() -> bool:
     return os.environ.get(HOSTED_ENV) == "gnome"
 
 
-def _sidebar_call(method: str, args: GLib.Variant | None = None) -> bool:
+def _sidebar_call(method: str, args: GLib.Variant | None = None, bus: Gio.DBusConnection | None = None,
+                  unknown_ok: bool = False) -> bool | None:
+    """Call the extension for the sidebar: its answer, False when the call failed (it is said
+    why), and with `unknown_ok` None when the extension is there but has no such method (an
+    older one)."""
     try:
-        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        bus = bus or Gio.bus_get_sync(Gio.BusType.SESSION, None)
         reply = bus.call_sync(SHELL, PATH, IFACE, method, args, GLib.VariantType("(b)"),
                               Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
         return bool(reply.unpack()[0])
     except GLib.Error as exc:
+        # (GDBus says UnknownMethod for a missing object too, but names the method only when
+        # the object is there without it: "No such method “PlaceSidebarAt”")
+        text = exc.message or ""
+        if unknown_ok and "org.freedesktop.DBus.Error.UnknownMethod" in text and method in text:
+            return None
         print(f"sidebar: GNOME Shell: {method}: {exc.message}", file=sys.stderr, flush=True)
         return False
 
 
-def place_sidebar(connector: str) -> bool:
-    """Ask the extension to keep this sidebar on the screen `connector` ('' for the leftmost).
-    The strip it keeps free is as wide as the sidebar's window."""
-    return _sidebar_call("PlaceSidebar", GLib.Variant("(s)", (connector or "",)))
+# the screens the extension picks by itself, for the GTK 3 sidebar, which knows no connector names
+SCREEN_RULES = ("leftmost", "rightmost", "largest")
+
+
+def place_sidebar(output: str, side: str = "left", bus: Gio.DBusConnection | None = None) -> str:
+    """Ask the extension to keep this sidebar on the screen `output` (its connector name, or one
+    of SCREEN_RULES for the extension to pick; '' is the leftmost), at its `side` edge, left or
+    right. The strip it keeps free is as wide as the sidebar's window. The side it is docked on
+    ('' when the extension did not place it).
+
+    An extension from before the side (an update installed the new one, but GNOME Shell keeps
+    running the one it loaded at login) has PlaceSidebar alone, which docks on the left: of the
+    screen named, else of the leftmost one."""
+    side = "right" if side == "right" else "left"
+    done = _sidebar_call("PlaceSidebarAt", GLib.Variant("(ss)", (output or "", side)), bus, unknown_ok=True)
+    if done is None:
+        print("sidebar: GNOME Shell runs Sidelit's extension from before the sidebar could go on the right: "
+              "it docks it on the left until you log out and back in", file=sys.stderr, flush=True)
+        connector = "" if output in SCREEN_RULES else output or ""
+        return "left" if _sidebar_call("PlaceSidebar", GLib.Variant("(s)", (connector,)), bus) else ""
+    return side if done else ""
 
 
 def focus_sidebar() -> bool:

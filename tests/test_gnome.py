@@ -416,6 +416,41 @@ class AgainstFakeGnome(unittest.TestCase):
                                         "NameHasOwner", GLib.Variant("(s)", (gnome.BUS_NAME,)), None, 0, -1, None)
         self.assertFalse(owner.unpack()[0])
 
+    # ---- the sidebar's place -----------------------------------------------------------------
+    def test_the_sidebar_says_its_screen_and_side(self):
+        self.start_fake()
+        bus = self.connect()
+        self.assertEqual(gnome.place_sidebar("HDMI-A-1", "right", bus=bus), "right")
+        self.assertEqual(self.state()["placed"], ["HDMI-A-1", "right"])
+        # the GTK 3 sidebar knows no connector names: the extension picks the screen by the rule
+        self.assertEqual(gnome.place_sidebar("rightmost", "left", bus=bus), "left")
+        self.assertEqual(self.state()["placed"], ["rightmost", "left"])
+        self.assertNotIn("PlaceSidebar", self.state()["log"])
+        bus.close_sync(None)
+
+    def test_an_extension_from_before_the_side_docks_it_on_the_left(self):
+        """GNOME Shell keeps running the extension it loaded at login, after an update installed
+        a newer one: it has PlaceSidebar alone."""
+        self.start_fake("--old")
+        bus = self.connect()
+        with redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(gnome.place_sidebar("HDMI-A-1", "right", bus=bus), "left")
+            self.assertEqual(self.state()["placed"], ["HDMI-A-1", "left"])
+            # a rule is no connector to it: '' is its leftmost screen
+            self.assertEqual(gnome.place_sidebar("rightmost", "right", bus=bus), "left")
+            self.assertEqual(self.state()["placed"], ["", "left"])
+        self.assertIn("log out and back in", err.getvalue())
+        bus.close_sync(None)
+
+    def test_without_the_extension_the_sidebar_is_not_placed(self):
+        self.start_fake("--off")
+        bus = self.connect()
+        with redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(gnome.place_sidebar("HDMI-A-1", "right", bus=bus), "")
+        self.assertNotIn("log out", err.getvalue())  # (no older extension: none at all)
+        self.assertIn("PlaceSidebarAt", err.getvalue())
+        bus.close_sync(None)
+
     def test_gnome_shell_restarting(self):
         """GNOME on X11 restarts its shell (Alt+F2 r) with the windows still there."""
         self.start_fake()

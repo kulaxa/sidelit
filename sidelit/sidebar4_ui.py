@@ -2,7 +2,7 @@
 
 Only drawing and input live here; what the sidebar does is sidebar_common.SidebarLogic.
 On GNOME there is no layer shell: the window is a plain one, which Sidelit's GNOME Shell
-extension runs and docks on the left (gnome.py).
+extension runs and docks on the side config.json picks (gnome.py).
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ else:
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
     FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question,
-    compact_wanted, countdown, reset_line, day_label, dock_side, group_blocks, history_lines, item_sub, matches, model_css,
+    compact_wanted, reset_line, day_label, dock_side, group_blocks, history_lines, item_sub, matches, model_css,
     place_choices, tab_classes, tab_snapshot, update_line, usage_level,
 )
 
@@ -662,9 +662,7 @@ class SettingsPanel(Gtk.Box):
         content.append(label("THEME", "cw-history-day"))
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.append(self.themes_box)
-        # (hidden where the sidebar cannot be moved yet: set_places with no choices)
-        self.places_head = label("POSITION", "cw-history-day")
-        content.append(self.places_head)
+        content.append(label("POSITION", "cw-history-day"))
         self.places_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.append(self.places_box)
         content.append(label("OPTIONS", "cw-history-day"))
@@ -729,7 +727,6 @@ class SettingsPanel(Gtk.Box):
         (key, title, now, [(value, label)]) each (place_choices). The card is a box, not a
         button: its segments are the buttons."""
         clear(self.places_box)
-        self.places_head.set_visible(bool(choices))
         for key, title, now, options in choices:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             row.add_css_class("cw-setting")
@@ -803,7 +800,6 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
         width = int(self.cfg["width"])
         self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
-        self._layer = layer
         if not layer:
             self.set_decorated(False)  # GNOME's extension docks it: no title bar
         if layer:
@@ -1017,10 +1013,12 @@ class Sidebar(Gtk.Window, SidebarLogic):
             self._screens_changed("screens rearranged")
 
     def _place_on_gnome(self):
-        """Tell GNOME's extension which screen the sidebar goes on."""
-        self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
+        """Tell GNOME's extension which screen the sidebar goes on, by its connector name (else
+        by config.json's rule, which the extension resolves too), and on which side."""
+        rule = str(self.cfg.get("monitor", "leftmost"))
+        self._monitor = self._pick_monitor(rule)
         connector = (self._monitor.get_connector() or "") if self._monitor is not None else ""
-        gnome.place_sidebar(connector)
+        self._tell_gnome(connector or (rule if rule in gnome.SCREEN_RULES else ""))
 
     def _on_close_request(self, *_):
         """The compositor closes a layer surface whose output vanished."""
@@ -1058,9 +1056,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.header_title.set_margin_start(2 if away else 8)
         if view == "settings":
             self.settings.set_themes(themes.choices(), themes.chosen(self.cfg))
-            # (only a layer surface takes its side and screen so far; GNOME's extension places it)
+            # (a layer surface and GNOME's extension both take its side and screen)
             screens = Gdk.Display.get_default().get_monitors().get_n_items()
-            self.settings.set_places(place_choices(self.cfg, screens) if self._layer else [])
+            self.settings.set_places(place_choices(self.cfg, screens))
             self.settings.set_switches(self.cfg)
         self.views.set_visible_child_name(view)
 

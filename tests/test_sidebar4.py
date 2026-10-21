@@ -108,6 +108,49 @@ class CommonTest(unittest.TestCase):
         logic._error.assert_called_once()
         self.assertNotIn("monitor", logic.cfg)
 
+    def test_on_gnome_the_extension_is_told_the_side(self):
+        logic = sidebar_common.SidebarLogic()
+        logic.cfg = {"side": "right"}
+        logic._footer = mock.Mock()
+        with mock.patch.object(sidebar_common.gnome, "place_sidebar", return_value="right") as place:
+            logic._tell_gnome("DP-1")
+        place.assert_called_once_with("DP-1", "right")
+        logic._footer.assert_not_called()
+        # an extension GNOME Shell loaded before an update docks it on the left: the footer says why
+        with mock.patch.object(sidebar_common.gnome, "place_sidebar", return_value="left"):
+            logic._tell_gnome("DP-1")
+        self.assertIn("log out and back in", logic._footer.call_args[0][0])
+
+    def test_on_gnome_a_pick_moves_the_sidebar_without_a_restart(self):
+        logic = sidebar_common.SidebarLogic()
+        logic._place_on_gnome, logic._footer, logic.footer = mock.Mock(), mock.Mock(), mock.Mock()
+        logic._restart_pending = True
+        logic.footer.get_text.return_value = sidebar_common.MOVING
+        logic._replace_on_gnome()
+        logic._place_on_gnome.assert_called_once()
+        logic._footer.assert_called_once_with("", 0)  # (it is there: "Moving the sidebar…" goes)
+        self.assertFalse(logic._restart_pending)
+        logic.footer.get_text.return_value = "Sidelit 0.11.0 is out"
+        logic._replace_on_gnome()
+        logic._footer.assert_called_once()  # (another message stays)
+
+    def test_on_gnome_only_restart_sidebar_restarts_it(self):
+        """A pick or a screen change re-places the window GNOME's extension docks; the menu's
+        and the settings' Restart sidebar end this process, which the extension starts again."""
+        with mock.patch.object(sidebar_common.gnome, "hosted", return_value=True), \
+                mock.patch.object(sidebar_common.GLib, "timeout_add_seconds") as soon, \
+                mock.patch.object(sidebar_common.GLib, "timeout_add") as later, \
+                mock.patch("sys.stderr"):
+            for reason, restarts in (("settings: side right", False), ("monitor added", False),
+                                     ("menu", True), ("settings", True)):
+                logic = sidebar_common.SidebarLogic()
+                logic._restart_pending = False
+                soon.reset_mock()
+                later.reset_mock()
+                logic._screens_changed(reason)
+                self.assertEqual(later.called, restarts, reason)
+                self.assertEqual(soon.called, not restarts, reason)
+
     def test_compact_goes_back_to_full_only_with_room_to_spare(self):
         # (seen live: full needs 1291 px and has 1286, compact frees 6 more: 1292; without the
         # spare it went full, then compact, many times a second)

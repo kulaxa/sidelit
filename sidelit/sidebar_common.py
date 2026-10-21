@@ -187,6 +187,7 @@ def version_tuple(text: str | None):
 # its segment says)]). The screens are offered only where there is more than one.
 PLACE_ROWS = [("side", "Side", [("left", "Left"), ("right", "Right")]),
               ("monitor", "Screen", [("leftmost", "Leftmost"), ("rightmost", "Rightmost")])]
+MOVING = "Moving the sidebar…"  # (the footer, from a pick until the sidebar is there)
 
 
 def dock_side(cfg: dict) -> str:
@@ -575,8 +576,9 @@ class SidebarLogic:
         changing output hung GTK inside a compositor round-trip; a fresh process maps its
         sidebar through the ordinary startup path. Nothing is lost: the daemon has it all.
 
-        On GNOME the extension places the window: it is only told the screen again."""
-        if gnome.hosted() and reason != "menu":
+        On GNOME the extension places the window: it is only told the screen again, unless you
+        asked for a restart (Restart sidebar, in the menu or the settings)."""
+        if gnome.hosted() and reason not in ("menu", "settings"):
             if not self._restart_pending:
                 self._restart_pending = True
                 GLib.timeout_add_seconds(1, self._replace_on_gnome)
@@ -590,7 +592,18 @@ class SidebarLogic:
     def _replace_on_gnome(self):
         self._restart_pending = False
         self._place_on_gnome()
+        if self.footer.get_text() == MOVING:  # (it is there already: no restart takes the footer away)
+            self._footer("", 0)
         return False
+
+    def _tell_gnome(self, output: str):
+        """Tell GNOME's extension the sidebar's screen (`output`, see gnome.place_sidebar) and
+        side. An extension GNOME Shell loaded before the side could be picked docks it on the
+        left: the footer says why, and what puts it right."""
+        side = dock_side(self.cfg)
+        if gnome.place_sidebar(output, side) == "left" and side == "right":
+            self._footer("The sidebar moves to the right once you log out and back in: GNOME still runs "
+                         "Sidelit's extension from before the update.", 60)
 
     def _restart_self(self):
         sys.stderr.flush()
@@ -932,7 +945,7 @@ class SidebarLogic:
             self._error("config.json is not JSON (half edited?): the sidebar stays where it is")
             return
         self.cfg[key] = value
-        self._footer("Moving the sidebar…", 10)
+        self._footer(MOVING, 10)
         self._screens_changed(f"settings: {key} {value}", delay_s=0.5)
 
     def set_option(self, key: str, on: bool):

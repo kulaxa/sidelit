@@ -1,14 +1,16 @@
 """GNOME Shell with Sidelit's extension, in miniature, for the GNOME backend's tests: it owns
 org.gnome.Shell on a private session bus and exports what gnome-extension/desktop.js does.
 
-    python3 tests/fake_gnome.py BUS_ADDRESS [--static] [--off]
+    python3 tests/fake_gnome.py BUS_ADDRESS [--static] [--off] [--old]
 
 It keeps workspaces the way GNOME does with dynamic workspaces (the default): an empty one is
 dropped unless it is pinned, the one you are on, or the first empty one after the last busy one,
 and there is always an empty one at the end (checked against a headless GNOME Shell 51 by
 tests/gnome_live.py). With --static it keeps a fixed number. /Test drives it: open, retitle and
 close windows, turn the extension off and on (new workspace ids, as the extension's are), and
-read its state. --off starts it with the extension turned off.
+read its state. --off starts it with the extension turned off. --old is an extension from before
+PlaceSidebarAt (the sidebar's side), which knows PlaceSidebar alone. Where it was asked to put
+the sidebar is in the state's "placed" ([output, side]); it does not check who asks.
 """
 from __future__ import annotations
 
@@ -35,8 +37,11 @@ SHELL_XML = f"""<node><interface name="{IFACE}">
   <method name="FocusWindow"><arg type="s" direction="in"/><arg type="b" direction="out"/></method>
   <method name="CloseWindow"><arg type="s" direction="in"/><arg type="b" direction="out"/></method>
   <method name="MoveWindow"><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="b" direction="out"/></method>
+  <method name="PlaceSidebar"><arg type="s" direction="in"/><arg type="b" direction="out"/></method>
+  <method name="PlaceSidebarAt"><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="b" direction="out"/></method>
   <signal name="Changed"><arg type="s"/></signal>
 </interface></node>"""
+OLD_SHELL_XML = "\n".join(line for line in SHELL_XML.splitlines() if "PlaceSidebarAt" not in line)
 TEST_XML = """<node><interface name="org.gnome.Shell.Test">
   <method name="OpenWindow"><arg type="s" name="spec" direction="in"/><arg type="s" direction="out"/></method>
   <method name="SetTitle"><arg type="s" name="id" direction="in"/><arg type="s" name="title" direction="in"/></method>
@@ -53,9 +58,11 @@ def _iface(xml: str):
 
 
 class FakeShell:
-    def __init__(self, address: str, static: bool, on: bool):
+    def __init__(self, address: str, static: bool, on: bool, old: bool = False):
         flags = Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION
         self.bus = Gio.DBusConnection.new_for_address_sync(address, flags, None, None)
+        self.xml = OLD_SHELL_XML if old else SHELL_XML
+        self.placed: list | None = None  # [output, side] the sidebar asked for
         self.dynamic = not static
         self.locked = False
         self.spaces: list[dict] = [{"id": str(uuid.uuid4()), "name": "", "pinned": False}
@@ -81,7 +88,7 @@ class FakeShell:
             for space in self.spaces:  # its ids and pins are its own, new every time it is turned on
                 space["id"] = str(uuid.uuid4())
                 space["pinned"] = False
-            self.ext_reg = self.bus.register_object(PATH, _iface(SHELL_XML), self.on_call, self.get_property, None)
+            self.ext_reg = self.bus.register_object(PATH, _iface(self.xml), self.on_call, self.get_property, None)
             self.emit(self.state())
         elif not on and self.ext_reg:
             self.emit({"stopped": True, "run": self.run})
@@ -255,6 +262,14 @@ class FakeShell:
             w["space"] = i
         return True
 
+    def m_PlaceSidebar(self, output):
+        self.placed = [output, "left"]
+        return True
+
+    def m_PlaceSidebarAt(self, output, side):
+        self.placed = [output, side]
+        return True
+
     # ---- /Test ------------------------------------------------------------------------------
     def on_test(self, bus, sender, path, iface, method, params, invocation):
         args = params.unpack()
@@ -290,11 +305,12 @@ class FakeShell:
             state["log"] = self.log
             state["extension"] = bool(self.ext_reg)
             state["internal_ids"] = [s.get("id") for s in self.spaces]
+            state["placed"] = self.placed
             invocation.return_value(GLib.Variant("(s)", (json.dumps(state),)))
 
 
 def main():
-    FakeShell(sys.argv[1], static="--static" in sys.argv, on="--off" not in sys.argv)
+    FakeShell(sys.argv[1], static="--static" in sys.argv, on="--off" not in sys.argv, old="--old" in sys.argv)
     GLib.MainLoop().run()
 
 

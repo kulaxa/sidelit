@@ -495,10 +495,7 @@ class SettingsPanel(Gtk.Box):
         content.pack_start(self._label("THEME", "cw-history-day"), False, False, 0)
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.pack_start(self.themes_box, False, False, 0)
-        # (hidden where the sidebar cannot be moved yet: set_places with no choices)
-        self.places_head = self._label("POSITION", "cw-history-day")
-        self.places_head.set_no_show_all(True)
-        content.pack_start(self.places_head, False, False, 0)
+        content.pack_start(self._label("POSITION", "cw-history-day"), False, False, 0)
         self.places_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.pack_start(self.places_box, False, False, 0)
         content.pack_start(self._label("OPTIONS", "cw-history-day"), False, False, 0)
@@ -575,7 +572,6 @@ class SettingsPanel(Gtk.Box):
         button: its segments are the buttons."""
         for child in self.places_box.get_children():
             self.places_box.remove(child)
-        self.places_head.set_visible(bool(choices))
         for key, title, now, options in choices:
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             row.get_style_context().add_class("cw-setting")
@@ -684,7 +680,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.set_default_size(width, 600)
         self.set_size_request(width, -1)
         if X11_DOCK:  # a dock window, as tall as its screen (after the sizes above)
-            xdock.dock(self, self._monitor, width)
+            xdock.dock(self, self._monitor, width, dock_side(self.cfg), self._strip_unreserved)
 
         self.get_style_context().add_class("cw-window")
         visual = self.get_screen().get_rgba_visual()
@@ -899,11 +895,21 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self._screens_changed("surface closed")
         return True
 
+    def _strip_unreserved(self):
+        """On X11 the sidebar's strip is kept free of windows only at the outer edges of all the
+        screens together (xdock.strut): say so where windows can now cover it (after the
+        footer's "waiting for the daemon", which connecting clears)."""
+        outer = "leftmost" if dock_side(self.cfg) == "left" else "rightmost"
+        text = f"Windows can cover the sidebar here: on X11 it keeps them off only on the {outer} screen."
+        GLib.timeout_add_seconds(2, lambda: (self._footer(text, 20), False)[1])
+
     def _place_on_gnome(self):
-        """Tell GNOME's extension the sidebar is there. GTK 3 does not know a screen's
-        connector name, so it goes on the leftmost screen."""
-        self._monitor = self._pick_monitor(str(self.cfg.get("monitor", "leftmost")))
-        gnome.place_sidebar("")
+        """Tell GNOME's extension where the sidebar goes. GTK 3 does not know a screen's
+        connector name: the extension picks the leftmost, rightmost or largest screen itself
+        (a screen named by its model is the leftmost one there)."""
+        rule = str(self.cfg.get("monitor", "leftmost"))
+        self._monitor = self._pick_monitor(rule)
+        self._tell_gnome(rule if rule in gnome.SCREEN_RULES else "")
 
     # ---- theme ------------------------------------------------------------------------------
     def _apply_theme(self):
@@ -934,10 +940,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.header_title.set_margin_start(2 if away else 8)
         if view == "settings":
             self.settings.set_themes(themes.choices(), themes.chosen(self.cfg))
-            # (only a layer surface takes its side and screen so far; X11's dock and GNOME's
-            # extension keep it on the left of the leftmost screen)
+            # (a layer surface, X11's dock and GNOME's extension all take its side and screen)
             screens = Gdk.Display.get_default().get_n_monitors()
-            self.settings.set_places(place_choices(self.cfg, screens) if GtkLayerShell is not None else [])
+            self.settings.set_places(place_choices(self.cfg, screens))
             self.settings.set_switches(self.cfg)
         self.views.set_visible_child_name(view)
 
