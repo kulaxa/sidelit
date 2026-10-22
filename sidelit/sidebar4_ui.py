@@ -35,9 +35,10 @@ else:
 
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
-    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room, close_question,
-    compact_wanted, reset_line, day_label, dock_side, group_blocks, history_lines, item_sub, matches, model_css,
-    place_choices, tab_classes, tab_snapshot, update_line, usage_level,
+    LOGO_SVG, SEPARATOR, SETTING_HINTS, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room,
+    close_question, compact_wanted, reset_line, day_label, dock_side, group_blocks, history_lines, home_path,
+    installed_apps, item_sub, make_step, matches, model_css, place_choices, step_kind, step_kinds, step_setting,
+    step_title, tab_classes, tab_snapshot, update_line, usage_level,
 )
 
 FONT = "'Inter', 'SF Pro Text', 'Fira Sans', 'Cantarell', 'Noto Sans', sans-serif"
@@ -126,9 +127,10 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab.card.attention:hover {{ box-shadow: 0 0 14px -2px rgba(255,214,10,0.22), 0 8px 20px rgba(0,0,0,0.35); }}
 .cw-head {{ padding: 1px 2px 6px 6px; }}
 .cw-card-name {{ color: rgba(235,235,245,0.45); font-size: 12px; font-weight: 600; }}
-.cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; }}
+.cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; min-height: 18px; }}
 .cw-apps {{ padding: 5px 4px 0; min-height: 18px; }}
 .cw-head-apps {{ padding: 0; min-height: 0; }}
+.cw-under-apps {{ padding: 0 2px 4px; }}
 .cw-app {{ border-radius: 6px; padding: 2px 3px; filter: grayscale(1); opacity: 0.45;
   transition: opacity 160ms ease-out, filter 160ms ease-out, background-color 160ms ease-out; }}
 .cw-tab:hover .cw-app, .cw-tab.active .cw-app {{ filter: none; opacity: 0.9; }}
@@ -178,7 +180,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab.missing .cw-name, .cw-tab.missing .cw-model {{ color: rgba(235,235,245,0.32); }}
 .cw-model {{ color: rgba(235,235,245,0.60); font-size: 85%; margin-top: 2px; }}
 .cw-path {{ color: rgba(235,235,245,0.32); font-family: {MONO}; font-size: 70%; margin-top: 1px; }}
-/* fork and close stay quiet until the pointer is on their tab */
+/* close stays quiet until the pointer is on its tab */
 button.cw-icon {{ padding: 2px 4px; min-width: 16px; min-height: 16px; border: none; background: none;
   box-shadow: none; opacity: 0.35; transition: opacity 160ms ease-out; }}
 .cw-tab:hover button.cw-icon, .cw-tab.active button.cw-icon {{ opacity: 1; }}
@@ -234,6 +236,44 @@ popover.cw-pop button.cw-ask-button {{ color: rgba(255,255,255,0.92); background
 popover.cw-pop button.cw-ask-button:hover {{ background: rgba(255,255,255,0.16); }}
 popover.cw-pop button.cw-ask-button.default {{ color: #ffffff; background: rgba(10,132,255,0.85); }}
 popover.cw-pop button.cw-ask-button.default:hover {{ background: rgba(10,132,255,1.0); }}
+/* '+' opens a panel above it (NewPopover): a row per template, by name; making and managing
+   templates are quiet rows. */
+popover.cw-new-pop > contents {{ padding: 4px; }}
+.cw-pick-head {{ color: rgba(235,235,245,0.45); font-size: 72%; font-weight: 600; letter-spacing: 0.5px;
+  padding: 8px 12px 3px; }}
+button.cw-pick {{ background: none; border: none; box-shadow: none; text-shadow: none; outline: none;
+  border-radius: 10px; padding: 5px 12px; margin: 0; }}
+button.cw-pick:hover {{ background-color: rgba(255,255,255,0.08); }}
+button.cw-pick:focus-visible {{ outline: 2px solid rgba(100,210,255,0.55); outline-offset: -2px; }}
+.cw-pick-title {{ color: rgba(255,255,255,0.92); font-size: 13px; font-weight: 600; }}
+.cw-pick-sub {{ color: rgba(235,235,245,0.5); font-size: 11.5px; }}
+button.cw-pick.quiet .cw-pick-title {{ color: rgba(235,235,245,0.62); font-weight: 500; }}
+/* The template editor is a window of its own (TemplateEditor): a step a card like a setting's,
+   its setting an entry recessed like the history's search, "Add" a pill like "Show older",
+   the installed apps a list in a panel like '+'. */
+window.cw-editor {{ background-color: #242428; color: rgba(255,255,255,0.92); }}
+.cw-editor-key {{ color: rgba(235,235,245,0.6); font-size: 12px; font-weight: 600; }}
+.cw-editor entry, .cw-editor-search {{ border-radius: 10px; border: none; outline: none; min-height: 30px; padding: 2px 10px;
+  background-color: rgba(22,22,26,0.5); box-shadow: inset 0 1px 2px rgba(0,0,0,0.25); color: rgba(255,255,255,0.92); }}
+.cw-editor-search {{ margin: 2px 8px 6px; }}
+.cw-editor entry:focus-within, .cw-editor-search:focus-within {{ outline: 2px solid rgba(100,210,255,0.45); outline-offset: -2px; }}
+.cw-editor .cw-setting {{ margin: 3px 0; }}
+.cw-editor .cw-editor-text, .cw-editor .cw-editor-text text {{ background-color: rgba(22,22,26,0.5); color: rgba(255,255,255,0.92); }}
+.cw-editor .cw-editor-text {{ border-radius: 10px; padding: 6px 10px; }}
+.cw-editor button.cw-folder {{ min-height: 30px; min-width: 30px; padding: 0 8px; border: none; border-radius: 10px;
+  background: rgba(255,255,255,0.08); box-shadow: none; }}
+.cw-editor button.cw-folder:hover {{ background: rgba(255,255,255,0.16); }}
+menubutton.cw-add > button {{ color: rgba(235,235,245,0.7); font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.06);
+  border: none; box-shadow: none; border-radius: 12px; padding: 6px 12px; margin: 4px 0 0; }}
+menubutton.cw-add > button:hover {{ background: rgba(255,255,255,0.12); color: #ffffff; }}
+.cw-app-list {{ background: none; }}
+.cw-app-list > row {{ border-radius: 8px; padding: 4px 10px; margin: 0 4px; outline: none; }}
+.cw-app-list > row:hover {{ background-color: rgba(255,255,255,0.08); }}
+.cw-editor button.cw-ask-button {{ color: rgba(255,255,255,0.92); background: rgba(255,255,255,0.08); border: none;
+  box-shadow: none; text-shadow: none; border-radius: 10px; padding: 4px 14px; }}
+.cw-editor button.cw-ask-button:hover {{ background: rgba(255,255,255,0.16); }}
+.cw-editor button.cw-ask-button.default {{ color: #ffffff; background: rgba(10,132,255,0.85); }}
+.cw-editor button.cw-ask-button.default:hover {{ background: rgba(10,132,255,1.0); }}
 /* The history is a view of the sidebar itself: the clock swaps the cards for it and the
    header for "← History". A recessed search field, day headings like the usage section's,
    and every closed workspace a card, as wide as the workspaces' cards. */
@@ -275,31 +315,14 @@ button.cw-seg-item.picked:hover {{ background-color: rgba(48,104,130,0.95); }}
 button.cw-seg-item:focus-visible {{ outline: 2px solid rgba(100,210,255,0.55); outline-offset: -2px; }}
 .cw-theme-pic {{ border-radius: 6px; }}
 .cw-setting-check {{ color: #64d2ff; }}
+.cw-setting button.cw-icon {{ opacity: 0.75; }}
+.cw-setting button.cw-icon:hover {{ opacity: 1; }}
 .cw-setting-icon {{ color: rgba(235,235,245,0.6); }}
 /* Tooltips are cards too, not the system's black box */
 tooltip.background {{ background-color: rgba(44,44,50,0.97); border: 1px solid rgba(255,255,255,0.12);
   border-radius: 10px; padding: 6px 9px; box-shadow: none; }}
 tooltip, tooltip * {{ font-family: {FONT}; font-size: 12px; color: rgba(255,255,255,0.92); text-shadow: none; }}
 """
-
-_FORK_TEXTURE = None
-
-
-def fork_icon(size: int = 16) -> Gtk.Image:
-    # decoding the SVG on every tab rebuild adds up: keep the texture
-    global _FORK_TEXTURE
-    if _FORK_TEXTURE is None:
-        try:
-            loader = GdkPixbuf.PixbufLoader.new_with_type("svg")
-            loader.write(FORK_ICON_SVG)
-            loader.close()
-            _FORK_TEXTURE = Gdk.Texture.new_for_pixbuf(loader.get_pixbuf())
-        except Exception:
-            return Gtk.Image.new_from_icon_name("edit-copy-symbolic")
-    image = Gtk.Image.new_from_paintable(_FORK_TEXTURE)
-    image.set_pixel_size(size)
-    return image
-
 
 def app_icon(app: str, size: int = 16) -> Gtk.Image:
     icon = app_entry(app)[0]
@@ -422,6 +445,7 @@ class Menu:
                 section = Gio.Menu()
                 continue
             text, action = entry
+            text = text.replace("_", "__")  # (a model's label takes _ for a mnemonic: gitlab_repos showed as gitlabrepos)
             if isinstance(action, list):
                 section.append_submenu(text, self._model(action))
                 continue
@@ -444,8 +468,58 @@ class Menu:
         self.popover.set_position(Gtk.PositionType.BOTTOM)
         self.popover.popup()
 
-    def popup_above(self):
+    def _dispose(self):
+        if self.popover.get_parent() is not None:
+            self.popover.unparent()
+        return False
+
+
+def pick_row(title: str, sub: str, quiet: bool = False) -> Gtk.Button:
+    """A flat row of a panel (NewPopover, AddStepPopover): a title, a dim line under it."""
+    texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+    name = label(title, "cw-pick-title")
+    name.set_ellipsize(Pango.EllipsizeMode.END)
+    texts.append(name)
+    if sub:
+        line = label(sub, "cw-pick-sub")
+        line.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        texts.append(line)
+    btn = Gtk.Button()
+    btn.set_child(texts)
+    btn.add_css_class("cw-pick")
+    if quiet:
+        btn.add_css_class("quiet")
+    return btn
+
+
+class NewPopover:
+    """'+': a small panel above the button, not a menu: a row per template, by name
+    (SidebarLogic.new_choices: `rows`), then `new_template()`, the editor on a new one, and
+    `manage()`, the templates' settings. A row closes the panel."""
+
+    def __init__(self, parent: Gtk.Widget, rows: list, new_template, manage):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.set_size_request(max(parent.get_width() - 8, 200), -1)  # (as wide as the button it opens from)
+        box.append(label("NEW WORKSPACE", "cw-pick-head"))
+        for title, do in rows:
+            box.append(self._row(title, "", do))
+        box.append(self._row("New template…", "", new_template, quiet=True))
+        box.append(self._row("Manage templates…", "", manage, quiet=True))
+        self.popover = Gtk.Popover()
+        self.popover.set_child(box)
+        self.popover.add_css_class("cw-pop")
+        self.popover.add_css_class("cw-new-pop")
+        self.popover.set_has_arrow(False)
         self.popover.set_position(Gtk.PositionType.TOP)
+        self.popover.set_parent(parent)
+        self.popover.connect("closed", lambda p: GLib.idle_add(self._dispose))
+
+    def _row(self, title: str, sub: str, do, quiet: bool = False) -> Gtk.Button:
+        btn = pick_row(title, sub, quiet)
+        btn.connect("clicked", lambda *_: (self.popover.popdown(), do()))
+        return btn
+
+    def popup(self):
         self.popover.popup()
 
     def _dispose(self):
@@ -541,6 +615,199 @@ class EntryDialog(Gtk.Window):
         self.destroy()
         if ok:
             self.done(text)
+
+
+KIND_ICONS = {"terminal": "utilities-terminal-symbolic", "browser": "web-browser-symbolic",
+              "webapp": "web-browser-symbolic", "exec": "system-run-symbolic"}
+
+
+class StepCard(Gtk.Box):
+    """One step of a template in the editor, a card like a setting's: its icon and title, its
+    one setting under them (an entry; a browser's addresses a text view, one a line), and up,
+    down, remove at the right, which call `moved(card, how)`."""
+
+    def __init__(self, step: dict, moved):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.add_css_class("cw-setting")
+        self.step, self.kind = step, step_kind(step)
+        icon = app_icon(str(step.get("app") or ""), 18) if self.kind == "app" else \
+            Gtk.Image.new_from_icon_name(KIND_ICONS.get(self.kind, "utilities-terminal-symbolic"))
+        icon.set_pixel_size(18)
+        icon.add_css_class("cw-setting-icon")
+        icon.set_valign(Gtk.Align.START)
+        icon.set_margin_top(2)
+        self.append(icon)
+        texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
+        title = label(step_title(step), "cw-history-title")
+        title.set_ellipsize(Pango.EllipsizeMode.END)
+        texts.append(title)
+        self.what, value = step_setting(step)
+        self.value = None
+        if self.what == "urls":
+            self.value = Gtk.TextView(accepts_tab=False, wrap_mode=Gtk.WrapMode.CHAR)
+            self.value.get_buffer().set_text(value)
+            self.value.add_css_class("cw-editor-text")
+            frame = Gtk.ScrolledWindow(propagate_natural_height=True, min_content_height=48, max_content_height=96)
+            frame.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            frame.set_child(self.value)
+            texts.append(frame)
+            texts.append(label(SETTING_HINTS[self.what], "cw-history-sub"))
+        elif self.what:
+            self.value = Gtk.Entry(text=value, placeholder_text=SETTING_HINTS[self.what], hexpand=True)
+            texts.append(self.value)
+        self.append(texts)
+        for how, name, tip in (("up", "go-up-symbolic", "Move up"), ("down", "go-down-symbolic", "Move down"),
+                               ("remove", "user-trash-symbolic", "Remove")):
+            btn = Gtk.Button.new_from_icon_name(name)
+            btn.set_has_frame(False)
+            btn.set_valign(Gtk.Align.START)
+            btn.set_tooltip_text(tip)
+            btn.add_css_class("cw-icon")
+            btn.connect("clicked", lambda *_, h=how: moved(self, h))
+            self.append(btn)
+
+    def template_step(self) -> dict:
+        """The step as typed (make_step)."""
+        if self.what == "urls":
+            buf = self.value.get_buffer()
+            text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+        else:
+            text = self.value.get_text() if self.value is not None else ""
+        return make_step(self.kind, text, app=str(self.step.get("app") or ""))
+
+
+class AddStepPopover(Gtk.Popover):
+    """The editor's "Add": the kinds of step (step_kinds), then the installed apps with a
+    search over their names; `add(step)` gets the one picked."""
+
+    def __init__(self, add):
+        super().__init__()
+        self.add_css_class("cw-pop")
+        self.add_css_class("cw-new-pop")
+        self.set_has_arrow(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.set_size_request(260, -1)
+        for kind, text in step_kinds():
+            btn = pick_row(text, "")
+            btn.connect("clicked", lambda *_, k=kind: (self.popdown(), add(make_step(k))))
+            box.append(btn)
+        box.append(label("APPS", "cw-pick-head"))
+        self.search = Gtk.SearchEntry(placeholder_text="search")
+        self.search.add_css_class("cw-editor-search")
+        box.append(self.search)
+        self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.list.add_css_class("cw-app-list")
+        for app, name, icon in installed_apps():
+            row = Gtk.ListBoxRow()
+            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            image = Gtk.Image.new_from_gicon(icon) if icon is not None else \
+                Gtk.Image.new_from_icon_name("application-x-executable-symbolic")
+            image.set_pixel_size(16)
+            line.append(image)
+            text = label(name, "cw-pick-title")
+            text.set_ellipsize(Pango.EllipsizeMode.END)
+            line.append(text)
+            row.set_child(line)
+            row.app, row.words = app, name.lower()
+            self.list.append(row)
+        self.list.set_filter_func(lambda row: self.search.get_text().lower() in row.words)
+        self.search.connect("search-changed", lambda *_: self.list.invalidate_filter())
+        self.list.connect("row-activated", lambda _l, row: (self.popdown(), add(make_step("app", app=row.app))))
+        scroller = Gtk.ScrolledWindow(propagate_natural_height=True, max_content_height=240)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(self.list)
+        box.append(scroller)
+        self.set_child(box)
+        self.connect("show", lambda *_: self.search.grab_focus())
+
+
+class TemplateEditor(Gtk.Window):
+    """A template in a window of its own (the sidebar is too narrow): its name, the folder it
+    opens in (none: your home folder), and what it opens, a card per step
+    (StepCard) moved up or down or removed, "Add" for more (AddStepPopover). `save(old,
+    template, close)` gets the template as typed; the daemon checks it, `close()` follows a
+    save that went through. `pick_folder(done)` is the sidebar's folder picker."""
+
+    def __init__(self, tpl: dict, old: str, save, pick_folder, hint: str):
+        super().__init__(title=f"Template · {old}" if old else "New template")
+        self.set_default_size(520, -1)
+        self.set_resizable(False)
+        self.add_css_class("cw-editor")
+        self.old, self.save = old, save
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for side in ("start", "end", "top", "bottom"):
+            getattr(box, f"set_margin_{side}")(14)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=8)
+        self.name = Gtk.Entry(text=str(tpl.get("name") or ""), placeholder_text="name", hexpand=True)
+        self.folder = Gtk.Entry(text=str(tpl.get("cwd") or ""), placeholder_text="your home folder", hexpand=True)
+        pick = Gtk.Button.new_from_icon_name("folder-open-symbolic")
+        pick.set_tooltip_text("Pick a folder")
+        pick.connect("clicked", lambda *_: pick_folder(lambda path: self.folder.set_text(home_path(path))))
+        grid.attach(label("Name", "cw-editor-key"), 0, 0, 1, 1)
+        grid.attach(self.name, 1, 0, 2, 1)
+        grid.attach(label("Folder", "cw-editor-key"), 0, 1, 1, 1)
+        grid.attach(self.folder, 1, 1, 1, 1)
+        grid.attach(pick, 2, 1, 1, 1)
+        box.append(grid)
+        head = label("OPENS", "cw-pick-head")
+        head.set_margin_top(6)
+        box.append(head)
+        self.steps = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        scroller = Gtk.ScrolledWindow(propagate_natural_height=True, max_content_height=400)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_child(self.steps)
+        box.append(scroller)
+        for step in tpl.get("steps") or []:
+            self.steps.append(StepCard(step, self._moved))
+        add = Gtk.MenuButton(halign=Gtk.Align.START)
+        add.add_css_class("cw-add")
+        add_label = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_label.append(Gtk.Image.new_from_icon_name("list-add-symbolic"))
+        add_label.append(Gtk.Label(label="Add"))
+        add.set_child(add_label)
+        add.set_popover(AddStepPopover(self._add))
+        box.append(add)
+        self.add = add
+        note = label(hint, "cw-ask-detail")
+        note.set_wrap(True)
+        note.set_margin_top(6)
+        box.append(note)
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.add_css_class("cw-ask-button")
+        cancel.connect("clicked", lambda *_: self.destroy())
+        confirm = Gtk.Button(label="Save")
+        confirm.add_css_class("cw-ask-button")
+        confirm.add_css_class("default")
+        confirm.connect("clicked", lambda *_: self._save())
+        buttons.append(cancel)
+        buttons.append(confirm)
+        box.append(buttons)
+        self.set_child(box)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, keyval, *_: keyval == Gdk.KEY_Escape and (self.destroy(), True)[1])
+        self.add_controller(keys)
+
+    def _add(self, step: dict):
+        self.steps.append(StepCard(step, self._moved))
+
+    def _moved(self, card: StepCard, how: str):
+        cards = children(self.steps)
+        i = cards.index(card)
+        if how == "remove":
+            self.steps.remove(card)
+        elif how == "up" and i > 0:
+            self.steps.reorder_child_after(card, cards[i - 2] if i > 1 else None)
+        elif how == "down" and i < len(cards) - 1:
+            self.steps.reorder_child_after(card, cards[i + 1])
+
+    def template(self) -> dict:
+        """The template as typed; the daemon tidies and checks it (config.clean_template)."""
+        return {"name": self.name.get_text(), "cwd": self.folder.get_text(),
+                "steps": [card.template_step() for card in children(self.steps)]}
+
+    def _save(self):
+        self.save(self.old, self.template(), self.destroy)
 
 
 class HistoryPanel(Gtk.Box):
@@ -651,14 +918,16 @@ class SettingsPanel(Gtk.Box):
     """The gear's view, in place of the workspaces like the history: the themes, each a card
     with a small picture of it (themes.preview), the one in use ringed; picking one wears it at
     once. Then where the sidebar goes (its side, its screen), the switches, each a card that
-    flips it, and the sidebar's own actions.
+    flips it, the templates '+' offers, and the sidebar's own actions.
     `pick_theme(name)`, `pick_place(key, value)`, `switches` [(text, config key)] flipped by
-    `flip(key, on)`, `actions` [(text, icon, fn)]."""
+    `flip(key, on)`, `actions` [(text, icon, fn)], `edit_template(how, name)` for a template
+    card's buttons ("up", "edit", "remove"; "new" for the card that makes one)."""
 
-    def __init__(self, pick_theme, pick_place, switches: list, flip, actions: list):
+    def __init__(self, pick_theme, pick_place, switches: list, flip, actions: list, edit_template):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.pick_theme, self.pick_place = pick_theme, pick_place
+        self.pick_theme, self.pick_place, self.edit_template = pick_theme, pick_place, edit_template
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.content = content
         content.append(label("THEME", "cw-history-day"))
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.append(self.themes_box)
@@ -683,6 +952,14 @@ class SettingsPanel(Gtk.Box):
             btn.connect("clicked", lambda *_, k=key, sw=switch: (sw.set_active(not sw.get_active()), flip(k, sw.get_active())))
             content.append(btn)
             self.switches[key] = switch
+        self.templates_head = label("TEMPLATES", "cw-history-day")
+        content.append(self.templates_head)
+        self.templates_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.append(self.templates_box)
+        hint = label("Or set a workspace up and right-click its card → Save as template…: the editor starts "
+                     "from what is open there.", "cw-src-note")
+        hint.set_wrap(True)
+        content.append(hint)
         content.append(label("SIDEBAR", "cw-history-day"))
         self.actions = {}
         for text, icon, action in actions:
@@ -706,6 +983,58 @@ class SettingsPanel(Gtk.Box):
         scroller.set_child(content)
         scroller.set_vexpand(True)
         self.append(scroller)
+        self.scroller = scroller
+
+    def scroll_to(self, section: str):
+        """The panel scrolled to a section's heading ("templates"), once it is laid out."""
+        head = {"templates": self.templates_head}.get(section)
+
+        def scroll():
+            spot = head.translate_coordinates(self.content, 0, 0) if head is not None else None
+            if spot is not None:
+                self.scroller.get_vadjustment().set_value(spot[1])
+            return False
+        GLib.timeout_add(250, scroll)  # (after the slide in: the stack lays it out then)
+
+    def set_templates(self, rows: list):
+        """A card per template: its name, what it opens and where; up (not the first), edit (the
+        editor), remove (not the last one left). Then a card that makes a new one."""
+        clear(self.templates_box)
+        for i, (name, what, where) in enumerate(rows):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            row.add_css_class("cw-setting")
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True, valign=Gtk.Align.CENTER)
+            title = label(name, "cw-history-title")
+            title.set_ellipsize(Pango.EllipsizeMode.END)
+            texts.append(title)
+            sub = label(f"{what} · in {where}", "cw-history-sub")
+            sub.set_ellipsize(Pango.EllipsizeMode.END)
+            sub.set_tooltip_text(f"{what}, in {where}")
+            texts.append(sub)
+            row.append(texts)
+            for how, icon, tip, shown in (("up", "go-up-symbolic", "Move up", i > 0),
+                                          ("edit", "document-edit-symbolic", "Edit", True),
+                                          ("remove", "user-trash-symbolic", "Remove", len(rows) > 1)):
+                btn = Gtk.Button.new_from_icon_name(icon)
+                btn.set_has_frame(False)
+                btn.set_valign(Gtk.Align.CENTER)
+                btn.set_tooltip_text(tip)
+                btn.add_css_class("cw-icon")
+                btn.set_opacity(1.0 if shown else 0.0)
+                btn.set_sensitive(shown)  # (hidden, it keeps its place: the buttons line up)
+                btn.connect("clicked", lambda *_, h=how, n=name: self.edit_template(h, n))
+                row.append(btn)
+            self.templates_box.append(row)
+        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        image = Gtk.Image.new_from_icon_name("list-add-symbolic")
+        image.add_css_class("cw-setting-icon")
+        line.append(image)
+        line.append(label("New template", "cw-history-title"))
+        new = Gtk.Button()
+        new.set_child(line)
+        new.add_css_class("cw-setting")
+        new.connect("clicked", lambda *_: self.edit_template("new", ""))
+        self.templates_box.append(new)
 
     def set_switches(self, cfg: dict):
         for key, switch in self.switches.items():
@@ -949,7 +1278,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             ("Put everything back", "view-refresh-symbolic", self.put_back),
             (*update_line("idle"), self.update_now),
             ("Restart sidebar", "system-reboot-symbolic", lambda: self._screens_changed("settings")),
-        ])
+        ], self.edit_template)
         self.views.add_named(self.settings, "settings")
         root.append(self.views)
 
@@ -981,7 +1310,6 @@ class Sidebar(Gtk.Window, SidebarLogic):
         new_label.append(Gtk.Image.new_from_icon_name("list-add-symbolic"))
         new_label.append(label("New workspace", "cw-new-label"))
         new_btn.set_child(new_label)
-        new_btn.set_tooltip_text("New workspace — pick a template")
         new_btn.add_css_class("cw-new")
         new_btn.connect("clicked", self.on_new_clicked)
         self.new_btn = new_btn
@@ -1063,8 +1391,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.settings.set_themes(themes.choices(), name)
 
     # ---- views ------------------------------------------------------------------------------
-    def _show_view(self, view: str):
-        """The workspaces, the history or the settings, the header saying which ("← History")."""
+    def _show_view(self, view: str, section: str | None = None):
+        """The workspaces, the history or the settings (scrolled to `section`), the header
+        saying which ("← History")."""
         away = view != "workspaces"
         self.back_btn.set_visible(away)
         self.header_mark.set_visible(not away)
@@ -1078,6 +1407,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
             screens = Gdk.Display.get_default().get_monitors().get_n_items()
             self.settings.set_places(place_choices(self.cfg, screens))
             self.settings.set_switches(self.cfg)
+            self.settings.set_templates(self.template_rows())
+            self.settings.scroller.get_vadjustment().set_value(0)
+            if section:
+                self.settings.scroll_to(section)
         self.views.set_visible_child_name(view)
 
     # ---- history ----------------------------------------------------------------------------
@@ -1293,8 +1626,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
     def _update_tab(self, w, tab, info, attention):
         if w.cw_box_keys != [b["key"] for b in info["boxes"]] or w.cw_app_keys != [a["key"] for a in info["apps"]] \
                 or w.cw_card != (not info["item"]) or (info["item"] and w.cw_session_id != info["session_id"]) \
-                or w.cw_head != info["head"]:
-            # a Claude or a window came or went, or the fork button appears/disappears: rebuild this tab only
+                or w.cw_head != info["head"] or (w.cw_card and w.cw_below != info["apps_below"]):
+            # a Claude or a window came or went, or the icons move: rebuild this tab only
             new = self._make_tab(tab, info, attention)
             self.list_box.insert_child_after(new, w)
             self.list_box.remove(w)
@@ -1379,7 +1712,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             apps.append(aw)
             w.cw_apps.append(aw)
         if info["head"]:
-            w.cw_name = self._card_head(w, info, apps)
+            w.cw_name = self._card_head(w, info, None if info["apps_below"] else apps)
         note = label(info["sub"], "cw-card-note")
         note.set_visible(bool(info["sub"]))
         w.append(note)
@@ -1393,15 +1726,19 @@ class Sidebar(Gtk.Window, SidebarLogic):
             w.cw_boxes.append(bw)
         wells.set_visible(bool(info["boxes"]))
         w.append(wells)
-        if not info["head"]:  # (a closed workspace named after its Claude: the icons under it)
+        # (a closed workspace named after its Claude, or an open one with no Claude: the icons under it)
+        if not info["head"] or info["apps_below"]:
+            if info["apps_below"]:
+                apps.add_css_class("cw-under-apps")  # (in the line an empty one's note takes)
             apps.set_visible(bool(info["apps"]))
             w.append(apps)
-        w.cw_note = note
+        w.cw_note, w.cw_below = note, info["apps_below"]
         w.cw_box_keys, w.cw_app_keys = [b["key"] for b in info["boxes"]], [a["key"] for a in info["apps"]]
         return w
 
-    def _card_head(self, w, info: dict, apps: Gtk.Widget) -> Gtk.Label:
-        """A card's header: its name (two lines at most), its other windows' icons, close."""
+    def _card_head(self, w, info: dict, apps: Gtk.Widget | None) -> Gtk.Label:
+        """A card's header: its name (two lines at most), its other windows' icons (unless they
+        go under it), close."""
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         head.add_css_class("cw-head")
         name = label(info["title"], "cw-card-name")
@@ -1412,9 +1749,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         name.set_ellipsize(Pango.EllipsizeMode.END)
         name.set_valign(Gtk.Align.CENTER)
         head.append(name)
-        apps.add_css_class("cw-head-apps")
-        apps.set_valign(Gtk.Align.CENTER)
-        head.append(apps)
+        if apps is not None:
+            apps.add_css_class("cw-head-apps")
+            apps.set_valign(Gtk.Align.CENTER)
+            head.append(apps)
         close = self._close_button(w)
         close.set_valign(Gtk.Align.START)
         head.append(close)
@@ -1459,7 +1797,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         aw.cw_app = app
 
     def _make_box(self, w, box: dict, closes: bool = False) -> Gtk.Widget:
-        """One Claude: its stripe, glyph and title, the model with a block per subagent, fork."""
+        """One Claude: its stripe, glyph and title, the model with a block per subagent."""
         bw = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         bw.add_css_class("cw-box")
         set_classes(bw, box_classes(box))
@@ -1484,21 +1822,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         col.append(name)
         col.append(meta)
         bw.append(in_room(col))  # (a one-line title takes as much height as two)
-        # close (when the card has no header to hold it) at the top, fork right under it
-        icons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.START)
-        if closes:
-            icons.append(self._close_button(w))
-        if box["session_id"]:
-            fork = Gtk.Button()
-            fork.set_child(fork_icon(14))
-            fork.set_has_frame(False)
-            fork.set_focus_on_click(False)
-            fork.set_tooltip_text("Fork this session into a new workspace")
-            fork.add_css_class("cw-icon")
-            fork.connect("clicked", lambda *_: self.fork(w.cw_tab, box["session_id"]))
-            icons.append(fork)
-        if icons.get_first_child() is not None:
-            bw.append(icons)
+        if closes:  # (the card has no header to hold it: at the top)
+            close = self._close_button(w)
+            close.set_valign(Gtk.Align.START)
+            bw.append(close)
         bw.cw_name, bw.cw_sub, bw.cw_dots, bw.cw_box = name, sub, dots, box
         return bw
 
@@ -1595,27 +1922,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         col.append(path)
         w.append(col)
 
-        # the icons take the column's spare height; vexpand set here keeps that from spreading up
-        # (in GTK 4 a child's expand makes its parents expand: every card would stretch)
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, vexpand=False)
-        icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0, vexpand=True)
-        icons.set_halign(Gtk.Align.END)
-        icons.set_valign(Gtk.Align.CENTER)
-        if info["session_id"]:
-            fork = Gtk.Button()
-            fork.set_child(fork_icon())
-            fork.set_has_frame(False)
-            fork.set_focus_on_click(False)
-            fork.set_tooltip_text("Fork this session into a new workspace")
-            fork.add_css_class("cw-icon")
-            fork.connect("clicked", lambda *_: self.fork(w.cw_tab, info["session_id"]))
-            icons.append(fork)
-        right.append(icons)
         close = self._close_button(w)
         close.set_halign(Gtk.Align.END)
         close.set_valign(Gtk.Align.END)
-        right.append(close)  # bottom-right, level with the path line
-        w.append(right)
+        w.append(close)  # bottom-right, level with the path line
 
         if info["closed"]:
             w.set_tooltip_text("Closed: click to reopen it")
@@ -1687,14 +1997,38 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
     # ---- actions ----------------------------------------------------------
     def on_new_clicked(self, *_):
-        entries = self.new_menu()
-        if entries is not None:
-            Menu(self.new_btn, entries).popup_above()
+        """'+': the templates, in a panel above the button (NewPopover)."""
+        NewPopover(self.new_btn, self.new_choices(), lambda: self.edit_template("new"),
+                   lambda: self._show_view("settings", "templates")).popup()
 
     def web_app_dialog(self, tab: dict):
         EntryDialog("Open web app here", "Open", "", "https://…",
                     "Opens as a browser app window (no tabs) on this workspace, in your default browser.",
                     lambda url: url and self.send("webapp", url=url, **self._where(tab))).present()
+
+    def template_editor(self, tpl: dict, old: str):
+        """The template editor (TemplateEditor) on `tpl`, saved in place of the one named `old`."""
+        TemplateEditor(tpl, old, self.save_template_edit,
+                       lambda done: self.folder_dialog(done, "Template folder", "Use this folder"), self.EDITOR_HINT).present()
+
+    def folder_dialog(self, done, title: str = "New session in", accept: str = "Start here"):
+        """A folder picked; `done(path)` once it is."""
+        if not hasattr(Gtk, "FileDialog"):  # (before GTK 4.10: typed)
+            EntryDialog(title, accept, "~/", "a folder", "",
+                        lambda path: path and os.path.isdir(os.path.expanduser(path))
+                        and done(os.path.expanduser(path))).present()
+            return
+        dlg = Gtk.FileDialog(title=title, modal=True, accept_label=accept)
+        dlg.set_initial_folder(Gio.File.new_for_path(os.path.expanduser("~")))
+
+        def picked(d, result):
+            try:
+                folder = d.select_folder_finish(result)
+            except GLib.Error:  # (cancelled)
+                return
+            if folder is not None and folder.get_path():
+                done(folder.get_path())
+        dlg.select_folder(None, None, picked)
 
     def rename_dialog(self, tab: dict):
         EntryDialog("Name workspace", "OK", tab.get("name") or "", "empty = no name",

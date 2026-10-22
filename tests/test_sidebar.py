@@ -118,12 +118,13 @@ class SettingsPanelTest(unittest.TestCase):
     LONG = "a label far too long for the sidebar, which would widen it if it asked for all of it"
 
     def setUp(self):
-        self.picked, self.placed, self.flipped, self.ran = [], [], [], []
+        self.picked, self.placed, self.flipped, self.ran, self.edited = [], [], [], [], []
         self.panel = sidebar.SettingsPanel(self.picked.append, lambda k, v: self.placed.append((k, v)),
                                            [(f"Restore after login, {self.LONG}", "restore_on_login")],
                                            lambda k, on: self.flipped.append((k, on)),
                                            [(f"Put everything back, {self.LONG}", "view-refresh-symbolic",
-                                             lambda: self.ran.append("put back"))])
+                                             lambda: self.ran.append("put back"))],
+                                           lambda how, name: self.edited.append((how, name)))
         self.panel.set_themes([("auto", "Seasonal", self.LONG), ("dusk", self.LONG, "")], "dusk")
         self.panel.set_switches({"restore_on_login": True})
 
@@ -146,7 +147,23 @@ class SettingsPanelTest(unittest.TestCase):
         action.clicked()
         self.assertEqual(self.ran, ["put back"])
 
+    def test_a_template_card_moves_edits_and_removes_it(self):
+        self.panel.set_templates([("Claude Code", "Claude Code", "~"), ("Review", self.LONG, "~/src")])
+        first, second, new = self.panel.templates_box.get_children()
+        buttons = lambda row: [c for c in row.get_children() if isinstance(c, sidebar.Gtk.Button)]  # noqa: E731
+        self.assertEqual([b.get_sensitive() for b in buttons(first)], [False, True, True])  # (first: no up)
+        for b in buttons(second):
+            b.clicked()
+        self.assertEqual(self.edited, [("up", "Review"), ("edit", "Review"), ("remove", "Review")])
+        new.clicked()  # (the last card makes a new one)
+        self.assertEqual(self.edited[-1], ("new", ""))
+        self.panel.set_templates([("Only", "terminal", "~")])  # (the last one stays)
+        self.assertEqual([b.get_sensitive() for b in buttons(self.panel.templates_box.get_children()[0])],
+                         [False, True, False])
+
+
     def test_long_labels_do_not_widen_the_sidebar(self):
+        self.panel.set_templates([(self.LONG, self.LONG, self.LONG)])
         self.panel.set_places(sidebar.place_choices({"monitor": self.LONG}, 2))
         self.panel.show_all()
         self.assertLessEqual(self.panel.get_preferred_width()[0], 280)
@@ -165,6 +182,43 @@ class SettingsPanelTest(unittest.TestCase):
         # one screen: only the side
         self.panel.set_places(sidebar.place_choices({}, 1))
         self.assertEqual(len(self.panel.places_box.get_children()), 1)
+
+
+@unittest.skipIf(sidebar is None, "needs GTK 3 and gtk-layer-shell")
+class TemplateDialogTest(unittest.TestCase):
+    def test_what_is_typed_becomes_a_template(self):
+        """A row a step: its kind and one setting; moved, removed, added; the folder picked."""
+        tpl = {"name": "Home", "steps": [{"type": "app", "app": "discord"},
+                                         {"type": "browser", "urls": ["https://gitlab.example", "https://mail.google.com"]},
+                                         {"type": "terminal", "command": "htop"}]}
+        picks = []
+        dlg = sidebar.TemplateDialog(None, tpl, "hint", lambda done, *_: (picks.append(True), done("/src")))
+        rows = dlg.rows.get_children()
+        self.assertEqual([r.combo.get_active_id() for r in rows], ["app", "browser", "terminal"])
+        self.assertEqual([r.entry.get_text() for r in rows],
+                         ["discord", "https://gitlab.example https://mail.google.com", "htop"])
+        dlg._moved(rows[2], "up")
+        dlg._moved(rows[0], "remove")
+        dlg._add_row(sidebar.make_step("webapp"))
+        dlg.rows.get_children()[-1].entry.set_text("https://discord.com/app")
+        pick = [c for c in dlg.get_content_area().get_children()[0].get_children()[0].get_children()
+                if isinstance(c, sidebar.Gtk.Button)][0]
+        pick.clicked()
+        self.assertEqual((picks, dlg.folder.get_text()), ([True], "/src"))
+        self.assertEqual(dlg.template(), {"name": "Home", "cwd": "/src", "steps": [
+            {"type": "terminal", "command": "htop"},
+            {"type": "browser", "urls": ["https://gitlab.example", "https://mail.google.com"]},
+            {"type": "webapp", "url": "https://discord.com/app"}]})
+        dlg.destroy()
+
+
+@unittest.skipIf(sidebar is None, "needs GTK 3 and gtk-layer-shell")
+class MenuTest(unittest.TestCase):
+    def test_an_underscore_in_a_label_is_an_underscore(self):
+        menu = sidebar.build_menu([("~/gitlab_repos/platform", None), sidebar.SEPARATOR, ("Opens", [("a_b", lambda: None)])])
+        head, _sep, sub = menu.get_children()
+        self.assertEqual((head.get_label(), head.get_use_underline()), ("~/gitlab_repos/platform", False))
+        self.assertEqual(sub.get_submenu().get_children()[0].get_label(), "a_b")
 
 
 @unittest.skipIf(sidebar is None, "needs GTK 3 and gtk-layer-shell")

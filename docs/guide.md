@@ -27,14 +27,12 @@
   Sidelit's Terminator plugin, which `sidelit hooks install` puts in; in windows opened since).
   So several sessions can share one terminal window, in tabs or side by side.
 - **New workspace** (`+`) pins a fresh workspace (on KDE, adds a desktop; on Hyprland and sway,
-  the next number; on niri, the empty one at the end of the screen you are on, named) and opens
-  a terminal in your home directory, or whatever the template you pick says
-  ([templates](config.md#templates)). Start `claude`, `codex` or `opencode` there
+  the next number; on niri, the empty one at the end of the screen you are on, named) from a
+  template: `+` lists them by name (each opens in its own folder, else your home), and
+  **New template…** makes one ([templates](config.md#templates)). Start `claude`,
+  `codex` or `opencode` there
   as usual and the tab picks up its title within seconds. Right-click a tab for a new session,
   in that tab's directory, of each agent installed on this computer.
-- **Fork** icon: like `/fork`, opens `claude --resume <id> --fork-session` (`codex fork <id>` for
-  a Codex session, [OpenCode's fork](agents.md#opencode) for an OpenCode one) in a new workspace
-  in the same directory.
 - **×** closes the whole workspace: every window on it gets a normal close request (after a
   confirmation listing what will close), the workspace is unpinned and disappears once empty (on
   KDE, the desktop is removed once its windows have closed). A session that was there stays in
@@ -54,7 +52,10 @@
   back to the workspaces. The last 100 are kept.
 - **Settings.** The gear swaps the workspaces for the settings: the theme (the default look,
   Halloween's, or [one of your own](config.md)); switches for the restore after
-  a login and for reopening windows that crash; and buttons to put everything back, check for updates and restart the sidebar.
+  a login and for reopening windows that crash; the templates `+` offers, each a card to move
+  up, edit or remove, and **New template**, which opens the editor
+  ([templates](config.md#templates)); and buttons to put everything back, check for updates
+  and restart the sidebar.
 - **Hide it.** The button left of the gear hides the sidebar, and its strip goes back to your
   windows. Sidelit's icon in the panel's tray brings it back with a click (on COSMIC a click
   opens its menu: Show sidebar); its menu also has the settings, "Put everything back",

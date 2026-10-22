@@ -57,25 +57,21 @@ def _default_terminal() -> tuple[str, str]:
 
 DEFAULT_TERMINAL = _default_terminal()
 
-# What '+' offers for a new workspace: a name, and what to start there, in order. The tab
-# follows the first coding agent's step.
+# What '+' offers for a new workspace: a name, the folder it opens in ("cwd", else your home),
+# and what to start there, in order. The tab follows the first coding agent's step. A card's
+# "Save as template…" writes one from what that workspace has open.
 #   {"type": "claude"}                   a terminal with `claude` in it
 #   {"type": "codex"}                    a terminal with `codex` in it
 #   {"type": "opencode"}                 a terminal with `opencode` in it
 #   {"type": "terminal"}                 a terminal; with "command": …, running that
+#   {"type": "browser", "urls": […]}     a browser window of its own, with those tabs
+#   {"type": "webapp", "url": …}         a web app window (no tabs)
+#   {"type": "app", "app": …}            an app, by its desktop entry's id
 #   {"type": "app", "exec": …}           any other program, as a command line
 # An "exec" line may use {cwd}, the workspace's directory, and {browser}, the default browser
 # set to open a window of its own.
 DEFAULT_TEMPLATES = [
     {"name": "Claude Code", "steps": [{"type": "claude"}]},
-    {"name": "Claude Code + browser", "steps": [
-        {"type": "claude"},
-        {"type": "app", "exec": "{browser} https://github.com"},
-    ]},
-    {"name": "Claude Code + editor", "steps": [
-        {"type": "claude"},
-        {"type": "app", "exec": "code {cwd}"},
-    ]},
     {"name": "Empty terminal", "steps": [{"type": "terminal"}]},
 ]
 
@@ -153,3 +149,86 @@ def templates(cfg: dict) -> list[dict]:
     if isinstance(own, list) and own:
         return own
     return DEFAULT_TEMPLATES
+
+
+def remove_template(cfg: dict, name: str) -> bool:
+    """The template of that name off config.json's list; the last one stays (with none, '+'
+    would offer the defaults again)."""
+    tpls = [t for t in templates(cfg) if t.get("name") != name]
+    return bool(tpls) and put("templates", tpls)
+
+
+def move_template(cfg: dict, name: str) -> bool:
+    """The template of that name one place up the list ('+' lists them in this order)."""
+    tpls = list(templates(cfg))
+    at = next((i for i, t in enumerate(tpls) if t.get("name") == name), None)
+    if not at:  # (not there, or first already)
+        return False
+    tpls[at - 1], tpls[at] = tpls[at], tpls[at - 1]
+    return put("templates", tpls)
+
+
+def replace_template(cfg: dict, old: str, template: dict) -> bool:
+    """`template` in place of the one named `old` (else last), not under a name another has."""
+    tpls = [dict(t) for t in templates(cfg)]
+    at = next((i for i, t in enumerate(tpls) if t.get("name") == old), None) if old else None
+    if any(t.get("name") == template["name"] for i, t in enumerate(tpls) if i != at):
+        return False
+    if at is None:
+        tpls.append(template)
+    else:
+        tpls[at] = template
+    return put("templates", tpls)
+
+
+def clean_template(data, agent_names: set) -> dict:
+    """A template as the editor sends it, checked and tidied: a name, the folder it opens in
+    (under home as ~; none: your home folder), and at least one step of a kind '+'
+    can start (DEFAULT_TEMPLATES says which) with its one setting. ValueError says what is
+    wrong, in the editor's words."""
+    if not isinstance(data, dict):
+        raise ValueError("not a template")
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise ValueError("a template needs a name")
+    tpl: dict = {"name": name}
+    cwd = os.path.expanduser(str(data.get("cwd") or "").strip())
+    cwd = cwd.rstrip(os.sep) or (os.sep if cwd else "")
+    if cwd:
+        home = str(Path.home())
+        tpl["cwd"] = "~" + cwd[len(home):] if cwd == home or cwd.startswith(home + os.sep) else cwd
+    steps = []
+    for step in data.get("steps") if isinstance(data.get("steps"), list) else []:
+        if not isinstance(step, dict):
+            raise ValueError("not a step")
+        kind = str(step.get("type") or "app")
+        if kind in agent_names:
+            steps.append({"type": kind})
+        elif kind == "terminal":
+            command = str(step.get("command") or "").strip()
+            steps.append({"type": "terminal", **({"command": command} if command else {})})
+        elif kind == "browser":
+            urls = [str(u).strip() for u in (step.get("urls") or []) if str(u).strip()]
+            bad = next((u for u in urls if not u.startswith(("http://", "https://"))), None)
+            if bad is not None:
+                raise ValueError(f"not a web address: {bad}")
+            steps.append({"type": "browser", "urls": urls})
+        elif kind == "webapp":
+            url = str(step.get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                raise ValueError("a web app needs its address (https://…)")
+            steps.append({"type": "webapp", "url": url})
+        elif kind == "app":
+            app, run = str(step.get("app") or "").strip(), str(step.get("exec") or "").strip()
+            if app:
+                steps.append({"type": "app", "app": app})
+            elif run:
+                steps.append({"type": "app", "exec": run})
+            else:
+                raise ValueError("an app step needs an app, or a command line")
+        else:
+            raise ValueError(f"no such kind of step: {kind}")
+    if not steps:
+        raise ValueError("a template opens something: add an app")
+    tpl["steps"] = steps
+    return tpl

@@ -290,22 +290,83 @@ class CommonTest(unittest.TestCase):
                 self.sent.append((method, params))
 
         ui = Fake()
-        tab = {"space": 3, "claudes": [{"title": "T", "session": "s1", "cwd": "/w"}],
+        tab = {"space": 3, "ws": "w1", "claudes": [{"title": "T", "session": "s1", "cwd": "/w"}],
                "missing": [{"slot": "m1", "what": "chrome 'Docs'"}]}
         entries = ui.tab_menu(tab)
         self.assertEqual(entries[:2], [("/w", None), sidebar_common.SEPARATOR])  # its folder, greyed out
         labels = [e[0] for e in entries if e is not sidebar_common.SEPARATOR]
-        self.assertIn("Fork session", labels)
+        self.assertNotIn("Fork session", labels)
         self.assertIn("missing: chrome 'Docs'", labels)
         self.assertIn(sidebar_common.SEPARATOR, entries)
         dict(e for e in entries if e is not sidebar_common.SEPARATOR)["Open terminal here"]()
-        self.assertEqual(ui.sent[-1], ("terminal", {"space": 3}))
-        # with two Claudes, the card's menu forks the one whose box you right-clicked
+        self.assertEqual(ui.sent[-1], ("terminal", {"ws": "w1"}))
+        # its missing windows come back on their own, this workspace's only
+        dict(e for e in entries if e is not sidebar_common.SEPARATOR)["Restore 1 missing window"]()
+        self.assertEqual(ui.sent[-1], ("reopen", {"ws": "w1"}))
+        # with two Claudes, a new session starts in the folder of the one whose box you right-clicked
         two = {**tab, "claudes": tab["claudes"] + [{"title": "U", "session": "s2", "cwd": "/v"}]}
-        self.assertNotIn("Fork session", [e[0] for e in ui.tab_menu(two) if e is not sidebar_common.SEPARATOR])
         box = sidebar_common.tab_info(two)["boxes"][1]
-        dict(e for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR)["Fork session"]()
-        self.assertEqual(ui.sent[-1], ("fork", {"session": "s2"}))
+        new = next(e for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR and e[0].startswith("New "))
+        new[1]()
+        self.assertEqual(ui.sent[-1][0], "new")
+        self.assertEqual(ui.sent[-1][1]["cwd"], "/v")
+
+    def test_a_step_is_a_kind_and_one_setting(self):
+        """The editor's view of a template's steps, and back (make_step)."""
+        c = sidebar_common
+        self.assertEqual([k for k, _ in c.step_kinds()][-4:], ["terminal", "browser", "webapp", "exec"])
+        steps = ({"type": "app", "exec": "x"}, {"type": "app", "app": "code"}, {"type": "claude"})
+        self.assertEqual([c.step_kind(s) for s in steps], ["exec", "app", "claude"])
+        self.assertEqual((c.step_title({"type": "browser"}), c.step_title({"type": "claude"})), ("Browser window", "Claude Code"))
+        self.assertEqual(c.step_setting({"type": "browser", "urls": ["https://a", "https://b"]}), ("urls", "https://a\nhttps://b"))
+        self.assertEqual((c.step_setting({"type": "claude"}), c.step_setting({"type": "terminal"})), (("", ""), ("command", "")))
+        self.assertEqual(c.make_step("browser", " https://a \n\nhttps://b"), {"type": "browser", "urls": ["https://a", "https://b"]})
+        self.assertEqual((c.make_step("terminal", "  "), c.make_step("codex")), ({"type": "terminal"}, {"type": "codex"}))
+        self.assertEqual(c.make_step("app", "ignored", app="code"), {"type": "app", "app": "code"})
+        for step in ({"type": "claude"}, {"type": "terminal", "command": "htop"}, {"type": "browser", "urls": []},
+                     {"type": "webapp", "url": "https://d"}, {"type": "app", "app": "code"}, {"type": "app", "exec": "x {cwd}"}):
+            self.assertEqual(c.make_step(c.step_kind(step), c.step_setting(step)[1], app=str(step.get("app") or "")), step)
+
+    def test_new_lists_the_templates(self):
+        """'+': every template by its name; one click opens it. The GTK 3 menu: the same names,
+        then making and managing them."""
+        class Fake(sidebar_common.SidebarLogic):
+            def __init__(self):
+                self.cfg, self.state, self.sent, self.views, self.edited = {}, {}, [], [], []
+
+            def send(self, method, **params):
+                self.sent.append((method, params))
+
+            def _show_view(self, view, section=None):
+                self.views.append((view, section))
+
+            def template_editor(self, tpl, old):
+                self.edited.append((tpl, old))
+
+        ui = Fake()
+        tpls = [{"name": "Platform", "cwd": "~/src/platform", "steps": [{"type": "claude"}, {"type": "browser", "urls": []}]},
+                {"name": "Home page", "steps": [{"type": "app", "app": "discord"}, {"type": "browser", "urls": ["https://a", "https://b"]}]}]
+        with mock.patch.object(sidebar_common.config, "load", return_value={"templates": tpls}):
+            rows = ui.new_choices()
+            self.assertEqual([title for title, _do in rows], ["Platform", "Home page"])
+            rows[1][1]()
+            self.assertEqual(ui.sent[-1], ("new", {"template": "Home page"}))
+            entries = [e for e in ui.new_menu() if e is not sidebar_common.SEPARATOR]
+            self.assertEqual([e[0] for e in entries], ["Platform", "Home page", "New template…", "Manage templates…"])
+            dict(entries)["New template…"]()
+            self.assertEqual(ui.edited[-1], ({}, ""))
+            dict(entries)["Manage templates…"]()
+            self.assertEqual(ui.views[-1], ("settings", "templates"))
+
+    def test_a_workspace_with_no_claude_is_as_tall_as_an_empty_one(self):
+        """Its icons take the line under the name that an empty one's "empty" takes."""
+        apps = sidebar_common.tab_info({"space": 1, "windows": [{"id": "w1", "app": "code", "title": "x"}]})
+        empty = sidebar_common.tab_info({"space": 2})
+        self.assertTrue(apps["head"] and apps["apps_below"] and not apps["sub"])
+        self.assertTrue(empty["head"] and empty["sub"] == "empty")
+        claude = sidebar_common.tab_info({"space": 3, "windows": [{"id": "w1", "app": "code", "title": "x"}],
+                                          "claudes": [{"key": "s1", "session": "s1", "title": "T"}]})
+        self.assertFalse(claude["apps_below"])  # (a Claude's card has them right of its name)
 
     def test_a_session_with_no_name_yet_is_a_new_session(self):
         """Not the workspace's last title, nor a placeholder: the daemon sends "" until it has a name."""

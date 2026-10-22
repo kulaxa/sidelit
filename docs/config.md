@@ -24,7 +24,7 @@ re-reads it.
   the sidebar opens. The default is the first of Terminator, Konsole, GNOME Console, kitty,
   foot, Alacritty, GNOME Terminal, Xfce's and MATE's terminals and xterm that is installed.
 - `browser`: the executable `sidelit open` uses for a new window.
-- `templates`, `default_template`: what `+` can open ([below](#templates)).
+- `templates`: what `+` can open ([below](#templates)).
 - `web_apps`: one-click web app windows, as `[{"name": …, "url": …}]`.
 - `restore_on_login`, `restore_windows`, `restore_delay`, `relaunch`: the restore after a login
   and after a crash. `restore_on_login` and `relaunch` are switches in the settings too: off,
@@ -40,18 +40,32 @@ set up in files of their own: see [Other sources](sources.md).
 
 ## Templates
 
-What a new workspace opens. `+` lists the templates by name (with only one, it opens that one straight away). A template
-names what to start on the new workspace, in order; the defaults are a Claude Code session on
-its own, with a browser window, with VS Code, and an empty terminal. This one opens a session
-next to a browser window on GitHub:
+What a new workspace opens. A template names what to start on the new workspace, in order,
+and optionally the folder it opens in (`cwd`; without one, your home folder). `+` lists the
+templates by name, and one click opens it (the defaults: a Claude
+Code session, an empty terminal).
+
+The settings (the gear, or `+` → **Manage templates…**) list them. **New template**, or a
+card's pencil, opens the editor: the name, the folder (picked, or left empty for your home
+folder), and what opens, a card a step with the step's one setting: a session of
+each agent (nothing to set), a terminal (a command, or none for a shell), a browser window
+(its addresses, one a line; none for an empty window), a web app (its address), a command
+line, or any installed app, picked by name under **Add**. Move a step up or down, remove it;
+the cards in the settings move a template up or remove it. The other way to start one is from
+a workspace you have set up: right-click its card → **Save as template…**, and the editor
+opens filled with the workspace's folder and what is open there: a session of each agent,
+terminals, browser windows with their tabs, web apps and other apps. Or write one yourself;
+this one opens a session next to a browser window on GitHub, in `~/src/app`:
 
 ```json
-{"name": "Claude Code + browser", "steps": [{"type": "claude"}, {"type": "app", "exec": "{browser} https://github.com"}]}
+{"name": "App + GitHub", "cwd": "~/src/app", "steps": [{"type": "claude"}, {"type": "browser", "urls": ["https://github.com"]}]}
 ```
 
 - `{"type": "claude"}` is a terminal with `claude` in it, and the tab follows it;
   `{"type": "codex"}` the same with `codex`, `{"type": "opencode"}` with `opencode`. A
-  `{"type": "terminal"}` step is a shell, or with `"command": "..."` runs that; an
-  `{"type": "app", "exec": "..."}` step runs any command line.
+  `{"type": "terminal"}` step is a shell, or with `"command": "..."` runs that.
+- `{"type": "browser", "urls": [...]}` is a browser window of its own with those tabs,
+  `{"type": "webapp", "url": "..."}` a web app window, `{"type": "app", "app": "code"}` an app
+  by its desktop entry's id, and `{"type": "app", "exec": "..."}` runs any command line.
 - An `exec` line can use `{cwd}`, the workspace's directory, and `{browser}`, your default
   browser set to open a *window of its own*.
