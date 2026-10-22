@@ -140,6 +140,7 @@ class Detector:
         self.hooked: dict[str, dict] = {}              # live sessions the hook reports, each with "agent"
         self.inner: dict[int, list[str]] = {}          # agent pid -> sessions of agents it started, working now
         self.window_of: dict[str, tuple] = {}          # session -> (window id, strength, evidence time)
+        self.launched: dict[str, tuple] = {}           # window id -> (pid, its start) of what we started for it
         self.focus: list[tuple[float, str]] = []       # (when, window id) the keyboard moved
         self.focus_since = 0.0
         self._by_window: dict[str, list[str]] = {}     # window id -> the sessions it shows, oldest first
@@ -288,7 +289,8 @@ class Detector:
     def assign(self, windows: dict, launched_pid: dict[str, int] | None = None):
         """Work out which window shows which session. `windows`: id -> Win."""
         from sidelit.core.titles import TERMINAL_APP_IDS
-        launched_pid = launched_pid or {}
+        launched_before = dict(self.launched)
+        launched_pid = self._launches(windows, launched_pid or {})
         live = {sid for sid, rec in self.hooked.items() if not rec["windowless"]} \
             | {s.get("sessionId") for s in self.sessions if s.get("pid") and not self._windowless(s)}
         before = dict(self.window_of)
@@ -365,7 +367,7 @@ class Detector:
                 if sid not in shown:
                     self.window_of.pop(sid, None)
             self._by_window[wid] = sorted(shown, key=lambda s: (self._started(s), s))
-        if self.window_of != before:
+        if self.window_of != before or self.launched != launched_before:
             self._save_windows()
 
     def _one_per_pane(self, claims: list[tuple]) -> list[str]:
@@ -396,6 +398,18 @@ class Detector:
         pid = int(sess.get("pid") or 0)
         return bool(outer_agent(pid, self.table, self.comms)) or not in_terminal(pid)
 
+    def _launches(self, windows: dict, fresh: dict[str, int]) -> dict[str, int]:
+        """Window id -> pid of what we started for it: the engine's, which a daemon restart
+        empties, and what it said before, while that process runs (a pane split off it later
+        is still in the terminal we started)."""
+        for wid, pid in fresh.items():
+            if self.launched.get(wid, (None,))[0] != pid:
+                self.launched[wid] = (pid, self.started_of(pid))
+        for wid, (pid, at) in list(self.launched.items()):
+            if wid not in windows or pid not in self.table or self.started_of(pid) != at:
+                del self.launched[wid]
+        return {wid: pid for wid, (pid, _) in self.launched.items()}
+
     def _offer(self, sid: str, evidence: tuple):
         strength, t, wid = evidence
         cur = self.window_of.get(sid)
@@ -406,7 +420,9 @@ class Detector:
         try:
             self.windows_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.windows_file.with_name("windows.json.tmp")
-            tmp.write_text(json.dumps({s: list(v) for s, v in self.window_of.items()}))
+            data = {s: list(v) for s, v in self.window_of.items()}
+            data["launched"] = {w: list(v) for w, v in self.launched.items()}
+            tmp.write_text(json.dumps(data))
             tmp.replace(self.windows_file)
         except OSError:
             pass
@@ -419,6 +435,10 @@ class Detector:
             for sid, v in data.items():
                 if isinstance(v, list) and len(v) == 3:
                     self.window_of[sid] = (str(v[0]), int(v[1]), float(v[2]))
+            launched = data.get("launched")
+            for wid, v in (launched.items() if isinstance(launched, dict) else ()):
+                if isinstance(v, list) and len(v) == 2:
+                    self.launched[str(wid)] = (int(v[0]), None if v[1] is None else float(v[1]))
 
     # ---- outputs
     def status(self, sid: str) -> str:
