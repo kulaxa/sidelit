@@ -82,16 +82,6 @@ LOGO_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" vi
  <rect x="20" y="30" width="14" height="4" rx="2" fill="#ffffff" fill-opacity="0.3"/>
 </svg>"""
 
-FORK_ICON_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
- <g fill="none" stroke="#9a9a9a" stroke-width="1.5">
-  <circle cx="4" cy="3.5" r="1.75"/>
-  <circle cx="12" cy="3.5" r="1.75"/>
-  <circle cx="8" cy="12.5" r="1.75"/>
-  <path d="M4 5.25 V6.5 a2 2 0 0 0 2 2 h4 a2 2 0 0 0 2 -2 V5.25 M8 8.5 v2.25"/>
- </g>
-</svg>"""
-
-
 def save_json(path: Path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -274,6 +264,28 @@ def home_path(path: str | None) -> str:
     return ("~" + path[len(home):] if path and path.startswith(home) else path) or ""
 
 
+def template_summary(tpl: dict) -> str:
+    """What a template opens, in a line: "Claude Code · terminal · chrome, 3 tabs"."""
+    parts = []
+    names = {a.name for a in agents.every()}
+    for step in tpl.get("steps") or []:
+        kind = step.get("type", "app")
+        if kind in names:
+            parts.append(agents.get(kind).label)
+        elif kind == "terminal":
+            parts.append("terminal")
+        elif kind == "browser":
+            n = len(step.get("urls") or [])
+            parts.append(f"browser, {n} tab{'s' if n != 1 else ''}" if n else "browser")
+        elif kind == "webapp" and step.get("url"):
+            parts.append(str(step["url"]).split("//", 1)[-1].split("/", 1)[0])
+        elif step.get("exec"):
+            parts.append(Path(str(step["exec"]).split()[0].strip("{}")).name)
+        elif step.get("app"):
+            parts.append(app_name(step["app"]))
+    return " · ".join(parts) or "nothing"
+
+
 def day_label(t: float, today=None) -> str:
     """'Today', 'Yesterday', the weekday within a week, else 'Mon 22 Sep'."""
     day = datetime.fromtimestamp(float(t)).date()
@@ -413,6 +425,91 @@ def app_entry(app: str) -> tuple:
     return _APPS[app]
 
 
+# ---- a template's steps, as the editor shows them -------------------------------------------
+# A step is what config.DEFAULT_TEMPLATES says; the editor sees it as a kind and one setting:
+# an agent's session (nothing to set), a terminal (a command, or none), a browser window (its
+# addresses), a web app (its address), an app by its desktop entry (picked from installed_apps),
+# a command line.
+def step_kinds() -> list[tuple[str, str]]:
+    """What the editor's "Add" offers, (kind, label); an installed app is picked by name."""
+    return [(a.name, a.label) for a in agents.every()] + [
+        ("terminal", "Terminal"), ("browser", "Browser window"), ("webapp", "Web app"), ("exec", "Command")]
+
+
+def step_kind(step: dict) -> str:
+    """A step's kind: its type, an app step "app" (by desktop entry) or "exec" (a command line)."""
+    kind = str(step.get("type") or "app")
+    if kind == "app":
+        return "exec" if step.get("exec") and not step.get("app") else "app"
+    return kind
+
+
+def step_title(step: dict) -> str:
+    """What heads a step's card: the kind's label, an app's name."""
+    kind = step_kind(step)
+    if kind == "app":
+        return app_entry(str(step.get("app") or ""))[1] or str(step.get("app") or "app")
+    return dict(step_kinds()).get(kind, kind)
+
+
+SETTING_HINTS = {"command": "command to run (none: a shell)", "urls": "one address a line (none: an empty window)",
+                 "url": "https://…", "exec": "command line; {cwd} is the folder"}
+
+
+def step_setting(step: dict) -> tuple[str, str]:
+    """(what, value) for a step's one setting, `what` a key of SETTING_HINTS: a terminal's
+    command, a browser's addresses one a line, a web app's address, a command line; ("", "")
+    for a step with none (an agent's session, an app)."""
+    kind = step_kind(step)
+    if kind == "terminal":
+        return "command", str(step.get("command") or "")
+    if kind == "browser":
+        return "urls", "\n".join(str(u) for u in step.get("urls") or [])
+    if kind == "webapp":
+        return "url", str(step.get("url") or "")
+    if kind == "exec":
+        return "exec", str(step.get("exec") or "")
+    return "", ""
+
+
+def make_step(kind: str, value: str = "", app: str = "") -> dict:
+    """A step of that kind with its setting as typed (the daemon tidies and checks it,
+    config.clean_template); `app` is the desktop entry's id for an "app" step."""
+    value = value.strip()
+    if kind == "terminal":
+        return {"type": "terminal", **({"command": value} if value else {})}
+    if kind == "browser":
+        return {"type": "browser", "urls": [u.strip() for u in value.splitlines() if u.strip()]}
+    if kind == "webapp":
+        return {"type": "webapp", "url": value}
+    if kind == "exec":
+        return {"type": "app", "exec": value}
+    if kind == "app":
+        return {"type": "app", "app": app}
+    return {"type": kind}
+
+
+def installed_apps() -> list[tuple[str, str, object]]:
+    """The apps a template can open, (desktop entry id, name, icon): the installed ones that
+    show in menus, by name. [] without GIO."""
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+    except (ImportError, ValueError):
+        return []
+    found = []
+    for info in Gio.AppInfo.get_all():
+        try:
+            app = str(info.get_id() or "")
+            if not info.should_show() or not app.endswith(".desktop"):
+                continue
+            found.append((app[:-len(".desktop")], info.get_display_name() or app, info.get_icon()))
+        except Exception:  # (a broken desktop entry)
+            continue
+    return sorted(found, key=lambda a: a[1].lower())
+
+
 def app_info(w: dict, missing: bool = False) -> dict:
     """What an app's icon shows: its window's tabs (a browser's, as its extension reports them),
     what its title says is unread ("(3) …", as Discord, Slack and many web apps put it), the
@@ -434,8 +531,9 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
     workspace is a card: a box per Claude (`boxes`), then an icon per other window (`apps`). An
     open workspace is headed (`head`) by its name, else "Workspace N"; a closed one only when it
     has no Claude, else its first Claude's title says what it was about (`title` either way). A
-    line under the header only when there is nothing else to say (`sub`: empty, closed). Its
-    folder (`path`) heads its menu; a closed one says on hover how to reopen it (`tip`)."""
+    line under the header only when there is nothing else to say (`sub`: empty, closed); an open
+    one with no Claude has its icons there instead (`apps_below`), so it is as tall as an empty
+    one. Its folder (`path`) heads its menu; a closed one says on hover how to reopen it (`tip`)."""
     claudes = tab.get("claudes") or []
     c = claudes[0] if claudes else None
     closed = tab.get("space") is None
@@ -460,7 +558,8 @@ def tab_info(tab: dict, item: dict | None = None) -> dict:
     return {"title": title, "sub": sub, "state": state, "cls": cls, "has_claude": bool(c or item),
             "item": bool(item), "session_id": (c or {}).get("session") if len(claudes) == 1 else None,
             "path": home_path(cwd), "closed": closed, "boxes": boxes, "apps": apps, "tip": tip,
-            "head": not item and (not closed or bool(tab.get("name")) or not boxes)}
+            "head": not item and (not closed or bool(tab.get("name")) or not boxes),
+            "apps_below": not item and not closed and not boxes}
 
 
 def tab_classes(tab: dict, info: dict, attention: bool) -> list[tuple[str, bool]]:
@@ -489,7 +588,7 @@ def box_room() -> tuple[str, str]:
 def tab_snapshot(rows) -> list[tuple]:
     """What a redraw depends on: an unchanged snapshot needs none."""
     return [(t["key"], t.get("space"), t.get("active"), i["title"], i["sub"], i["session_id"], att,
-             i["has_claude"], i["path"], i["state"], i["cls"], t.get("shortcut"), i["tip"], i["head"],
+             i["has_claude"], i["path"], i["state"], i["cls"], t.get("shortcut"), i["tip"], i["head"], i["apps_below"],
              tuple((b["key"], b["title"], b["sub"], b["cls"], b["calls"], b["subagents"]) for b in i["boxes"]),
              tuple((a["key"], a["title"], a["missing"], a["tabs"], a["unread"]) for a in i["apps"]))
             for t, i, att in rows]
@@ -574,14 +673,17 @@ class SidebarLogic:
         self.state = state
         self.render()
 
-    def send(self, method: str, _tries: int = 16, **params):
-        """A command to the daemon; errors come back as a dialog. While the daemon is being
-        restarted (systemd brings it back within seconds) the command waits for it."""
+    def send(self, method: str, _tries: int = 16, _then=None, **params):
+        """A command to the daemon; errors come back as a dialog, `_then()` follows one that
+        went through. While the daemon is being restarted (systemd brings it back within
+        seconds) the command waits for it."""
         def done(result, error):
             if error == "the daemon is not running" and _tries > 1:
-                GLib.timeout_add(500, lambda: self.send(method, _tries=_tries - 1, **params) and False)
+                GLib.timeout_add(500, lambda: self.send(method, _tries=_tries - 1, _then=_then, **params) and False)
             elif error:
                 self._error(f"{method}: {error}")
+            elif _then is not None:
+                _then()
         self.daemon.request(method, done, **params)
 
     # ---- screens --------------------------------------------------------------------------
@@ -937,13 +1039,12 @@ class SidebarLogic:
         return "move" in (self.state.get("caps") or [])  # a desktop that cannot reorder: no drop indicator
 
     def tab_menu(self, tab: dict, box: dict | None = None) -> list:
-        """A card's menu, headed by its folder; on one of its Claudes' boxes, its Fork is that
-        Claude's."""
+        """A card's menu, headed by its folder; on one of its Claudes' boxes, a new session
+        starts in that Claude's folder."""
         info = tab_info(tab)
         where = self._where(tab)
         cwd = (box or {}).get("cwd") or tab.get("cwd") or next(
             (c.get("cwd") for c in tab.get("claudes") or [] if c.get("cwd")), "") or str(Path.home())
-        session = (box or {}).get("session_id") or info["session_id"]
         items = [(info["path"], None), SEPARATOR] if info["path"] else []
         if not info["closed"]:
             items.append(("Open terminal here", lambda: self.send("terminal", **where)))
@@ -953,8 +1054,6 @@ class SidebarLogic:
             items.append((f"New {agent.label} session in this directory" if len(found) > 1 else
                           "New session in this directory",
                           lambda a=agent: self.send("new", cwd=cwd, after=tab.get("ws"), agent=a.name)))
-        if session:
-            items.append(("Fork session", lambda: self.fork(tab, session)))
         if not info["closed"]:
             for app in self.cfg.get("web_apps") or []:
                 if isinstance(app, dict) and app.get("url"):
@@ -962,9 +1061,14 @@ class SidebarLogic:
                                   lambda u=app["url"]: self.send("webapp", url=u, **where)))
             items.append(("Open web app here…", lambda: self.web_app_dialog(tab)))
         items.append(("Rename…", lambda: self.rename_dialog(tab)))
+        if info["boxes"] or info["apps"]:
+            items.append(("Save as template…", lambda: self.template_dialog(tab)))
         missing = tab.get("missing") or []
+        windows = f"{len(missing)} missing window{'s' if len(missing) != 1 else ''}"
+        if missing and tab.get("ws"):  # (this workspace's only, as "Put everything back" does for all)
+            items.append((f"Restore {windows}", lambda: self.send("reopen", ws=tab["ws"])))
         if missing and not info["closed"]:
-            items.append((f"Forget {len(missing)} missing window{'s' if len(missing) != 1 else ''}",
+            items.append((f"Forget {windows}",
                           lambda: [self.send("forget_slot", slot=m["slot"]) for m in missing]))
         if tab.get("ws"):
             items.append(("Forget (stop keeping it, leave its windows)", lambda: self.send("forget", ws=tab["ws"])))
@@ -1021,13 +1125,74 @@ class SidebarLogic:
             print(f"sidebar: {key}: config.json is not JSON, not saved", file=sys.stderr)
         self.send("reload")
 
-    def new_menu(self) -> list | None:
-        """'+' asks which template to use; with only one configured it just opens it (None)."""
-        tpls = config.templates(self.cfg)
-        if len(tpls) < 2:  # (never none: config.templates falls back to the defaults)
-            self.send("new", template=tpls[0].get("name"))
-            return None
-        return [(tpl.get("name") or "unnamed", lambda t=tpl: self.send("new", template=t.get("name"))) for tpl in tpls]
+    # ---- '+' -------------------------------------------------------------------------------
+    def new_choices(self) -> list[tuple]:
+        """What '+' offers: every template by its name, (name, a click that opens it) each. What
+        it opens and where are the settings' to show: the name is yours to say it."""
+        return [(name, lambda n=name: self.send("new", template=n)) for name, _what, _where in self.template_rows()]
+
+    def new_menu(self) -> list:
+        """'+' as a plain menu (the GTK 3 sidebar): the templates, then making and managing them."""
+        items = list(self.new_choices())
+        items.append(SEPARATOR)
+        items.append(("New template…", lambda: self.edit_template("new")))
+        items.append(("Manage templates…", lambda: self._show_view("settings", "templates")))
+        return items
+
+    def templates(self) -> list[dict]:
+        """config.json's templates as they are now: a card's "Save as template…" has the daemon
+        write there."""
+        self.cfg["templates"] = config.load().get("templates")
+        return config.templates(self.cfg)
+
+    def template_rows(self) -> list[tuple[str, str, str]]:
+        """(name, what it opens, where) for each template, for the settings' cards."""
+        return [(t.get("name") or "unnamed", template_summary(t),
+                 home_path(os.path.expanduser(str(t["cwd"]))) if t.get("cwd") else "~")
+                for t in self.templates()]
+
+    def edit_template(self, how: str, name: str = ""):
+        """The settings' template cards: "up", "remove", "edit" (the editor on that one), "new"
+        (the editor on an empty one)."""
+        if how == "new":
+            self.template_editor({}, "")
+        elif how == "edit":
+            tpl = next((t for t in self.templates() if (t.get("name") or "unnamed") == name), None)
+            if tpl is not None:
+                self.template_editor(tpl, str(tpl.get("name") or ""))
+        else:
+            self.send(f"{how if how != 'up' else 'move'}_template", _then=self._templates_changed, name=name)
+
+    def save_template_edit(self, old: str, tpl: dict, then):
+        """The editor's Save: the daemon checks and writes it (put_template), `then()` once it
+        did; an error comes back as a dialog, the editor stays."""
+        self.send("put_template", old=old, template=tpl, _then=lambda: (then(), self._templates_changed()))
+
+    def ask_template(self, tab: dict, then):
+        """What `tab`'s workspace would save as a template (the daemon says: its folder, what is
+        open there), named after the workspace, handed to `then(tpl)`."""
+        def done(result, error):
+            if error:
+                self._error(f"save as template: {error}")
+            else:
+                then({"name": self.template_name(tab), **result})
+        self.daemon.request("workspace_template", done, **self._where(tab))
+
+    def template_dialog(self, tab: dict):
+        """"Save as template…": the editor, filled with what the workspace has open."""
+        self.ask_template(tab, lambda tpl: self.template_editor(tpl, ""))
+
+    def _templates_changed(self):
+        """The settings' template cards drawn again."""
+        self.settings.set_templates(self.template_rows())
+
+    def template_name(self, tab: dict) -> str:
+        """What "Save as template…" suggests: the workspace's name, else its folder's."""
+        return tab.get("name") or folder_name(tab.get("cwd") or next(
+            (c.get("cwd") for c in tab.get("claudes") or [] if c.get("cwd")), "")) or ""
+
+    EDITOR_HINT = ("'+' offers it: with a folder, as a place of its own; without one, it opens in the "
+                   "project you click.")
 
     def on_tab_clicked(self, tab: dict):
         self._attention.seen(tab["key"])
@@ -1054,5 +1219,3 @@ class SidebarLogic:
             return
         self.send("focus", key=box["key"])
 
-    def fork(self, tab: dict, session_id: str):
-        self.send("fork", session=session_id, **({"ws": tab["ws"]} if tab.get("ws") else {}))

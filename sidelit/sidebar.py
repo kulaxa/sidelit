@@ -7,14 +7,12 @@ crash, restart or be re-mapped on another screen without anything being lost.
 
 - click a tab .......... switch to that workspace (a closed one is reopened)
 - '+' at the bottom .... new pinned workspace from a template
-- fork icon ............ new workspace running `claude --resume <id> --fork-session`
 - x .................... close every window on the workspace and stop keeping it
 - other sources ........ their items under the tabs (sources.py); right-click one to give it
                          a workspace of its own, whose tab is then drawn from the item
 """
 from __future__ import annotations
 
-import functools
 import os
 import signal
 import sys
@@ -48,9 +46,10 @@ else:
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402,F401 (names the tests and older callers use)
-    FORK_ICON_SVG, LOGO_SVG, SEPARATOR, app_entry, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items, box_classes,
-    box_room, close_question, compact_wanted, countdown, reset_line, day_label, dock_side, group_blocks, group_items,
-    history_lines, item_sub, matches, model_css, place_choices, tab_classes, tab_info, tab_snapshot, update_line, usage_level,
+    LOGO_SVG, SEPARATOR, SETTING_HINTS, app_entry, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items,
+    box_classes, box_room, close_question, compact_wanted, countdown, reset_line, day_label, dock_side, group_blocks,
+    group_items, history_lines, item_sub, make_step, matches, model_css, place_choices, step_kind, step_kinds,
+    step_setting, tab_classes, tab_info, tab_snapshot, update_line, usage_level,
 )
 
 FONT = "'Inter', 'SF Pro Text', 'Fira Sans', 'Cantarell', 'Noto Sans', sans-serif"
@@ -120,9 +119,10 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
   box-shadow: 0 0 14px -2px rgba(255,214,10,0.22); }}
 .cw-head {{ padding: 1px 2px 6px 6px; }}
 .cw-card-name {{ color: rgba(235,235,245,0.45); font-size: 12px; font-weight: 600; }}
-.cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; }}
+.cw-card-note {{ color: rgba(235,235,245,0.45); font-size: 12px; padding: 0 6px 4px; min-height: 18px; }}
 .cw-apps {{ padding: 5px 4px 0; min-height: 18px; }}
 .cw-head-apps {{ padding: 0; min-height: 0; }}
+.cw-under-apps {{ padding: 0 2px 4px; }}
 .cw-app {{ border-radius: 6px; padding: 2px 3px; opacity: 0.45; -gtk-icon-effect: dim; }}
 .cw-tab:hover .cw-app, .cw-tab.active .cw-app {{ opacity: 0.9; -gtk-icon-effect: none; }}
 .cw-app-hit:hover > .cw-app {{ background-color: rgba(255,255,255,0.12); opacity: 1; }}
@@ -166,7 +166,7 @@ scrollbar slider {{ background-color: rgba(255,255,255,0.18); border-radius: 4px
 .cw-tab.attention .cw-name {{ color: #ffd60a; }}
 .cw-model {{ color: rgba(235,235,245,0.60); font-size: 85%; margin-top: 2px; }}
 .cw-path {{ color: rgba(235,235,245,0.32); font-family: {MONO}; font-size: 70%; margin-top: 1px; }}
-/* fork and close stay quiet until the pointer is on their tab */
+/* close stays quiet until the pointer is on its tab */
 .cw-icon {{ padding: 2px 4px; min-width: 16px; min-height: 16px; border: none; background: none; box-shadow: none;
   opacity: 0.35; }}
 .cw-tab:hover .cw-icon, .cw-tab.active .cw-icon {{ opacity: 1; }}
@@ -254,21 +254,10 @@ button.cw-seg-item.picked:hover {{ background-color: rgba(48,104,130,0.95); }}
 button.cw-seg-item:focus {{ outline-style: solid; outline-width: 2px; outline-offset: -2px; outline-color: rgba(100,210,255,0.55); }}
 .cw-theme-pic {{ border-radius: 6px; }}
 .cw-setting-check {{ color: #64d2ff; }}
+.cw-setting button.cw-icon {{ opacity: 0.75; }}
+.cw-setting button.cw-icon:hover {{ opacity: 1; }}
 .cw-setting-icon {{ color: rgba(235,235,245,0.6); }}
 """.encode()
-
-@functools.lru_cache(maxsize=1)
-def _fork_pixbuf():
-    """The fork icon, decoded once: parsing the SVG costs ~1.6ms per tab on a full rebuild.
-    None where GdkPixbuf cannot read SVG."""
-    try:
-        loader = GdkPixbuf.PixbufLoader.new_with_type("svg")
-        loader.write(FORK_ICON_SVG)
-        loader.close()
-    except Exception:
-        return None
-    return loader.get_pixbuf()
-
 
 def logo(size: int = 22) -> Gtk.Widget:
     """Sidelit's mark; nothing where GdkPixbuf cannot read SVG (the name alone)."""
@@ -280,13 +269,6 @@ def logo(size: int = 22) -> Gtk.Widget:
     except Exception:
         return Gtk.Box()
     return Gtk.Image.new_from_pixbuf(loader.get_pixbuf())
-
-
-def fork_icon() -> Gtk.Image:
-    pixbuf = _fork_pixbuf()
-    if pixbuf is None:
-        return Gtk.Image.new_from_icon_name("edit-copy-symbolic", Gtk.IconSize.MENU)
-    return Gtk.Image.new_from_pixbuf(pixbuf)
 
 
 def app_icon(app: str, size: int = 18) -> Gtk.Image:
@@ -313,7 +295,7 @@ def _on_enter(w, _ev):
 
 
 def _on_leave(w, ev):
-    if ev.detail != Gdk.NotifyType.INFERIOR:  # onto its own fork or close button is still on the tab
+    if ev.detail != Gdk.NotifyType.INFERIOR:  # onto its own close button is still on the tab
         w.unset_state_flags(Gtk.StateFlags.PRELIGHT)
     return False
 
@@ -484,14 +466,16 @@ class SettingsPanel(Gtk.Box):
     """The gear's view, in place of the workspaces like the history: the themes, each a card
     with a small picture of it (themes.preview), the one in use ringed; picking one wears it at
     once. Then where the sidebar goes (its side, its screen), the switches, each a card that
-    flips it, and the sidebar's own actions.
+    flips it, the templates '+' offers, and the sidebar's own actions.
     `pick_theme(name)`, `pick_place(key, value)`, `switches` [(text, config key)] flipped by
-    `flip(key, on)`, `actions` [(text, icon, fn)]."""
+    `flip(key, on)`, `actions` [(text, icon, fn)], `edit_template(how, name)` for a template
+    card's buttons ("up", "edit", "remove"; "new" for the card that makes one)."""
 
-    def __init__(self, pick_theme, pick_place, switches: list, flip, actions: list):
+    def __init__(self, pick_theme, pick_place, switches: list, flip, actions: list, edit_template):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.pick_theme, self.pick_place = pick_theme, pick_place
+        self.pick_theme, self.pick_place, self.edit_template = pick_theme, pick_place, edit_template
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.content = content
         content.pack_start(self._label("THEME", "cw-history-day"), False, False, 0)
         self.themes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content.pack_start(self.themes_box, False, False, 0)
@@ -512,6 +496,15 @@ class SettingsPanel(Gtk.Box):
             content.pack_start(self._card(row, lambda k=key, sw=switch: (
                 sw.set_active(not sw.get_active()), flip(k, sw.get_active()))), False, False, 0)
             self.switches[key] = switch
+        self.templates_head = self._label("TEMPLATES", "cw-history-day")
+        content.pack_start(self.templates_head, False, False, 0)
+        self.templates_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.pack_start(self.templates_box, False, False, 0)
+        hint = Gtk.Label(label="Or set a workspace up and right-click its card → Save as template…: the editor "
+                         "starts from what is open there.", xalign=0)
+        hint.set_line_wrap(True)
+        hint.get_style_context().add_class("cw-src-note")
+        content.pack_start(hint, False, False, 0)
         content.pack_start(self._label("SIDEBAR", "cw-history-day"), False, False, 0)
         self.actions = {}
         for text, icon, action in actions:
@@ -529,6 +522,56 @@ class SettingsPanel(Gtk.Box):
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.add(content)
         self.pack_start(scroller, True, True, 0)
+        self.scroller = scroller
+
+    def scroll_to(self, section: str):
+        """The panel scrolled to a section's heading ("templates"), once it is laid out."""
+        head = {"templates": self.templates_head}.get(section)
+
+        def scroll():
+            spot = head.translate_coordinates(self.content, 0, 0) if head is not None else None
+            if spot is not None:
+                self.scroller.get_vadjustment().set_value(spot[1])
+            return False
+        GLib.timeout_add(250, scroll)  # (after the slide in: the stack lays it out then)
+
+    def set_templates(self, rows: list):
+        """A card per template: its name, what it opens and where; up (not the first), edit (the
+        editor), remove (not the last one left). Then a card that makes a new one."""
+        for child in self.templates_box.get_children():
+            self.templates_box.remove(child)
+        for i, (name, what, where) in enumerate(rows):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            row.get_style_context().add_class("cw-setting")
+            card(row)
+            row.set_margin_top(4)
+            row.set_margin_bottom(4)
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, valign=Gtk.Align.CENTER)
+            texts.pack_start(self._label(name, "cw-history-title"), False, False, 0)
+            sub = self._label(f"{what} · in {where}", "cw-history-sub")
+            sub.set_tooltip_text(f"{what}, in {where}")
+            texts.pack_start(sub, False, False, 0)
+            row.pack_start(texts, True, True, 0)
+            for how, icon, tip, shown in (("up", "go-up-symbolic", "Move up", i > 0),
+                                          ("edit", "document-edit-symbolic", "Edit", True),
+                                          ("remove", "user-trash-symbolic", "Remove", len(rows) > 1)):
+                btn = Gtk.Button.new_from_icon_name(icon, Gtk.IconSize.MENU)
+                btn.set_relief(Gtk.ReliefStyle.NONE)
+                btn.set_valign(Gtk.Align.CENTER)
+                btn.set_tooltip_text(tip)
+                btn.get_style_context().add_class("cw-icon")
+                btn.set_opacity(1.0 if shown else 0.0)
+                btn.set_sensitive(shown)  # (hidden, it keeps its place: the buttons line up)
+                btn.connect("clicked", lambda *_, h=how, n=name: self.edit_template(h, n))
+                row.pack_start(btn, False, False, 0)
+            row.show_all()
+            self.templates_box.pack_start(row, False, False, 0)
+        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        line.pack_start(Gtk.Image.new_from_icon_name("list-add-symbolic", Gtk.IconSize.MENU), False, False, 0)
+        line.pack_start(self._label("New template", "cw-history-title"), False, False, 0)
+        new = self._card(line, lambda: self.edit_template("new", ""))
+        new.show_all()
+        self.templates_box.pack_start(new, False, False, 0)
 
     @staticmethod
     def _label(text: str, cls: str) -> Gtk.Label:
@@ -630,6 +673,92 @@ class SettingsPanel(Gtk.Box):
             self.themes_box.pack_start(btn, False, False, 0)
 
 
+class TemplateDialog(Gtk.Dialog):
+    """The template editor, plain (GTK 3): its name, the folder it opens in (none: the project
+    you click in '+'), and a row per step, its kind in a combo and its one setting in an entry
+    (a browser's addresses separated by spaces; an app's desktop entry id), moved up or down or
+    removed; Add puts a row in. template() is what was typed, for the daemon to check."""
+
+    def __init__(self, parent, tpl: dict, hint: str, pick_folder):
+        super().__init__(title="Template", transient_for=parent, modal=True)
+        self.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Save", Gtk.ResponseType.OK)
+        self.set_default_response(Gtk.ResponseType.OK)
+        self.set_default_size(520, -1)
+        self.kinds = step_kinds() + [("app", "App (desktop entry id)")]
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=12)
+        grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        self.name = Gtk.Entry(text=str(tpl.get("name") or ""), placeholder_text="name", hexpand=True)
+        self.folder = Gtk.Entry(text=str(tpl.get("cwd") or ""), placeholder_text="your home folder", hexpand=True)
+        pick = Gtk.Button(label="Pick…")
+        pick.connect("clicked", lambda *_: pick_folder(lambda path: self.folder.set_text(path),
+                                                       "Template folder", "Use this folder"))
+        grid.attach(Gtk.Label(label="Name", xalign=0), 0, 0, 1, 1)
+        grid.attach(self.name, 1, 0, 2, 1)
+        grid.attach(Gtk.Label(label="Folder", xalign=0), 0, 1, 1, 1)
+        grid.attach(self.folder, 1, 1, 1, 1)
+        grid.attach(pick, 2, 1, 1, 1)
+        box.pack_start(grid, False, False, 0)
+        box.pack_start(Gtk.Label(label="Opens", xalign=0), False, False, 0)
+        self.rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.pack_start(self.rows, False, False, 0)
+        for step in tpl.get("steps") or []:
+            self._add_row(step)
+        add = Gtk.Button(label="Add", halign=Gtk.Align.START)
+        add.connect("clicked", lambda *_: self._add_row(make_step(self.kinds[0][0])))
+        box.pack_start(add, False, False, 0)
+        note = Gtk.Label(label=hint, xalign=0)
+        note.set_line_wrap(True)
+        box.pack_start(note, False, False, 0)
+        self.get_content_area().add(box)
+        self.show_all()
+
+    def _add_row(self, step: dict):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        row.combo = Gtk.ComboBoxText()
+        for kind, text in self.kinds:
+            row.combo.append(kind, text)
+        kind = step_kind(step)
+        row.combo.set_active_id(kind)
+        what, value = step_setting(step)
+        row.entry = Gtk.Entry(text=str(step.get("app") or "") if kind == "app" else value.replace("\n", " "), hexpand=True)
+        row.entry.set_placeholder_text(self._hint(kind))
+        row.combo.connect("changed", lambda c: row.entry.set_placeholder_text(self._hint(c.get_active_id())))
+        row.pack_start(row.combo, False, False, 0)
+        row.pack_start(row.entry, True, True, 0)
+        for how, icon, tip in (("up", "go-up-symbolic", "Move up"), ("down", "go-down-symbolic", "Move down"),
+                               ("remove", "user-trash-symbolic", "Remove")):
+            btn = Gtk.Button.new_from_icon_name(icon, Gtk.IconSize.MENU)
+            btn.set_relief(Gtk.ReliefStyle.NONE)
+            btn.set_tooltip_text(tip)
+            btn.connect("clicked", lambda *_, h=how: self._moved(row, h))
+            row.pack_start(btn, False, False, 0)
+        row.show_all()
+        self.rows.pack_start(row, False, False, 0)
+
+    @staticmethod
+    def _hint(kind: str) -> str:
+        what = {"terminal": "command", "browser": "urls", "webapp": "url", "exec": "exec"}.get(kind, "")
+        return "desktop entry id, e.g. org.gnome.Nautilus" if kind == "app" else \
+            SETTING_HINTS[what].replace("a line", "apart") if what else "nothing to set"
+
+    def _moved(self, row, how: str):
+        rows = self.rows.get_children()
+        i = rows.index(row)
+        if how == "remove":
+            self.rows.remove(row)
+        elif how == "up" and i > 0:
+            self.rows.reorder_child(row, i - 1)
+        elif how == "down" and i < len(rows) - 1:
+            self.rows.reorder_child(row, i + 1)
+
+    def template(self) -> dict:
+        steps = []
+        for row in self.rows.get_children():
+            kind, text = row.combo.get_active_id(), row.entry.get_text()
+            steps.append(make_step(kind, "\n".join(text.split()) if kind == "browser" else text, app=text.strip()))
+        return {"name": self.name.get_text(), "cwd": self.folder.get_text(), "steps": steps}
+
+
 def build_menu(entries: list) -> Gtk.Menu:
     """A GTK 3 menu from the shared menu entries (sidebar_common.SEPARATOR and friends)."""
     menu = Gtk.Menu()
@@ -638,7 +767,7 @@ def build_menu(entries: list) -> Gtk.Menu:
             menu.append(Gtk.SeparatorMenuItem())
             continue
         label, action = entry
-        item = Gtk.MenuItem(label=label)
+        item = Gtk.MenuItem(label=label, use_underline=False)  # (a _ in a folder's name is not a mnemonic)
         if isinstance(action, list):
             item.set_submenu(build_menu(action))
         elif action is None:
@@ -814,7 +943,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
             ("Put everything back", "view-refresh-symbolic", self.put_back),
             (*update_line("idle"), self.update_now),
             ("Restart sidebar", "system-reboot-symbolic", lambda: self._screens_changed("settings")),
-        ])
+        ], self.edit_template)
         self.views.add_named(self.settings, "settings")
         self.connect("key-press-event", self._on_key_press)  # (Esc leaves the settings)
         root.pack_start(self.views, True, True, 0)
@@ -850,7 +979,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.update_btn.connect("clicked", self.on_update_clicked)
         root.pack_start(self.update_btn, False, False, 0)
 
-        self.new_btn = new_btn = Gtk.Button(tooltip_text="New workspace — pick a template",
+        self.new_btn = new_btn = Gtk.Button(
                                             relief=Gtk.ReliefStyle.NONE)
         new_label = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, halign=Gtk.Align.CENTER)
         new_label.pack_start(Gtk.Image.new_from_icon_name("list-add-symbolic", Gtk.IconSize.MENU), False, False, 0)
@@ -938,8 +1067,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
         self.settings.set_themes(themes.choices(), name)
 
     # ---- views ------------------------------------------------------------------------------
-    def _show_view(self, view: str):
-        """The workspaces, the history or the settings, the header saying which ("← History")."""
+    def _show_view(self, view: str, section: str | None = None):
+        """The workspaces, the history or the settings (scrolled to `section`), the header
+        saying which ("← History")."""
         away = view != "workspaces"
         self.back_btn.set_visible(away)
         self.header_mark.set_visible(not away)
@@ -953,6 +1083,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
             screens = Gdk.Display.get_default().get_n_monitors()
             self.settings.set_places(place_choices(self.cfg, screens))
             self.settings.set_switches(self.cfg)
+            self.settings.set_templates(self.template_rows())
+            self.settings.scroller.get_vadjustment().set_value(0)
+            if section:
+                self.settings.scroll_to(section)
         self.views.set_visible_child_name(view)
 
     def _on_key_press(self, _w, ev):
@@ -1217,8 +1351,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
     def _update_tab(self, w, tab, info, attention):
         if w.cw_box_keys != [b["key"] for b in info["boxes"]] or w.cw_app_keys != [a["key"] for a in info["apps"]] \
                 or w.cw_card != (not info["item"]) or (info["item"] and w.cw_session_id != info["session_id"]) \
-                or w.cw_head != info["head"]:
-            # a Claude or a window came or went, or the fork button appears/disappears: rebuild this tab only
+                or w.cw_head != info["head"] or (w.cw_card and w.cw_below != info["apps_below"]):
+            # a Claude or a window came or went, or the icons move: rebuild this tab only
             new = self._make_tab(tab, info, attention)
             pos = self.list_box.get_children().index(w)
             self.list_box.remove(w)
@@ -1309,9 +1443,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
             close = self._close_button(w)
             close.set_valign(Gtk.Align.START)
             head.pack_end(close, False, False, 0)
-            apps.get_style_context().add_class("cw-head-apps")  # (its other windows, right of the name)
-            apps.set_valign(Gtk.Align.CENTER)
-            head.pack_end(apps, False, False, 0)
+            if not info["apps_below"]:
+                apps.get_style_context().add_class("cw-head-apps")  # (its other windows, right of the name)
+                apps.set_valign(Gtk.Align.CENTER)
+                head.pack_end(apps, False, False, 0)
             card.pack_start(head, False, False, 0)
             w.cw_name = name
         note = Gtk.Label(label=info["sub"], xalign=0)
@@ -1328,10 +1463,13 @@ class Sidebar(Gtk.Window, SidebarLogic):
             w.cw_boxes.append(bw)
         wells.set_no_show_all(not info["boxes"])
         card.pack_start(wells, False, False, 0)
-        if not info["head"]:  # (a closed workspace named after its Claude: the icons under it)
+        # (a closed workspace named after its Claude, or an open one with no Claude: the icons under it)
+        if not info["head"] or info["apps_below"]:
+            if info["apps_below"]:
+                apps.get_style_context().add_class("cw-under-apps")  # (in the line an empty one's note takes)
             apps.set_no_show_all(not info["apps"])
             card.pack_start(apps, False, False, 0)
-        w.cw_note = note
+        w.cw_note, w.cw_below = note, info["apps_below"]
         w.cw_box_keys, w.cw_app_keys = [b["key"] for b in info["boxes"]], [a["key"] for a in info["apps"]]
         return card
 
@@ -1388,8 +1526,8 @@ class Sidebar(Gtk.Window, SidebarLogic):
         return True
 
     def _make_box(self, w, box: dict, closes: bool = False) -> Gtk.Widget:
-        """One Claude: its stripe, glyph and title, the model with a block per subagent, fork
-        (and the card's close button when the card has no header). Its
+        """One Claude: its stripe, glyph and title, the model with a block per subagent (and the
+        card's close button when the card has no header). Its
         own event box: a click on it goes to that Claude's terminal, a drag still moves the card."""
         hit = Gtk.EventBox()
         hit.get_style_context().add_class("cw-box-hit")
@@ -1422,21 +1560,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         col.pack_start(name, False, False, 0)
         col.pack_start(meta, False, False, 0)
         row.pack_start(in_room(col), True, True, 0)  # (a one-line title takes as much height as two)
-        if box["session_id"]:
-            fork = Gtk.Button()
-            fork.set_image(fork_icon())
-            fork.set_relief(Gtk.ReliefStyle.NONE)
-            fork.set_focus_on_click(False)
-            fork.set_valign(Gtk.Align.CENTER)
-            fork.set_tooltip_text("Fork this session into a new workspace")
-            fork.get_style_context().add_class("cw-icon")
-            fork.connect("clicked", lambda *_: self.fork(w.cw_tab, box["session_id"]))
-        if closes:  # (pack_end: the last packed sits rightmost)
+        if closes:
             close = self._close_button(w)
             close.set_valign(Gtk.Align.START)
             row.pack_end(close, False, False, 0)
-        if box["session_id"]:
-            row.pack_end(fork, False, False, 0)
         hit.add(row)
         hit.cw_row, hit.cw_name, hit.cw_sub, hit.cw_dots, hit.cw_box = row, name, sub, dots, box
         hit.connect("button-press-event", self._on_box_press, w)
@@ -1501,7 +1628,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         return True
 
     def _on_box_press(self, hit, ev, w) -> bool:
-        if ev.button == 3:  # the card's menu, with this Claude's Fork
+        if ev.button == 3:  # the card's menu, its new sessions in this Claude's folder
             build_menu(self.tab_menu(w.cw_tab, hit.cw_box)).popup_at_pointer(ev)
             return True
         return False  # (the card hears the press: a drag from a box moves the card)
@@ -1538,26 +1665,10 @@ class Sidebar(Gtk.Window, SidebarLogic):
         col.pack_start(path, False, False, 0)
         row.pack_start(col, True, True, 0)
 
-        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        right.set_valign(Gtk.Align.FILL)
-        icons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        icons.set_halign(Gtk.Align.END)
-        icons.set_valign(Gtk.Align.CENTER)
-        if info["session_id"]:
-            fork = Gtk.Button()
-            fork.set_image(fork_icon())
-            fork.set_relief(Gtk.ReliefStyle.NONE)
-            fork.set_focus_on_click(False)
-            fork.set_tooltip_text("Fork this session into a new workspace")
-            fork.get_style_context().add_class("cw-icon")
-            fork.connect("clicked", lambda *_: self.fork(w.cw_tab, info["session_id"]))
-            icons.pack_start(fork, False, False, 0)
         close = self._close_button(w)
         close.set_halign(Gtk.Align.END)
         close.set_valign(Gtk.Align.END)
-        right.pack_end(close, False, False, 0)  # bottom-right, level with the path line
-        right.pack_start(icons, True, True, 0)
-        row.pack_end(right, False, False, 0)
+        row.pack_end(close, False, False, 0)  # bottom-right, level with the path line
         w.cw_title, w.cw_sub, w.cw_path, w.cw_box_keys, w.cw_app_keys = lbl, sub, path, [], []
         return row
 
@@ -1637,11 +1748,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
 
     # ---- actions ----------------------------------------------------------
     def on_new_clicked(self, button: Gtk.Widget | None = None, *_):
-        """'+': the template menu, opening from the button (or straight away, see new_menu)."""
-        entries = self.new_menu()
-        if entries is not None:
-            build_menu(entries).popup_at_widget(button or self.new_btn, Gdk.Gravity.NORTH_EAST,
-                                                Gdk.Gravity.SOUTH_EAST, None)
+        """'+': where a new workspace goes, as a menu above the button (new_menu)."""
+        build_menu(self.new_menu()).popup_at_widget(button or self.new_btn, Gdk.Gravity.NORTH_EAST,
+                                                    Gdk.Gravity.SOUTH_EAST, None)
 
     def web_app_dialog(self, tab: dict):
         dlg = Gtk.Dialog(title="Open web app here", transient_for=self, modal=True)
@@ -1657,6 +1766,24 @@ class Sidebar(Gtk.Window, SidebarLogic):
         dlg.destroy()
         if url:
             self.send("webapp", url=url, **self._where(tab))
+
+    def template_editor(self, tpl: dict, old: str):
+        """The template editor (TemplateDialog) on `tpl`, saved in place of the one named `old`."""
+        dlg = TemplateDialog(self, tpl, self.EDITOR_HINT, self.folder_dialog)
+        if dlg.run() == Gtk.ResponseType.OK:
+            self.save_template_edit(old, dlg.template(), lambda: None)
+        dlg.destroy()
+
+    def folder_dialog(self, done, title: str = "New session in", accept: str = "Start here"):
+        """A folder picked; `done(path)` once it is."""
+        dlg = Gtk.FileChooserDialog(title=title, transient_for=self, modal=True,
+                                    action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, accept, Gtk.ResponseType.OK)
+        dlg.set_current_folder(os.path.expanduser("~"))
+        path = dlg.get_filename() if dlg.run() == Gtk.ResponseType.OK else None
+        dlg.destroy()
+        if path:
+            done(path)
 
     def rename_dialog(self, tab: dict):
         dlg = Gtk.Dialog(title="Name workspace", transient_for=self, modal=True)

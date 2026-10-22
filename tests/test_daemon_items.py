@@ -30,6 +30,118 @@ class ItemFolder(unittest.TestCase):
 
 
 @unittest.skipIf(daemon is None, "needs GLib")
+class Templates(unittest.TestCase):
+    """A card's "Save as template…": what its workspace has open, as steps '+' starts again."""
+
+    def workspace(self, cwd: str):
+        from sidelit.core.model import Slot, Workspace
+        return Workspace(id="w1", cwd=cwd, slots=[
+            Slot(id="s1", kind="terminal", app="terminator",
+                 state={"session": "a", "cwd": cwd, "more": [{"session": "b", "agent": "codex"}]}),
+            Slot(id="s2", kind="terminal", app="terminator", state={"cwd": cwd}),
+            Slot(id="s3", kind="browser", app="google-chrome",
+                 state={"tabs": [{"url": "https://git.example/mr/1"}, {"url": "chrome://newtab/"}]}),
+            Slot(id="s4", kind="webapp", app="chrome-discord.com__app-Default", state={"url": "https://discord.com/app"}),
+            Slot(id="s5", kind="generic", app="code"),
+            Slot(id="s6", kind="generic", app="code"),
+        ])
+
+    def test_what_is_open_becomes_steps(self):
+        d = object.__new__(daemon.Daemon)
+        self.assertEqual(d._template_steps(self.workspace("/src")), [
+            {"type": "claude"}, {"type": "codex"},  # (a new session of each agent, not those sessions)
+            {"type": "terminal"},
+            {"type": "browser", "urls": ["https://git.example/mr/1"]},  # (no blank tabs)
+            {"type": "webapp", "url": "https://discord.com/app"},
+            {"type": "app", "app": "code"},  # (once: the app brings its own windows)
+        ])
+
+    def test_removed_and_reordered(self):
+        from sidelit import config
+        tmp = Path(tempfile.mkdtemp())
+        tpls = [{"name": n, "steps": [{"type": "terminal"}]} for n in ("A", "B", "C")]
+        d = object.__new__(daemon.Daemon)
+        d._on_hup = mock.Mock()
+        names = lambda: [t["name"] for t in json.loads((tmp / "config.json").read_text())["templates"]]  # noqa: E731
+        with mock.patch.object(config, "CONFIG", tmp / "config.json"):
+            d.cfg = {"templates": tpls}
+            d.cmd_move_template({"name": "C"})
+            self.assertEqual(names(), ["A", "C", "B"])
+            d.cfg = {"templates": json.loads((tmp / "config.json").read_text())["templates"]}
+            with self.assertRaises(RuntimeError):  # (first already)
+                d.cmd_move_template({"name": "A"})
+            d.cmd_remove_template({"name": "B"})
+            self.assertEqual(names(), ["A", "C"])
+            d.cfg = {"templates": [{"name": "Only", "steps": [{"type": "terminal"}]}]}
+            with self.assertRaises(RuntimeError):  # (the last one stays)
+                d.cmd_remove_template({"name": "Only"})
+
+    def test_the_editor_saves_a_checked_template_in_place(self):
+        from sidelit import config
+        tmp = Path(tempfile.mkdtemp())
+        d = object.__new__(daemon.Daemon)
+        d._on_hup = mock.Mock()
+        saved = lambda: json.loads((tmp / "config.json").read_text())["templates"]  # noqa: E731
+        with mock.patch.object(config, "CONFIG", tmp / "config.json"), mock.patch.object(Path, "home", return_value=tmp):
+            d.cfg = {"templates": [{"name": "A", "steps": [{"type": "terminal"}]}, {"name": "B", "steps": [{"type": "claude"}]}]}
+            typed = {"name": " Home ", "cwd": str(tmp / "src") + "/", "steps": [
+                {"type": "app", "app": "discord"}, {"type": "browser", "urls": [" https://gitlab.example ", ""]},
+                {"type": "terminal", "command": " "}, {"type": "claude", "junk": 1}]}
+            self.assertEqual(d.cmd_put_template({"old": "B", "template": typed}), 4)
+            self.assertEqual(saved(), [{"name": "A", "steps": [{"type": "terminal"}]}, {  # (in B's place, tidied)
+                "name": "Home", "cwd": "~/src", "steps": [
+                    {"type": "app", "app": "discord"}, {"type": "browser", "urls": ["https://gitlab.example"]},
+                    {"type": "terminal"}, {"type": "claude"}]}])
+            d.cfg = {"templates": saved()}
+            with self.assertRaises(RuntimeError):  # (another one has that name)
+                d.cmd_put_template({"template": {"name": "A", "steps": [{"type": "terminal"}]}})
+            for bad in ({"name": " ", "steps": [{"type": "terminal"}]}, {"name": "X", "steps": []},
+                        {"name": "X", "steps": [{"type": "webapp", "url": "discord.com"}]},
+                        {"name": "X", "steps": [{"type": "browser", "urls": ["ftp://x"]}]},
+                        {"name": "X", "steps": [{"type": "app"}]}, {"name": "X", "steps": [{"type": "nope"}]}, "X"):
+                with self.assertRaises(RuntimeError, msg=bad):
+                    d.cmd_put_template({"template": bad})
+            self.assertEqual([t["name"] for t in saved()], ["A", "Home"])
+            # a new one goes last, with no folder when none is typed, a command line as an app step
+            d.cmd_put_template({"template": {"name": "X", "cwd": "  ", "steps": [{"type": "app", "exec": "foo {cwd}"}]}})
+            self.assertEqual(saved()[-1], {"name": "X", "steps": [{"type": "app", "exec": "foo {cwd}"}]})
+            # the same name as its own: an edit, not a clash
+            d.cfg = {"templates": saved()}
+            d.cmd_put_template({"old": "X", "template": {"name": "X", "steps": [{"type": "codex"}]}})
+            self.assertEqual(saved()[-1]["steps"], [{"type": "codex"}])
+
+    def test_the_editor_starts_from_what_a_workspace_has_open(self):
+        d = object.__new__(daemon.Daemon)
+        home = Path(tempfile.mkdtemp())
+        lw = self.workspace(str(home / "src"))
+        d._lw_for = lambda params, register=False: (lw, 1)
+        with mock.patch.object(Path, "home", return_value=home):
+            tpl = d.cmd_workspace_template({"ws": "w1"})
+        self.assertEqual((tpl["cwd"], len(tpl["steps"]), "name" in tpl), ("~/src", 6, False))
+        lw.slots = []
+        with self.assertRaises(RuntimeError):
+            d.cmd_workspace_template({"ws": "w1"})
+
+    def test_each_step_starts_its_window(self):
+        d = object.__new__(daemon.Daemon)
+        started = []
+        d._start_on = lambda lw, index, spec, accepts, what, state=None: started.append(spec)
+        with mock.patch.object(daemon.launch, "browser_new_window", return_value="chrome --new-window"):
+            for step in ({"type": "browser", "urls": ["https://a.example", "javascript:alert(1)"]},
+                         {"type": "webapp", "url": "https://discord.com/app"},
+                         {"type": "app", "app": "code"},
+                         {"type": "app", "exec": "code {cwd}"}):
+                d._start_step(None, 1, step, "/src", {"claude"})
+        self.assertEqual(started, [
+            {"type": "exec", "argv": ["chrome", "--new-window", "https://a.example"], "cwd": "/src"},
+            {"type": "webapp", "url": "https://discord.com/app", "profile": None},
+            {"type": "app", "app": "code"},
+            {"type": "exec", "argv": ["code", "/src"], "cwd": "/src"},
+        ])
+
+
+
+@unittest.skipIf(daemon is None, "needs GLib")
 class Observing(unittest.TestCase):
     """What the daemon makes of the backend's windows for the engine and the sidebar."""
 

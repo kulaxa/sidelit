@@ -1058,10 +1058,16 @@ class Daemon:
         return True
 
     def cmd_new(self, params):
-        """A new workspace from a template ('+'), or with a given command (fork, resume)."""
+        """A new workspace from a template ('+'), or with a given command (resume)."""
         now = time.time()
         e = self.engine
-        cwd = params.get("cwd") or str(Path.home())
+        tpls = config.templates(self.cfg)
+        tpl = next((t for t in tpls if t.get("name") == params.get("template")), tpls[0])
+        cwd = params.get("cwd") or ""
+        if not cwd and params.get("command") is None and not params.get("agent") and tpl.get("cwd"):
+            cwd = os.path.expanduser(str(tpl["cwd"]))  # (a template's own folder, while it is there)
+            cwd = cwd if os.path.isdir(cwd) else ""
+        cwd = cwd or str(Path.home())
         lw = e.create_workspace(now, name=params.get("name") or "", cwd=cwd, after=params.get("after"))
         if lw is None:
             raise RuntimeError("could not create a pinned workspace (the compositor gave no id)")
@@ -1073,28 +1079,109 @@ class Daemon:
             self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": params["command"]},
                            self._terminal_accepts, "terminal")
             return lw.id
-        tpls = config.templates(self.cfg)
-        tpl = next((t for t in tpls if t.get("name") == params.get("template")), tpls[0])
         steps = tpl.get("steps") or [{"type": "claude"}]
         # the first agent's step ("claude", "codex"), else terminal step, is the workspace's terminal
         names = {a.name for a in agents.every()}
         first = next((s for s in steps if s.get("type") in names), None) or \
             next((s for s in steps if s.get("type") == "terminal"), None)
+        failed = []
         for step in ([first] if first else []) + [s for s in steps if s is not first]:
-            kind = step.get("type", "app")
-            if kind in names or kind == "terminal":
-                # its own command if it names one; else the agent's for an agent's step, a shell for a terminal
-                run = step.get("command")
-                if not run and kind in names:
-                    run = agents.get(kind).command
-                command = shell_command(run) if run else None
-                self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": command},
-                               self._terminal_accepts, "terminal")
-                continue
-            argv = shlex.split((step.get("exec") or "").format(cwd=cwd, browser=launch.browser_new_window()))
+            try:
+                self._start_step(lw, index, step, cwd, names)
+            except (RuntimeError, ValueError, KeyError) as err:  # (the others still start)
+                failed.append(str(err))
+        if failed:
+            raise RuntimeError(f"template {tpl.get('name')!r}: " + "; ".join(failed))
+        return lw.id
+
+    def _start_step(self, lw, index: int, step: dict, cwd: str, names: set):
+        """One step of a template (config.DEFAULT_TEMPLATES says which there are)."""
+        kind = step.get("type", "app")
+        if kind in names or kind == "terminal":
+            # its own command if it names one; else the agent's for an agent's step, a shell for a terminal
+            run = step.get("command")
+            if not run and kind in names:
+                run = agents.get(kind).command
+            command = shell_command(run) if run else None
+            self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": command},
+                           self._terminal_accepts, "terminal")
+        elif kind == "webapp" and step.get("url"):
+            self._start_on(lw, index, {"type": "webapp", "url": str(step["url"]), "profile": None},
+                           lambda w: titles.chrome_app_url(w.app) is not None, f"web app {step['url']}")
+        elif kind == "browser":
+            urls = [str(u) for u in step.get("urls") or [] if str(u).startswith(("http://", "https://"))]
+            argv = shlex.split(launch.browser_new_window()) + urls
+            self._start_on(lw, index, {"type": "exec", "argv": argv, "cwd": cwd}, lambda w: True, "browser window")
+        elif step.get("exec"):
+            argv = shlex.split(str(step["exec"]).format(cwd=cwd, browser=launch.browser_new_window()))
             if argv:
                 self._start_on(lw, index, {"type": "exec", "argv": argv, "cwd": cwd}, lambda w: True, argv[0])
-        return lw.id
+        elif step.get("app"):
+            app = str(step["app"])
+            self._start_on(lw, index, {"type": "app", "app": app}, lambda w: w.app == app, app)
+
+    def _template_steps(self, lw) -> list[dict]:
+        """What a workspace has open, as a template's steps: a session of each agent there (a new
+        one, not that session), terminals, browser windows with their tabs, web apps, and every
+        other app once."""
+        steps, apps = [], set()
+        for slot in lw.slots:
+            if slot.kind == "terminal":
+                steps += [{"type": agents.get(c.get("agent")).name} for c in slot.claudes] or [{"type": "terminal"}]
+            elif slot.kind == "webapp" and slot.state.get("url"):
+                steps.append({"type": "webapp", "url": slot.state["url"]})
+            elif slot.kind == "browser":
+                steps.append({"type": "browser", "urls": [t["url"] for t in chrome.clean_tabs(slot.state.get("tabs"))]})
+            elif slot.app and slot.app not in apps:
+                apps.add(slot.app)
+                steps.append({"type": "app", "app": slot.app})
+        return steps
+
+    def _workspace_template(self, params) -> dict:
+        """What the workspace params name would save as a template: its folder (under home as
+        ~, none for home itself) and what is open there (_template_steps)."""
+        lw, _ = self._lw_for(params, register=True)
+        if lw is None:
+            raise RuntimeError("no such workspace")
+        steps = self._template_steps(lw)
+        if not steps:
+            raise RuntimeError("this workspace has nothing open to save")
+        tpl = {"steps": steps}
+        home = str(Path.home())
+        cwd = lw.cwd or next((s.state["cwd"] for s in lw.slots if s.state.get("cwd")), "")
+        if cwd and cwd != home:
+            tpl["cwd"] = "~" + cwd[len(home):] if cwd.startswith(home + os.sep) else cwd
+        return tpl
+
+    def cmd_workspace_template(self, params):
+        """'Save as template…' on a card: what that workspace would save, for the template
+        editor to start from (put_template saves what you make of it)."""
+        return self._workspace_template(params)
+
+    def cmd_put_template(self, params):
+        """The template editor's Save: `template` (name, cwd, steps) checked and tidied
+        (config.clean_template), written in place of the one named `old`, else added last."""
+        try:
+            tpl = config.clean_template(params.get("template"), {a.name for a in agents.every()})
+        except ValueError as err:
+            raise RuntimeError(str(err)) from None
+        if not config.replace_template(self.cfg, str(params.get("old") or ""), tpl):
+            raise RuntimeError("another template has that name (or config.json is not JSON)")
+        self._on_hup()
+        return len(tpl["steps"])
+
+    def cmd_remove_template(self, params):
+        if not config.remove_template(self.cfg, str(params.get("name") or "")):
+            raise RuntimeError("the last template stays (or config.json is not JSON)")
+        self._on_hup()
+        return True
+
+    def cmd_move_template(self, params):
+        """One place up the list the settings show and '+' offers."""
+        if not config.move_template(self.cfg, str(params.get("name") or "")):
+            raise RuntimeError("it is first already (or config.json is not JSON)")
+        self._on_hup()
+        return True
 
     def cmd_item_workspace(self, params):
         """An other source's item on a workspace of its own (sources.py): a kept workspace named
@@ -1146,17 +1233,6 @@ class Daemon:
                 return str(path)
         return str(home)
 
-    def cmd_fork(self, params):
-        """Like /fork: the conversation so far in a new session, on a workspace of its own,
-        by the session's own agent."""
-        session = params["session"]
-        lw, _ = self._lw_for(params)
-        cwd = (lw.cwd if lw else "") or self.detector.cwd_of(session) or str(Path.home())
-        command = self.detector.agent_of(session).fork_command(session, cwd)
-        if command is None:
-            raise RuntimeError(f"{self.detector.agent_of(session).label} cannot fork a session")
-        return self.cmd_new({"cwd": cwd, "after": lw.id if lw else None, "command": command})
-
     def cmd_resume(self, params):
         """A closed session from the recent list, on a new workspace, by its own agent."""
         session = params["session"]
@@ -1169,7 +1245,8 @@ class Daemon:
         return ws_id
 
     def cmd_reopen(self, params):
-        """A kept workspace that is not on the desktop: pin one for it and start what it had."""
+        """Start what a kept workspace had and is missing now: pinning a workspace for it first
+        when it is not on the desktop."""
         lw, _ = self._lw_for(params)
         if lw is None:
             raise RuntimeError("no such workspace")

@@ -97,19 +97,23 @@ for tab, load [the companion extension](docs/install.md#chrome-windows-and-their
 </table>
 
 **Start anything from a card.** Right-click one for a new Claude Code, Codex or OpenCode session
-in its folder, a fork of its session, a terminal, or a web app on that workspace.
+in its folder, a terminal, or a web app on that workspace, or to bring back the windows it is
+missing.
 
 <p align="center">
-  <img src="docs/menu.png" width="620" alt="A card's right-click menu, headed by its folder: open a terminal, a new Claude Code, Codex or OpenCode session in this directory, fork the session, open a web app, rename, forget or close the workspace">
+  <img src="docs/menu.png" width="620" alt="A card's right-click menu, headed by its folder: open a terminal, a new Claude Code, Codex or OpenCode session in this directory, open a web app, rename, forget or close the workspace">
 </p>
 
 - **Waiting on CI is not waiting for you.** When a turn ends, a quick check reads how it ended
   and tells "needs you" from "waiting on a pipeline". It runs through the session's own agent,
   so there is nothing extra to set up. ([How](docs/guide.md#who-needs-you))
 - **Click a session** to jump to its terminal, and to its pane in tmux, WezTerm or kitty.
-- **Fork** a session into a new workspace with one click, like `/fork`.
-- **Templates** for a new workspace: a session on its own, with a browser, with VS Code, or
-  whatever you [write down](docs/config.md#templates).
+- **Templates** for a new workspace: a recipe of apps, each with its one setting (Claude in
+  the platform folder next to an empty browser; Discord next to a browser on GitLab and Gmail).
+  Make one in the settings' editor, or set a workspace up once and right-click its card →
+  **Save as template…**: the editor opens filled with what is open there. `+` lists your
+  templates by name: one click opens it. Or
+  [write one down](docs/config.md#templates).
 - **Links open where you are.** `sidelit open URL` sends a link to the browser window on your
   workspace, not to whichever window the browser used last.
 - **Why did that happen?** Every decision is journaled: `sidelit why Home` says what was kept,

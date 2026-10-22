@@ -16,7 +16,6 @@ and docks it (gnome.py): GTK 4 alone is enough there.
 - double-click ......... rename it; drag it to reorder (COSMIC)
 - right-click .......... its menu; on the header, the sidebar's menu
 - '+' at the bottom .... new pinned workspace from a template
-- fork icon ............ new workspace running `claude --resume <id> --fork-session`
 - x .................... close every window on the workspace and stop keeping it
 """
 from __future__ import annotations
