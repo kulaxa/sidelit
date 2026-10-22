@@ -4,6 +4,13 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.12.2] - 2026-10-22
+
+- Closing a workspace you are not on keeps its question up: the click on × also switched to that
+  workspace, and the question closed at once.
+- A Claude in a pane you split off a window Sidelit reopened gets its own box, also when the
+  daemon restarted in between. Before, only the first pane's session showed.
+
 ## [0.12.1] - 2026-10-22
 
 - Reopening windows that went missing no longer piles up copies of ones that opened somewhere
