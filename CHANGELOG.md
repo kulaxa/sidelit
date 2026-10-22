@@ -4,6 +4,13 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.12.1] - 2026-10-22
+
+- Reopening windows that went missing no longer piles up copies of ones that opened somewhere
+  Sidelit cannot see (a browser on another display, say a VNC desktop): Chrome is not asked for a
+  window it already has open there, and a window that does not come back is tried once, then
+  left in the sidebar for you to reopen.
+
 ## [0.12.0] - 2026-10-21
 
 - A session running in tmux gets its box in the terminal showing it, and keeps it when you
