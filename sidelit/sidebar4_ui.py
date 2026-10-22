@@ -1937,13 +1937,25 @@ class Sidebar(Gtk.Window, SidebarLogic):
         button = gesture.get_current_button()
         if button == 3:
             self._popup(w, x, y, self.tab_menu(w.cw_tab, self._box_at(w, y)))
-        elif button == 1 and n_press == 2:
+        elif button == 1 and n_press == 2 and not self._on_button(w, x, y):
             w.cw_double = True
             self.rename_dialog(w.cw_tab)
 
     def _on_drag_begin(self, gesture, x, y, w):
-        w.cw_pressed, w.cw_dragging, w.cw_drop = True, False, (None, True)
+        # a press on the card's own button (×) is the button's: as a click on the card too, it
+        # switched to that workspace, and the focus that moved there took the question down
+        w.cw_pressed, w.cw_dragging, w.cw_drop = not self._on_button(w, x, y), False, (None, True)
         w.cw_press = (x, y)
+
+    @staticmethod
+    def _on_button(w, x: float, y: float) -> bool:
+        """Whether (`x`, `y`) of card `w` is on a button inside it."""
+        hit = w.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while hit is not None and hit is not w:
+            if isinstance(hit, Gtk.Button):
+                return True
+            hit = hit.get_parent()
+        return False
 
     def _on_drag_update(self, gesture, dx, dy, w):
         if not w.cw_pressed or not self.can_reorder() or w.cw_tab.get("space") is None:
