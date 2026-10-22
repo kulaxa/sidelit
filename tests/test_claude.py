@@ -297,6 +297,27 @@ class TrackerTest(unittest.TestCase):
         self.assertEqual(seen["A"][1]["pane"], {"TERMINATOR_UUID": "urn:uuid:s2"})
         self.assertEqual(self.d.for_window("✳ Review tests", 0, "A")["session"], "s1")
 
+    def test_a_pane_split_after_a_daemon_restart_gets_its_box(self):
+        """The engine forgets what it started when the daemon restarts; the detector does not,
+        so a Claude in a pane split off afterwards still runs in the terminal we started."""
+        self.pane("s1", 602, 100.0, started=90.0)
+        self.look_all({"A": term("A", "✳ Review tests")}, 101.0, launched={"A": TERM_PID})
+        self.d = self.detector()
+        self.d.note_focus(150.0, "A")
+        self.pane("s2", 702, 160.0, started=155.0, prompt_t=160.0)
+        seen = self.look_all({"A": term("A", "✳ Review tests")}, 161.0)
+        self.assertEqual(self.sessions(seen, "A"), ["s1", "s2"])
+        self.assertEqual([c["how"] for c in seen["A"]], ["launch", "launch"])
+
+    def test_a_remembered_launch_ends_with_its_process(self):
+        """(a pid used again is not the terminal we started)"""
+        self.pane("s1", 602, 100.0, started=90.0)
+        self.look_all({"A": term("A", "✳ Review tests")}, 101.0, launched={"A": TERM_PID})
+        self.d = self.detector(started=lambda pid: 500.0)  # restarted, and TERM_PID is another process now
+        self.pane("s2", 702, 160.0, started=155.0)
+        seen = self.look_all({"A": term("A", "✳ Review tests")}, 161.0)
+        self.assertNotIn("s2", self.sessions(seen, "A"))
+
     def test_each_claude_of_a_window_has_its_own_title(self):
         """(the window's title is only the one in the pane with the keyboard)"""
         folder = claude.PROJECTS / claude.project_slug("/tmp")
