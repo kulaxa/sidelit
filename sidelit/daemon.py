@@ -472,6 +472,18 @@ class Daemon:
         prof = tuple(spec.get("profile") or ()) or None
         return next((i for i, c in self.chrome.items() if prof and c.get("profile") == prof), None)
 
+    def _chrome_open_elsewhere(self, inst: str, spec: dict) -> int | None:
+        """The id of a window this Chrome already has with (mostly) these tabs but that is on none
+        of our screens, or None. Such a window is open on a display we do not see (Chrome started
+        on another desktop): opening the tabs again would put another copy there, each time."""
+        on_screen = {key for key in self._pairer.pairs.values() if key[0] == inst}
+        for w in self.chrome[inst].get("windows") or []:
+            if (inst, w.get("id")) in on_screen:
+                continue
+            if chrome.overlap(w.get("tabs") or [], spec.get("tabs") or []) >= 0.6:
+                return w.get("id")
+        return None
+
     def _chrome_open(self, inst: str, spec: dict) -> bool:
         c = self.chrome[inst]
         self._chrome_req += 1
@@ -483,6 +495,11 @@ class Daemon:
     def _chrome_launch(self, spec: dict) -> int | None:
         inst = self._chrome_for(spec)
         if inst is not None:
+            elsewhere = self._chrome_open_elsewhere(inst, spec)
+            if elsewhere is not None:
+                self.journal("chrome_already_open", instance=inst, window=elsewhere,
+                             why="Chrome has a window with these tabs that is not on our screens: not opening another")
+                return None
             return 0 if self._chrome_open(inst, spec) else None
         prof = tuple(spec.get("profile") or ())
         if len(prof) != 2:

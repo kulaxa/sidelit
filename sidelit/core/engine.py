@@ -1369,6 +1369,12 @@ class Engine:
         if cur is not None and not cur.done:
             self._restore_log(f"no window for {cur.what}")
             cur.done = True
+            if r.reason == "relaunch" and cur.slot_id:
+                # started, and nothing came on our screens: it went somewhere we do not see (a
+                # browser on another display opens it there). Again would only make copies.
+                self._gave_up_relaunch.add(cur.slot_id)
+                self.journal("relaunch_gave_up", slot=cur.slot_id, what=cur.what,
+                             why="relaunched, and no window came; left missing (reopen it from the sidebar)")
         r.current = None
         while r.queue:
             sid = r.queue[0]

@@ -1102,6 +1102,19 @@ class Relaunching(Base):
         self.assertIn("relaunch_gave_up", self.kinds())
         self.assertEqual(len(self.slots()), 2)  # missing, not forgotten
 
+    def test_a_window_relaunched_somewhere_we_do_not_see_is_started_once(self):
+        """2026-10-22: Chrome ran on another display (a VNC desktop); every relaunch opened its
+        windows there, never on our screen, and each retry added copies until memory ran out."""
+        wins = self.claudes()
+        self.desk.spawn = False  # what is started opens nothing on our screens
+        for w in wins:
+            self.desk.crash(w)
+        self.advance(eng.RELAUNCH_WINDOW_S * 3)
+        self.assertEqual(sorted(l["command"] for l in self.desk.launched),
+                         ["claude --resume sess-1", "claude --resume sess-2"])
+        self.assertIn("relaunch_gave_up", self.kinds())
+        self.assertEqual(len(self.slots()), 2)  # missing, not forgotten: reopen it from the sidebar
+
 
 class CleanExits(Base):
     """A window that went without the keyboard, when something can tell how its app ended."""

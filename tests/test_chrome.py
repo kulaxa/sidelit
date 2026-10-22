@@ -477,5 +477,34 @@ class Closing(ChromeDesk):
         self.assertEqual([l["slot"] for l in self.reopened()], [sid])
 
 
+try:
+    from sidelit import daemon
+except (ImportError, ValueError):  # no GLib bindings
+    daemon = None
+
+
+@unittest.skipIf(daemon is None, "needs GLib")
+class OpenElsewhere(unittest.TestCase):
+    """A window to reopen that Chrome already has, on a display we do not see, is not opened again."""
+
+    def setUp(self):
+        self.d = object.__new__(daemon.Daemon)
+        self.d._pairer = chrome.Pairer()
+        self.mine = [tab("https://site/a", "A", True), tab("https://site/b", "B"), tab("https://site/c", "C")]
+        self.d.chrome = {"c1": {"windows": [ext_window(7, self.mine), ext_window(8, [tab("https://other/x", "X")])]}}
+        self.spec = {"type": "chrome_window", "instance": "c1", "tabs": self.mine}
+
+    def test_a_window_with_these_tabs_off_our_screens_is_open_elsewhere(self):
+        self.assertEqual(self.d._chrome_open_elsewhere("c1", self.spec), 7)
+
+    def test_one_on_our_screen_is_not(self):
+        self.d._pairer.pairs["win-1"] = ("c1", 7)
+        self.assertIsNone(self.d._chrome_open_elsewhere("c1", self.spec))
+
+    def test_a_window_mostly_of_other_tabs_is_not_this_one(self):
+        self.d.chrome["c1"]["windows"] = [ext_window(7, self.mine[:1] + [tab(f"https://z/{i}", "Z") for i in range(4)])]
+        self.assertIsNone(self.d._chrome_open_elsewhere("c1", self.spec))
+
+
 if __name__ == "__main__":
     unittest.main()
