@@ -278,23 +278,25 @@ def session_model(session_id: str | None) -> str | None:
     return None
 
 
-def subagent_model(session_id: str, agent_id: str, transcript: str = "") -> str | None:
-    """Model a subagent of a session is on: the last one its own transcript names, which Claude
-    Code keeps beside the session's (<session>/subagents/agent-<id>.jsonl), or under the project
-    of the folder the session is in now, when it moved to another one. None until its first reply
-    is written."""
+def subagent_transcripts(session_id: str, agent_id: str, transcript: str = "") -> list[str]:
+    """Where a subagent of a session writes its transcript: beside the session's
+    (<session>/subagents/agent-<id>.jsonl), or under the project of the folder the session is in
+    now, when it moved to another one. None at all for the helpers Claude Code runs of its own,
+    whose events carry an agent_id too."""
     if not re.fullmatch(r"[\w-]+", agent_id or "") or not re.fullmatch(r"[\w-]+", session_id or ""):
-        return None
+        return []
     name = f"agent-{agent_id}.jsonl"
     if transcript.endswith(".jsonl"):
         beside = os.path.join(transcript[:-len(".jsonl")], "subagents", name)
         if os.path.exists(beside):
-            return transcript_model(beside)
-    for path in glob.glob(str(PROJECTS / "*" / session_id / "subagents" / name)):
-        model = transcript_model(path)
-        if model:
-            return model
-    return None
+            return [beside]
+    return glob.glob(str(PROJECTS / "*" / session_id / "subagents" / name))
+
+
+def subagent_model(session_id: str, agent_id: str, transcript: str = "") -> str | None:
+    """Model a subagent of a session is on: the last one its own transcript names
+    (subagent_transcripts). None until its first reply is written."""
+    return next(filter(None, map(transcript_model, subagent_transcripts(session_id, agent_id, transcript))), None)
 
 
 def transcript_model(path: str) -> str | None:
@@ -402,6 +404,9 @@ class ClaudeCode(Agent):
 
     def subagent_model(self, session, rec, agent_id):
         return subagent_model(session, agent_id, str((rec or {}).get("transcript") or ""))
+
+    def keeps_subagent(self, session, rec, agent_id):
+        return bool(subagent_transcripts(session, agent_id, str((rec or {}).get("transcript") or "")))
 
     def resume_command(self, session, cwd):
         return resume_command(session, cwd)

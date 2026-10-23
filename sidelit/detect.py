@@ -32,6 +32,7 @@ SAME_PROCESS = ("clear", "compact")  # session starts in a process that was runn
 PANE_KEYS = ("TMUX_PANE", "WEZTERM_PANE", "KITTY_WINDOW_ID", "TERMINATOR_UUID")
 WOKEN_MAX_S = 300  # an agent's own list alone says it works again for at most this long
 AGENT_QUIET_S = 1800  # a subagent not heard from for this long is taken for gone (its stop lost)
+HELPER_QUIET_S = 30  # the same for one with no transcript: the agent's own helper, which never stops
 TIDY_S = 60  # the record of a session gone this long is deleted
 
 
@@ -481,12 +482,18 @@ class Detector:
             [self.agent_of(s).model(s, self.hooked.get(s)) for s in started]
 
     def _at_work(self, sid: str) -> tuple[list[str], list[str]]:
-        """(this session's subagents heard from lately, sessions of the agents it started that work)"""
+        """(this session's subagents heard from lately, sessions of the agents it started that work).
+        A subagent with no transcript is heard from lately only for HELPER_QUIET_S: Claude Code's
+        own helpers send events with an agent_id but no SubagentStop, and would count for half an
+        hour, each a "Model not known yet"."""
         rec = self.hooked.get(sid) or {}
         sess = next((s for s in self.sessions if s.get("sessionId") == sid and s.get("pid")), None)
         pid = int(rec.get("pid") or (sess or {}).get("pid") or 0)
-        heard = (rec.get("agents") or {}).items()
-        return [a for a, t in heard if self._at - float(t) < AGENT_QUIET_S], list(self.inner.get(pid, ()))
+        agent = self.agent_of(sid)
+        heard = [(a, self._at - float(t)) for a, t in (rec.get("agents") or {}).items()]
+        lately = [a for a, ago in heard if ago < HELPER_QUIET_S
+                  or ago < AGENT_QUIET_S and agent.keeps_subagent(sid, rec, a)]
+        return lately, list(self.inner.get(pid, ()))
 
     def for_window(self, title: str, pid: int = 0, wid: str | None = None) -> dict | None:
         """The first session this window shows (claudes_for), or None."""
