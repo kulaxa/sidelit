@@ -130,6 +130,11 @@ class Agent:
         """The model a subagent of this session runs on (its id from the hook), once known."""
         return None
 
+    def keeps_subagent(self, session: str, rec: dict | None, agent_id: str) -> bool:
+        """Does a subagent the hook heard of leave a trace of its own (a transcript)? One that does
+        not may be the agent's own helper, which counts only while it is heard from."""
+        return True
+
     def watch(self, sessions: list[str]):
         """The agent's sessions on screen now, each daemon step: an agent that asks for their
         titles off the main loop asks now, when it is time."""

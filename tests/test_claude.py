@@ -241,6 +241,23 @@ class TrackerTest(unittest.TestCase):
         (moved / "agent-a3.jsonl").write_text(json.dumps({"message": {"model": "claude-fable-5-1"}}) + "\n")
         self.assertEqual(claude.subagent_model("s1", "a3", str(main)), "Fable 5.1")
 
+    def test_a_subagent_with_no_transcript_counts_only_while_heard_from(self):
+        """Claude Code's own helpers send events with an agent_id, but keep no transcript and send
+        no SubagentStop: one is not a subagent at work half an hour on."""
+        folder = claude.PROJECTS / claude.project_slug("/tmp")
+        (folder / "s1" / "subagents").mkdir(parents=True)
+        main = folder / "s1.jsonl"
+        main.write_text(json.dumps({"type": "assistant", "message": {"model": "claude-opus-5-5"}}) + "\n")
+        (folder / "s1" / "subagents" / "agent-a1.jsonl").write_text(
+            json.dumps({"type": "assistant", "message": {"model": "claude-haiku-5-5"}}) + "\n")
+        a = term("A", "✳ Fix tests")
+        self.d.note_focus(100.0, "A")
+        self.hook("s1", "done", 101.0, prompt_t=100.5, transcript=str(main), agents={"a1": 101.0, "h1": 101.0})
+        seen = self.look({"A": a}, 102.0)["A"]
+        self.assertEqual((seen["agents"], seen["models"]), (2, ["Haiku 5.5", None]))
+        seen = self.look({"A": a}, 101.0 + detect.HELPER_QUIET_S + 1)["A"]
+        self.assertEqual((seen["status"], seen["agents"], seen["models"]), ("busy", 1, ["Haiku 5.5"]))
+
     def test_a_claude_an_app_drives_is_not_the_terminal_you_were_in(self):
         """Its prompts come while you are in another Claude's terminal, and it has no title yet."""
         a = term("A", "✳ Fix tests")
