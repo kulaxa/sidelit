@@ -98,7 +98,9 @@
   hovering the blocks lists the models and how many of each. It also says which terminal it
   lives in: by process ancestry for a session the daemon started (or whose window's process the
   desktop names; a session in tmux counts as in the terminals attached to it, so it follows
-  when you detach it and attach from another one), else
+  when you detach it and attach from another one; one in a Terminator pane is in the window
+  Sidelit's Terminator plugin says has that pane, so it follows a pane you drag to another
+  window), else
   by which window had the keyboard when you submitted a prompt (until its first prompt, when you
   started it: a new tab or pane gets its box at once); and which pane, where the terminal says
   (Terminator, tmux, WezTerm, kitty). A box is called by its session's own name, "New session"

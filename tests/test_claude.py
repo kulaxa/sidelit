@@ -41,12 +41,14 @@ class TrackerTest(unittest.TestCase):
         self._in_terminal = detect.in_terminal
         detect.in_terminal = lambda pid: pid not in self.headless
         self.tmux: dict[tuple[str, str], list[int]] = {}  # (socket, pane) -> the clients showing it
+        self.terminator: list[dict] = []  # what Sidelit's Terminator plugin says of its windows
         self.d = self.detector()
 
     def detector(self, poll=None, started=lambda pid: None):
         poll = poll or (lambda now: (list(self.live.values()), now))
         return detect.Detector(agents=[claude.ClaudeCode(hook_dir=self.hook_dir, poll=poll)], started=started,
-                               tmux=lambda panes: {k: v for k, v in self.tmux.items() if k in panes})
+                               tmux=lambda panes: {k: v for k, v in self.tmux.items() if k in panes},
+                               terminator=lambda: self.terminator)
 
     def tearDown(self):
         claude.PROJECTS = self._saved
@@ -499,6 +501,82 @@ class TrackerTest(unittest.TestCase):
                            260: (TERM_PID, "tmux: client"), 261: (301, "tmux: client")})
         self.hook("s1", "done", 100.0, pid=600, ancestors=[600, 550, 250, 1],
                   pane={"TMUX": "/tmp/tmux-1000/default,250,0", "TMUX_PANE": "%3"})
+
+    # ---- a pane dragged to another Terminator window
+    def two_windows_typed_into(self):
+        """A Terminator you opened yourself, two windows, a Claude in each you typed into."""
+        self.d.note_focus(99.0, "A")
+        self.pane("s1", 602, 100.0, started=90.0, prompt_t=100.0)
+        self.d.note_focus(104.0, "B")
+        self.pane("s2", 702, 105.0, started=95.0, prompt_t=105.0)
+        a, b = term("A", "✳ Pricing API"), term("B", "✳ Review tests")
+        self.assertEqual(self.sessions(self.look_all({"A": a, "B": b}, 106.0), "B"), ["s2"])
+        return a, b
+
+    def test_a_pane_dragged_to_another_window_follows(self):
+        """s2's pane goes into A: Terminator's plugin says so, B is left with nothing in it."""
+        a, b = self.two_windows_typed_into()
+        self.terminator = [{"title": "✳ Pricing API", "terminals": ["urn:uuid:s1", "urn:uuid:s2"], "since": 150.0},
+                           {"title": "mario@pop-os: ~", "terminals": ["urn:uuid:x"], "since": 150.0}]
+        seen = self.look_all({"A": a, "B": term("B", "mario@pop-os: ~")}, 151.0)
+        self.assertEqual((self.sessions(seen, "A"), seen["B"]), (["s1", "s2"], []))
+        self.assertEqual([c["how"] for c in seen["A"]], ["pane", "pane"])
+
+    def test_a_pane_out_of_a_window_that_closed_comes_back(self):
+        """The window it was in is gone: its keyboard evidence went with it."""
+        a, _ = self.two_windows_typed_into()
+        self.look_all({"A": a}, 140.0)
+        self.assertNotIn("s2", self.d.window_of)
+        self.terminator = [{"title": "✳ Pricing API", "terminals": ["urn:uuid:s1", "urn:uuid:s2"], "since": 150.0}]
+        self.assertEqual(self.sessions(self.look_all({"A": a}, 151.0), "A"), ["s1", "s2"])
+
+    def test_a_window_whose_title_differs_goes_by_its_sessions(self):
+        """(Terminator's title a moment ahead of the compositor's: a spinner turned)"""
+        a, b = self.two_windows_typed_into()
+        self.terminator = [{"title": "✻ Pricing API", "terminals": ["urn:uuid:s1", "urn:uuid:s2"], "since": 150.0},
+                           {"title": "mario@pop-os: ~", "terminals": ["urn:uuid:x"], "since": 150.0}]
+        seen = self.look_all({"A": a, "B": term("B", "mario@pop-os: ~")}, 151.0)
+        self.assertEqual(self.sessions(seen, "A"), ["s1", "s2"])
+
+    def test_a_pane_alone_in_a_new_window_does_not_take_its_old_one(self):
+        """One of two panes dragged out into a window of its own, neither title known: A was
+        both sessions' window, so it says nothing of which one moved."""
+        self.d.note_focus(99.0, "A")
+        self.pane("s1", 602, 100.0, started=90.0, prompt_t=100.0)
+        self.pane("s2", 702, 105.0, started=95.0, prompt_t=105.0)
+        a = term("A", "✳ Pricing API")
+        self.assertEqual(self.sessions(self.look_all({"A": a}, 106.0), "A"), ["s1", "s2"])
+        self.terminator = [{"title": "?", "terminals": ["urn:uuid:s1"], "since": 150.0},
+                           {"title": "??", "terminals": ["urn:uuid:s2"], "since": 150.0}]
+        self.look_all({"A": a, "C": term("C", "✳ Review tests")}, 151.0)
+        self.assertEqual([self.d.window_of[s][1] for s in ("s1", "s2")], [detect.BY_FOCUS, detect.BY_FOCUS])
+
+    def test_a_pane_beats_the_launch_of_a_window_its_terminal_opened(self):
+        """A window you opened from a terminal we started is in that terminal's process too."""
+        self.pane("s1", 602, 100.0, started=90.0)
+        a, b = term("A", "✳ Pricing API"), term("B", "✳ Review tests")
+        self.terminator = [{"title": "✳ Review tests", "terminals": ["urn:uuid:s1"], "since": 50.0}]
+        seen = self.look_all({"A": a, "B": b}, 101.0, launched={"A": TERM_PID})
+        self.assertEqual((seen["A"], self.sessions(seen, "B")), ([], ["s1"]))
+
+    def test_a_claude_in_tmux_beside_a_pane_keeps_its_box(self):
+        """tmux inside a Terminator pane is placed by tmux's clients, not by the pane."""
+        self.in_tmux()
+        self.tmux[("/tmp/tmux-1000/default", "%3")] = [260]
+        self.pane("s2", 702, 101.0, started=95.0)
+        self.terminator = [{"title": "✳ Resumed", "terminals": ["urn:uuid:s2"], "since": 50.0}]
+        seen = self.look_all({"A": term("A", "✳ Resumed")}, 102.0, launched={"A": TERM_PID})
+        self.assertEqual(sorted(self.sessions(seen, "A")), ["s1", "s2"])
+
+    def test_terminators_windows_are_read_from_its_plugins_files(self):
+        from sidelit import terminator
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(terminator, "SOCKETS", Path(tmp)):
+            w = {"title": "✳ X", "terminals": ["urn:uuid:a"], "since": 5.0}
+            (Path(tmp) / f"{os.getpid()}.json").write_text(json.dumps({"windows": [w]}))
+            (Path(tmp) / "999999999.json").write_text(json.dumps({"windows": [w]}))  # its Terminator is gone
+            (Path(tmp) / "1.json").write_text("{")
+            self.assertEqual(terminator.windows(), [w])
+            self.assertFalse((Path(tmp) / "999999999.json").exists())
 
     def test_a_claude_in_tmux_is_in_the_terminal_showing_it(self):
         self.in_tmux()
