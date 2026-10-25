@@ -239,3 +239,32 @@ def focus(uuid: str) -> bool:
             except OSError:
                 pass
     return asked
+
+
+# ---- which window each terminal is in --------------------------------------------------------
+def windows() -> list[dict]:
+    """Every window of every running Terminator with the plugin, as it wrote them to <pid>.json:
+    {"title", "terminals": [TERMINATOR_UUID, ...], "since"} (since when it has had just those)."""
+    out = []
+    try:
+        files = list(SOCKETS.glob("*.json"))
+    except OSError:
+        return out
+    for path in files:
+        if not path.stem.isdigit():
+            continue
+        if not _alive(int(path.stem)):  # (Terminator does not unload its plugins as it quits)
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for w in (data.get("windows") or []) if isinstance(data, dict) else []:
+            if isinstance(w, dict) and isinstance(w.get("terminals"), list):
+                out.append({"title": str(w.get("title") or ""), "terminals": [str(t) for t in w["terminals"]],
+                            "since": float(w.get("since") or 0)})
+    return out

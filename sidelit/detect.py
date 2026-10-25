@@ -22,6 +22,7 @@ LIVE_STATE = {"busy": "busy", "waiting": "waiting"}
 # ---- which window shows which session ----------------------------------------------------
 # Evidence, strongest first. A mapping holds until stronger evidence (or equally strong,
 # newer evidence) says otherwise, or its window or session goes.
+BY_PANE = 4     # the terminal says which of its windows has the session's pane (Terminator's plugin)
 BY_LAUNCH = 3   # the session's process ancestry contains the terminal we started for that window
 BY_PID = 3      # ...or the window's own pid (compositors that report it)
 BY_FOCUS = 2    # you submitted a prompt while that terminal had the keyboard
@@ -104,7 +105,7 @@ class Detector:
 
     A window can show several sessions: split panes or tabs of one terminal window. Each is
     shown on the strongest kind of evidence any of them has for that window: if some run in the
-    window's own process (BY_LAUNCH, BY_PID), those; else those you typed into there (BY_FOCUS);
+    window's own process (BY_PANE, BY_LAUNCH, BY_PID), those; else those you typed into there (BY_FOCUS);
     else the one whose title it shows. A session is shown in one window only, and in one pane
     only the newest (one suspended under another one in the same shell is not on screen).
 
@@ -116,14 +117,22 @@ class Detector:
     process ancestry of the tmux clients showing it stands in for the terminal's (tmux_clients),
     so it is placed as one run in the terminal itself, and follows when another terminal attaches.
 
+    Terminator keeps all its windows in one process, so neither process nor launch says which
+    of them a pane is in, and a pane dragged to another window kept only the keyboard's word for
+    the window it left. Sidelit's Terminator plugin says which terminals each window has
+    (BY_PANE, _through_terminator), so such a pane follows to its new window.
+
     `agents`: the adapters (agents.every()); `started(pid)` when a process started, which
-    orders the sessions of a window; `tmux` asks tmux for its clients (tmux_clients). The window
-    mapping is kept in `windows`, so a daemon restart keeps it."""
+    orders the sessions of a window; `tmux` asks tmux for its clients (tmux_clients);
+    `terminator` lists Terminator's windows (terminator.windows()). The window mapping is kept
+    in `windows`, so a daemon restart keeps it."""
 
     def __init__(self, agents=None, ttl: float = 1.0, started=process_started, windows: Path | None = None,
-                 tmux=tmux_clients):
+                 tmux=tmux_clients, terminator=None):
         from sidelit import config
+        from sidelit import terminator as terminator_mod
         self.tmux_clients = tmux
+        self.terminator_windows = terminator or terminator_mod.windows
         self.agents = list(agents if agents is not None else agents_mod.every())
         self.by_name = {a.name: a for a in self.agents}
         self.comms = {a.comm for a in self.agents}
@@ -355,6 +364,7 @@ class Detector:
                 if sess and sess.get("agent") == agent.name and len(wids) == 1 \
                         and sess.get("sessionId") not in self.hooked and not self._windowless(sess):
                     self._offer(sess["sessionId"], (BY_TITLE, 0.0, wids[0]))
+        self._through_terminator(windows)
         # each window shows the sessions with the strongest kind of evidence for it; a title
         # alone names only one, the newest
         claims: dict[str, list[tuple]] = {}
@@ -362,14 +372,55 @@ class Detector:
             claims.setdefault(wid, []).append((strength, t, sid))
         self._by_window = {}
         for wid, cs in claims.items():
-            top = max(c[0] for c in cs)
-            shown = self._one_per_pane([c for c in cs if c[0] == top] if top >= BY_FOCUS else [max(cs)])
+            top = min(max(c[0] for c in cs), BY_LAUNCH)  # (a pane's word or a process's: as good)
+            shown = self._one_per_pane([c for c in cs if c[0] >= top] if top >= BY_FOCUS else [max(cs)])
             for _, _, sid in cs:
                 if sid not in shown:
                     self.window_of.pop(sid, None)
             self._by_window[wid] = sorted(shown, key=lambda s: (self._started(s), s))
         if self.window_of != before or self.launched != launched_before:
             self._save_windows()
+
+    def _through_terminator(self, windows: dict):
+        """Each session in a Terminator pane, in the window Terminator says has that pane. Its
+        windows are matched to ours by title, else by the window the other sessions in it are
+        known to be in, one not already taken."""
+        uuid_of = {}
+        for sid, rec in self.hooked.items():
+            pane = rec.get("pane") if isinstance(rec.get("pane"), dict) else {}
+            if pane.get("TERMINATOR_UUID") and not pane.get("TMUX_PANE") and not rec["windowless"]:
+                uuid_of[sid] = str(pane["TERMINATOR_UUID"])
+        if not uuid_of:
+            return
+        ours = {wid: w for wid, w in windows.items() if w.app == "terminator"}
+        todo = []
+        for tw in self.terminator_windows():  # (one with no session in it still takes its window)
+            members = [sid for sid, uuid in uuid_of.items() if uuid in tw["terminals"]]
+            titled = [wid for wid, w in ours.items() if w.title and w.title == tw["title"]]
+            known = {self.window_of[s][0] for s in members if s in self.window_of and self.window_of[s][0] in ours}
+            todo.append((members, tw["since"], titled, known))
+        # (one whose title says nothing goes by its sessions' windows, unless another of
+        # Terminator's windows has a session that window was known for: one of them moved)
+        taken: set[str] = set()
+        while todo:
+            placed = []
+            claimed: dict[str, int] = {}
+            for _, _, _, known in todo:
+                for wid in known - taken:
+                    claimed[wid] = claimed.get(wid, 0) + 1
+            for item in todo:
+                members, since, titled, known = item
+                wids = [w for w in titled if w not in taken] if len(titled) == 1 else []
+                left = [w for w in known - taken if claimed.get(w) == 1]
+                wids = wids or (left if len(left) == 1 else [])
+                if wids:
+                    taken.add(wids[0])
+                    placed.append(item)
+                    for sid in members:
+                        self._offer(sid, (BY_PANE, since, wids[0]))
+            if not placed:
+                break
+            todo = [item for item in todo if item not in placed]
 
     def _one_per_pane(self, claims: list[tuple]) -> list[str]:
         """The sessions of these claims, but of two in the same pane only the one heard from
@@ -530,7 +581,7 @@ class Detector:
                 "cwd": cwd,
                 "pid": int((rec or sess or {}).get("pid") or 0), "pane": dict((rec or {}).get("pane") or {}),
                 "started": self._started(sid), "prompt_t": float((rec or {}).get("prompt_t") or 0),
-                "how": {BY_LAUNCH: "launch", BY_FOCUS: "focus", BY_TITLE: "title"}.get(how, "pid"),
+                "how": {BY_PANE: "pane", BY_LAUNCH: "launch", BY_FOCUS: "focus", BY_TITLE: "title"}.get(how, "pid"),
                 "hooked": rec is not None}
 
     def cwd_of(self, sid: str) -> str:
