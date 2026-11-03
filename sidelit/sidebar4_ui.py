@@ -1936,7 +1936,9 @@ class Sidebar(Gtk.Window, SidebarLogic):
     def _on_tab_pressed(self, gesture, n_press, x, y, w):
         button = gesture.get_current_button()
         if button == 3:
-            self._popup(w, x, y, self.tab_menu(w.cw_tab, self._box_at(w, y), self._app_at(w, x, y)))
+            app = self._app_at(w, x, y)  # (an app's icon: its own menu, where it has one)
+            self._popup(w, x, y, (self.app_menu(w.cw_tab, app) if app else []) or
+                        self.tab_menu(w.cw_tab, self._box_at(w, y)))
         elif button == 1 and n_press == 2 and not self._on_button(w, x, y):
             w.cw_double = True
             self.rename_dialog(w.cw_tab)

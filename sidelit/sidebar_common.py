@@ -1038,10 +1038,10 @@ class SidebarLogic:
     def can_reorder(self) -> bool:
         return "move" in (self.state.get("caps") or [])  # a desktop that cannot reorder: no drop indicator
 
-    def tab_menu(self, tab: dict, box: dict | None = None, app: dict | None = None) -> list:
+    def tab_menu(self, tab: dict, box: dict | None = None) -> list:
         """A card's menu, headed by its folder; on one of its Claudes' boxes, a new session
-        starts in that Claude's folder. On a box or an app's icon, its window can move to
-        another workspace (move_menu)."""
+        starts in that Claude's folder, and its terminal can move to another workspace
+        (move_menu). An app's icon has a menu of its own (app_menu)."""
         info = tab_info(tab)
         where = self._where(tab)
         cwd = (box or {}).get("cwd") or tab.get("cwd") or next(
@@ -1061,9 +1061,9 @@ class SidebarLogic:
                     items.append((f"Open {app.get('name') or app['url']} here",
                                   lambda u=app["url"]: self.send("webapp", url=u, **where)))
             items.append(("Open web app here…", lambda: self.web_app_dialog(tab)))
-        moves = self.move_menu(tab, (box or app or {}).get("window"), cwd)
+        moves = self.move_menu(tab, (box or {}).get("window"), cwd)
         if moves:
-            items.append(("Move window to", moves))
+            items.append(("Move this terminal to", moves))
         items.append(("Rename…", lambda: self.rename_dialog(tab)))
         if info["boxes"] or info["apps"]:
             items.append(("Save as template…", lambda: self.template_dialog(tab)))
@@ -1082,10 +1082,22 @@ class SidebarLogic:
             items.extend((f"missing: {m['what']}", None) for m in missing[:8])
         return items
 
-    def move_menu(self, tab: dict, window: str | None, cwd: str) -> list:
+    def app_menu(self, tab: dict, app: dict) -> list:
+        """An app's icon: that app alone, headed by its name, and the workspaces it can move
+        to ("Move to Pricing", "Move to new workspace"). None where there is nothing to do with
+        it (a missing one, a desktop that cannot move windows): the card's menu, then."""
+        moves = self.move_menu(tab, app.get("window"), tab.get("cwd") or "", verb="Move to ")
+        if not moves:
+            return []
+        name = app["name"][:1].upper() + app["name"][1:]
+        title = app["title"] if len(app["title"]) <= 48 else app["title"][:47] + "…"
+        return [(f"{name} — {title}" if title and title.lower() != app["name"].lower() else name, None),
+                SEPARATOR] + moves
+
+    def move_menu(self, tab: dict, window: str | None, cwd: str, verb: str = "") -> list:
         """Where a window of `tab` can go: every other open workspace, by the name its card
-        shows (and its shortcut), then a new one right after this. None for a window that is
-        not open, or a desktop that does not let Sidelit move windows."""
+        shows (and its shortcut), then a new one right after this, each label after `verb`.
+        None for a window that is not open, or a desktop that does not let Sidelit move windows."""
         if not window or tab.get("space") is None or not self.state.get("move_windows"):
             return []
         items = []
@@ -1096,10 +1108,10 @@ class SidebarLogic:
             if t.get("shortcut"):
                 label = f"{label}  ({t['shortcut']})"
             where = {"ws": t["ws"]} if t.get("ws") else {"space": t["space"]}
-            items.append((label, lambda w=where: self.send("move_window", window=window, **w)))
+            items.append((verb + label, lambda w=where: self.send("move_window", window=window, **w)))
         if items:
             items.append(SEPARATOR)
-        items.append(("New workspace", lambda: self.send("move_window", window=window, new=True,
+        items.append((f"{verb}new workspace" if verb else "New workspace", lambda: self.send("move_window", window=window, new=True,
                                                          after=tab.get("ws"), cwd=cwd)))
         return items
 

@@ -310,9 +310,9 @@ class CommonTest(unittest.TestCase):
         new[1]()
         self.assertEqual(ui.sent[-1][0], "new")
         self.assertEqual(ui.sent[-1][1]["cwd"], "/v")
-        # no "Move window to" on the card itself, nor where the desktop cannot move windows
-        self.assertNotIn("Move window to", [e[0] for e in ui.tab_menu(two) if e is not sidebar_common.SEPARATOR])
-        self.assertNotIn("Move window to", [e[0] for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR])
+        # no "Move this terminal to" on the card itself, nor where the desktop cannot move windows
+        self.assertNotIn("Move this terminal to", [e[0] for e in ui.tab_menu(two) if e is not sidebar_common.SEPARATOR])
+        self.assertNotIn("Move this terminal to", [e[0] for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR])
 
     def test_a_window_moves_to_another_workspace(self):
         class Fake(sidebar_common.SidebarLogic):
@@ -331,18 +331,29 @@ class CommonTest(unittest.TestCase):
         ui.state = {"recent": [], "move_windows": True, "tabs": [here, there, loose, closed]}
         info = sidebar_common.tab_info(here)
         sep = sidebar_common.SEPARATOR
-        for hit in ({"box": info["boxes"][0]}, {"app": info["apps"][0]}):
-            moves = dict(e for e in ui.tab_menu(here, **hit) if e is not sep)["Move window to"]
-            self.assertEqual([e[0] if e is not sep else "-" for e in moves],
-                             ["Pricing  (Super+2)", "Workspace 3", "-", "New workspace"])
-            dict(e for e in moves if e is not sep)["Pricing  (Super+2)"]()
-            self.assertEqual(ui.sent[-1], ("move_window", {"window": hit.get("box", hit.get("app"))["window"], "ws": "w2"}))
-        dict(e for e in moves if e is not sep)["Workspace 3"]()
+        # a Claude's box: the card's menu, with its terminal's moves in a submenu
+        moves = dict(e for e in ui.tab_menu(here, info["boxes"][0]) if e is not sep)["Move this terminal to"]
+        self.assertEqual([e[0] if e is not sep else "-" for e in moves],
+                         ["Pricing  (Super+2)", "Workspace 3", "-", "New workspace"])
+        dict(e for e in moves if e is not sep)["Pricing  (Super+2)"]()
+        self.assertEqual(ui.sent[-1], ("move_window", {"window": "t1", "ws": "w2"}))
+        # an app's icon: that app alone, nothing of the workspace's
+        app = info["apps"][0]
+        menu = ui.app_menu(here, app)
+        self.assertEqual([e[0] if e is not sep else "-" for e in menu],
+                         [f"{app['name'][:1].upper()}{app['name'][1:]} — Docs", "-",
+                          "Move to Pricing  (Super+2)", "Move to Workspace 3", "-",
+                          "Move to new workspace"])
+        self.assertIsNone(menu[0][1])  # (its name, greyed out)
+        dict(e for e in menu if e is not sep)["Move to Workspace 3"]()
         self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "space": 3}))
-        dict(e for e in moves if e is not sep)["New workspace"]()
+        dict(e for e in menu if e is not sep)["Move to new workspace"]()
         self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "new": True, "after": "w1", "cwd": "/w"}))
+        # nothing to do with it: the card's menu instead
+        self.assertEqual(ui.app_menu(here, {**app, "window": None}), [])
         ui.state["move_windows"] = False
-        self.assertNotIn("Move window to", [e[0] for e in ui.tab_menu(here, info["boxes"][0]) if e is not sep])
+        self.assertEqual(ui.app_menu(here, app), [])
+        self.assertNotIn("Move this terminal to", [e[0] for e in ui.tab_menu(here, info["boxes"][0]) if e is not sep])
 
     def test_a_step_is_a_kind_and_one_setting(self):
         """The editor's view of a template's steps, and back (make_step)."""
