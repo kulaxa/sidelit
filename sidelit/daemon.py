@@ -853,6 +853,7 @@ class Daemon:
         return {
             "version": version(),
             "caps": sorted(self.ws.caps),
+            "move_windows": bool(self.ws.can_move_windows),  # (a card's "Move window to")
             "calm": e.calm(now),
             "disturbed": "" if e.calm(now) else e.disturb_reason,
             "restore": {"running": bool(r and not r.finished), "log": (r.log[-3:] if r else []),
@@ -989,6 +990,29 @@ class Daemon:
                 self._go_to(ws, box)
                 return True
         return False
+
+    def cmd_move_window(self, params):
+        """A card's "Move window to": `window` to the workspace `ws` / `space` names, or (`new`) to
+        a new kept one right after `after`, starting in `cwd`. You stay where you are; the layout
+        follows the window as when you move it yourself (its slot goes with it)."""
+        win_id = str(params.get("window") or "")
+        if win_id not in self._tl:
+            raise RuntimeError("that window is gone")
+        if not self.ws.can_move_windows:
+            raise RuntimeError("this desktop does not let Sidelit move windows")
+        if params.get("new"):
+            lw = self.engine.create_workspace(time.time(), cwd=params.get("cwd") or str(Path.home()),
+                                              after=params.get("after"))
+            if lw is None:
+                raise RuntimeError("could not create a pinned workspace (the compositor gave no id)")
+            index = self.engine.primary[lw.id].index
+        else:
+            _lw, index = self._lw_for(params, register=True)  # (kept from now on, so the window's slot is too)
+            if index is None:
+                raise RuntimeError("that workspace is not open")
+        if not self.move(win_id, index, None):
+            raise RuntimeError(f"the desktop did not move the window to workspace {index}")
+        return index
 
     def _go_to(self, ws, box: dict | None, sliding: bool = False):
         """Show a workspace with this Claude's terminal (and pane) in front. `sliding`: it is

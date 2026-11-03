@@ -32,7 +32,10 @@
   **New template…** makes one ([templates](config.md#templates)). Start `claude`,
   `codex` or `opencode` there
   as usual and the tab picks up its title within seconds. Right-click a tab for a new session,
-  in that tab's directory, of each agent installed on this computer.
+  in that tab's directory, of each agent installed on this computer. Right-click an app's icon for
+  its own menu: **Move to** another workspace, or to a new one right after this (on a Claude's
+  box, **Move this terminal to**). You stay where you are, and Sidelit keeps the window where
+  you put it.
 - **×** closes the whole workspace: every window on it gets a normal close request (after a
   confirmation listing what will close), the workspace is unpinned and disappears once empty (on
   KDE, the desktop is removed once its windows have closed). A session that was there stays in

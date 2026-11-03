@@ -310,6 +310,61 @@ class CommonTest(unittest.TestCase):
         new[1]()
         self.assertEqual(ui.sent[-1][0], "new")
         self.assertEqual(ui.sent[-1][1]["cwd"], "/v")
+        # no "Move this terminal to" on the card itself, nor where the desktop cannot move windows
+        self.assertNotIn("Move this terminal to", [e[0] for e in ui.tab_menu(two) if e is not sidebar_common.SEPARATOR])
+        self.assertNotIn("Move this terminal to", [e[0] for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR])
+
+    def test_a_window_moves_to_another_workspace(self):
+        class Fake(sidebar_common.SidebarLogic):
+            def __init__(self):
+                self.cfg, self.sent = {"web_apps": []}, []
+
+            def send(self, method, **params):
+                self.sent.append((method, params))
+
+        here = {"space": 1, "ws": "w1", "cwd": "/w", "claudes": [{"title": "T", "session": "s1", "window": "t1"}],
+                "windows": [{"id": "t1", "app": "terminator"}, {"id": "c1", "app": "google-chrome", "title": "Docs"}]}
+        there = {"space": 2, "ws": "w2", "name": "Pricing", "shortcut": "Super+2"}
+        loose = {"space": 3, "ws": None}  # a workspace Sidelit does not keep (yet)
+        closed = {"space": None, "ws": "w9", "name": "Old"}
+        ui = Fake()
+        ui.state = {"recent": [], "move_windows": True, "tabs": [here, there, loose, closed]}
+        info = sidebar_common.tab_info(here)
+        sep = sidebar_common.SEPARATOR
+        # a Claude's box: the card's menu, with its terminal's moves in a submenu; a workspace
+        # by its number and what tells it apart, not its shortcut
+        moves = dict(e for e in ui.tab_menu(here, info["boxes"][0]) if e is not sep)["Move this terminal to"]
+        self.assertEqual([e[0] if e is not sep else "-" for e in moves],
+                         ["2   Pricing", "3   Empty", "-", "New workspace"])
+        dict(e for e in moves if e is not sep)["2   Pricing"]()
+        self.assertEqual(ui.sent[-1], ("move_window", {"window": "t1", "ws": "w2"}))
+        # an app's icon: that app alone, nothing of the workspace's
+        app = info["apps"][0]
+        menu = ui.app_menu(here, app)
+        name = app["name"][:1].upper() + app["name"][1:]
+        self.assertEqual([e[0] if e is not sep else "-" for e in menu],
+                         [name, "Move to", "2   Pricing", "3   Empty", "-", "New workspace"])
+        self.assertIsNone(menu[0][1])  # (its name, greyed out)
+        self.assertTrue(sidebar_common.is_heading(menu[1]))
+        dict(e[:2] for e in menu if e is not sep)["3   Empty"]()
+        self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "space": 3}))
+        dict(e[:2] for e in menu if e is not sep)["New workspace"]()
+        self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "new": True, "after": "w1", "cwd": "/w"}))
+        # two of an app on the card: its title says which
+        twice = {**here, "windows": here["windows"] + [{"id": "c2", "app": "google-chrome", "title": "Mail"}]}
+        self.assertEqual(ui.app_menu(twice, sidebar_common.tab_info(twice)["apps"][1])[0][0], f"{name} — Mail")
+        # what tells a workspace apart: its name, its Claude's title, its apps
+        label = sidebar_common.move_label
+        self.assertEqual(label({"space": 4, "claudes": [{"title": "Fix CI", "session": "s"}],
+                                "windows": [{"id": "x", "app": "slack"}]}), "4   Fix CI")
+        self.assertEqual(label({"space": 6, "windows": [{"id": "x", "app": "slack"}, {"id": "y", "app": "slack"},
+                                                        {"id": "z", "app": "discord"}]}), "6   Slack, Discord")
+        self.assertEqual(label({"space": 7, "name": "N" * 60})[-1], "…")
+        # nothing to do with it: the card's menu instead
+        self.assertEqual(ui.app_menu(here, {**app, "window": None}), [])
+        ui.state["move_windows"] = False
+        self.assertEqual(ui.app_menu(here, app), [])
+        self.assertNotIn("Move this terminal to", [e[0] for e in ui.tab_menu(here, info["boxes"][0]) if e is not sep])
 
     def test_a_step_is_a_kind_and_one_setting(self):
         """The editor's view of a template's steps, and back (make_step)."""

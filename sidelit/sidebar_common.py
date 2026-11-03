@@ -348,7 +348,7 @@ def box_info(c: dict) -> dict:
             "title": c.get("title") or "New session", "glyph": agent.mark(cls == "working"),
             "sub": " · ".join(filter(None, (c.get("model"), note(c)))) or " ", "state": state, "cls": cls,
             "agents": n, "subagents": subagent_groups(c.get("models") or [], n),
-            "calls": bool(c.get("calls")), "cwd": c.get("cwd") or ""}
+            "calls": bool(c.get("calls")), "cwd": c.get("cwd") or "", "window": c.get("window")}
 
 
 def subagent_groups(models: list, n: int) -> tuple:
@@ -594,6 +594,22 @@ def tab_snapshot(rows) -> list[tuple]:
             for t, i, att in rows]
 
 
+def short(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n - 1].rstrip() + "…"
+
+
+def move_label(tab: dict) -> str:
+    """A workspace in a "Move to" list: its number, then what tells it apart: its name, else
+    its first Claude's title, else the apps on it ("4  Pricing", "2  Merge request 2687",
+    "6  Chrome, Slack", "8  Empty")."""
+    info = tab_info(tab)
+    titles = [b["title"] for b in info["boxes"] if b["title"] != "New session"]
+    apps = list(dict.fromkeys(a["name"][:1].upper() + a["name"][1:] for a in info["apps"] if not a["missing"]))
+    what = tab.get("name") or (titles[0] if titles else "") or ", ".join(apps[:3]) \
+        or ("New session" if info["boxes"] else "Empty")
+    return f"{tab['space']}   {short(what, 40)}"
+
+
 def close_question(tab: dict) -> tuple[str, str] | None:
     """Closing a workspace with windows asks first: (question, what it closes); None closes
     straight away."""
@@ -612,8 +628,17 @@ def close_question(tab: dict) -> tuple[str, str] | None:
 
 
 # A menu, for either toolkit: entries are (label, callback), (label, None) for a line that only
-# informs, SEPARATOR, or (label, [entries]) for a submenu.
+# informs, SEPARATOR, heading(label) to start a group under a small title, or (label, [entries])
+# for a submenu.
 SEPARATOR = ("", None, "separator")
+
+
+def heading(text: str) -> tuple:
+    return (text, None, "heading")
+
+
+def is_heading(entry) -> bool:
+    return len(entry) == 3 and entry[2] == "heading"
 
 
 def quit_sidelit():
@@ -1040,7 +1065,8 @@ class SidebarLogic:
 
     def tab_menu(self, tab: dict, box: dict | None = None) -> list:
         """A card's menu, headed by its folder; on one of its Claudes' boxes, a new session
-        starts in that Claude's folder."""
+        starts in that Claude's folder, and its terminal can move to another workspace
+        (move_menu). An app's icon has a menu of its own (app_menu)."""
         info = tab_info(tab)
         where = self._where(tab)
         cwd = (box or {}).get("cwd") or tab.get("cwd") or next(
@@ -1060,6 +1086,9 @@ class SidebarLogic:
                     items.append((f"Open {app.get('name') or app['url']} here",
                                   lambda u=app["url"]: self.send("webapp", url=u, **where)))
             items.append(("Open web app here…", lambda: self.web_app_dialog(tab)))
+        moves = self.move_menu(tab, (box or {}).get("window"), cwd)
+        if moves:
+            items.append(("Move this terminal to", moves))
         items.append(("Rename…", lambda: self.rename_dialog(tab)))
         if info["boxes"] or info["apps"]:
             items.append(("Save as template…", lambda: self.template_dialog(tab)))
@@ -1076,6 +1105,37 @@ class SidebarLogic:
         if missing:
             items.append(SEPARATOR)
             items.extend((f"missing: {m['what']}", None) for m in missing[:8])
+        return items
+
+    def app_menu(self, tab: dict, app: dict) -> list:
+        """An app's icon: that app alone, headed by its name (and its window's title, where the
+        card has more than one of it), then where it can go under "Move to". None where there is
+        nothing to do with it (a missing one, a desktop that cannot move windows): the card's
+        menu, then."""
+        moves = self.move_menu(tab, app.get("window"), tab.get("cwd") or "")
+        if not moves:
+            return []
+        name = app["name"][:1].upper() + app["name"][1:]
+        if sum(a["app"] == app["app"] for a in tab_info(tab)["apps"]) > 1:
+            name = f"{name} — {short(app['title'], 40)}"
+        return [(name, None), heading("Move to")] + moves
+
+    def move_menu(self, tab: dict, window: str | None, cwd: str) -> list:
+        """Where a window of `tab` can go: every other open workspace (move_label), then a new
+        one right after this. None for a window that is not open, or a desktop that does not
+        let Sidelit move windows."""
+        if not window or tab.get("space") is None or not self.state.get("move_windows"):
+            return []
+        items = []
+        for t in self.state.get("tabs") or []:
+            if t.get("space") is None or t.get("space") == tab.get("space"):
+                continue
+            where = {"ws": t["ws"]} if t.get("ws") else {"space": t["space"]}
+            items.append((move_label(t), lambda w=where: self.send("move_window", window=window, **w)))
+        if items:
+            items.append(SEPARATOR)
+        items.append(("New workspace", lambda: self.send("move_window", window=window, new=True,
+                                                         after=tab.get("ws"), cwd=cwd)))
         return items
 
     def put_back(self):
