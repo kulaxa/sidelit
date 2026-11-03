@@ -331,24 +331,35 @@ class CommonTest(unittest.TestCase):
         ui.state = {"recent": [], "move_windows": True, "tabs": [here, there, loose, closed]}
         info = sidebar_common.tab_info(here)
         sep = sidebar_common.SEPARATOR
-        # a Claude's box: the card's menu, with its terminal's moves in a submenu
+        # a Claude's box: the card's menu, with its terminal's moves in a submenu; a workspace
+        # by its number and what tells it apart, not its shortcut
         moves = dict(e for e in ui.tab_menu(here, info["boxes"][0]) if e is not sep)["Move this terminal to"]
         self.assertEqual([e[0] if e is not sep else "-" for e in moves],
-                         ["Pricing  (Super+2)", "Workspace 3", "-", "New workspace"])
-        dict(e for e in moves if e is not sep)["Pricing  (Super+2)"]()
+                         ["2   Pricing", "3   Empty", "-", "New workspace"])
+        dict(e for e in moves if e is not sep)["2   Pricing"]()
         self.assertEqual(ui.sent[-1], ("move_window", {"window": "t1", "ws": "w2"}))
         # an app's icon: that app alone, nothing of the workspace's
         app = info["apps"][0]
         menu = ui.app_menu(here, app)
+        name = app["name"][:1].upper() + app["name"][1:]
         self.assertEqual([e[0] if e is not sep else "-" for e in menu],
-                         [f"{app['name'][:1].upper()}{app['name'][1:]} — Docs", "-",
-                          "Move to Pricing  (Super+2)", "Move to Workspace 3", "-",
-                          "Move to new workspace"])
+                         [name, "Move to", "2   Pricing", "3   Empty", "-", "New workspace"])
         self.assertIsNone(menu[0][1])  # (its name, greyed out)
-        dict(e for e in menu if e is not sep)["Move to Workspace 3"]()
+        self.assertTrue(sidebar_common.is_heading(menu[1]))
+        dict(e[:2] for e in menu if e is not sep)["3   Empty"]()
         self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "space": 3}))
-        dict(e for e in menu if e is not sep)["Move to new workspace"]()
+        dict(e[:2] for e in menu if e is not sep)["New workspace"]()
         self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "new": True, "after": "w1", "cwd": "/w"}))
+        # two of an app on the card: its title says which
+        twice = {**here, "windows": here["windows"] + [{"id": "c2", "app": "google-chrome", "title": "Mail"}]}
+        self.assertEqual(ui.app_menu(twice, sidebar_common.tab_info(twice)["apps"][1])[0][0], f"{name} — Mail")
+        # what tells a workspace apart: its name, its Claude's title, its apps
+        label = sidebar_common.move_label
+        self.assertEqual(label({"space": 4, "claudes": [{"title": "Fix CI", "session": "s"}],
+                                "windows": [{"id": "x", "app": "slack"}]}), "4   Fix CI")
+        self.assertEqual(label({"space": 6, "windows": [{"id": "x", "app": "slack"}, {"id": "y", "app": "slack"},
+                                                        {"id": "z", "app": "discord"}]}), "6   Slack, Discord")
+        self.assertEqual(label({"space": 7, "name": "N" * 60})[-1], "…")
         # nothing to do with it: the card's menu instead
         self.assertEqual(ui.app_menu(here, {**app, "window": None}), [])
         ui.state["move_windows"] = False

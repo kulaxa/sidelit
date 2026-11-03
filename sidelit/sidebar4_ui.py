@@ -35,7 +35,7 @@ else:
 
 from sidelit import ipc, themes  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402
-    LOGO_SVG, SEPARATOR, SETTING_HINTS, app_entry, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room,
+    LOGO_SVG, SEPARATOR, SETTING_HINTS, app_entry, is_heading, SOURCE_STATE_CLASS, SidebarLogic, box_classes, box_room,
     close_question, compact_wanted, reset_line, day_label, dock_side, group_blocks, history_lines, home_path,
     installed_apps, item_sub, make_step, matches, model_css, place_choices, step_kind, step_kinds, step_setting,
     step_title, tab_classes, tab_snapshot, update_line, usage_level,
@@ -438,10 +438,12 @@ class Menu:
         self.popover.connect("closed", lambda p: GLib.idle_add(self._dispose))
 
     def _model(self, entries: list) -> Gio.Menu:
-        menu, section = Gio.Menu(), Gio.Menu()
+        menu, section, label_of = Gio.Menu(), Gio.Menu(), None
         for entry in entries:
-            if entry is SEPARATOR:
-                menu.append_section(None, section)
+            if entry is SEPARATOR or is_heading(entry):  # (a heading titles the group it starts)
+                if section.get_n_items():
+                    menu.append_section(label_of, section)
+                label_of = entry[0].replace("_", "__") if is_heading(entry) else None
                 section = Gio.Menu()
                 continue
             text, action = entry
@@ -458,7 +460,7 @@ class Menu:
                 act.connect("activate", lambda _a, _p, cb=action: cb())
             self.group.add_action(act)
             section.append(text, f"{self.prefix}.{name}")
-        menu.append_section(None, section)
+        menu.append_section(label_of, section)
         return menu
 
     def popup_at(self, x: float, y: float):

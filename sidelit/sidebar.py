@@ -46,7 +46,7 @@ else:
 
 from sidelit import ipc  # noqa: E402
 from sidelit.sidebar_common import (  # noqa: E402,F401 (names the tests and older callers use)
-    LOGO_SVG, SEPARATOR, SETTING_HINTS, app_entry, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items,
+    LOGO_SVG, SEPARATOR, SETTING_HINTS, app_entry, is_heading, SOURCE_STATE_CLASS, STATE_CLASSES, SidebarLogic, bound_items,
     box_classes, box_room, close_question, compact_wanted, countdown, reset_line, day_label, dock_side, group_blocks,
     group_items, history_lines, item_sub, make_step, matches, model_css, place_choices, step_kind, step_kinds,
     step_setting, tab_classes, tab_info, tab_snapshot, update_line, usage_level,
@@ -766,6 +766,9 @@ def build_menu(entries: list) -> Gtk.Menu:
         if entry is SEPARATOR:
             menu.append(Gtk.SeparatorMenuItem())
             continue
+        if is_heading(entry):  # (GTK 3 menus have no section titles: a line and a greyed one)
+            menu.append(Gtk.SeparatorMenuItem())
+            entry = entry[:2]
         label, action = entry
         item = Gtk.MenuItem(label=label, use_underline=False)  # (a _ in a folder's name is not a mnemonic)
         if isinstance(action, list):

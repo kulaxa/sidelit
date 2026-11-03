@@ -594,6 +594,22 @@ def tab_snapshot(rows) -> list[tuple]:
             for t, i, att in rows]
 
 
+def short(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n - 1].rstrip() + "…"
+
+
+def move_label(tab: dict) -> str:
+    """A workspace in a "Move to" list: its number, then what tells it apart: its name, else
+    its first Claude's title, else the apps on it ("4  Pricing", "2  Merge request 2687",
+    "6  Chrome, Slack", "8  Empty")."""
+    info = tab_info(tab)
+    titles = [b["title"] for b in info["boxes"] if b["title"] != "New session"]
+    apps = list(dict.fromkeys(a["name"][:1].upper() + a["name"][1:] for a in info["apps"] if not a["missing"]))
+    what = tab.get("name") or (titles[0] if titles else "") or ", ".join(apps[:3]) \
+        or ("New session" if info["boxes"] else "Empty")
+    return f"{tab['space']}   {short(what, 40)}"
+
+
 def close_question(tab: dict) -> tuple[str, str] | None:
     """Closing a workspace with windows asks first: (question, what it closes); None closes
     straight away."""
@@ -612,8 +628,17 @@ def close_question(tab: dict) -> tuple[str, str] | None:
 
 
 # A menu, for either toolkit: entries are (label, callback), (label, None) for a line that only
-# informs, SEPARATOR, or (label, [entries]) for a submenu.
+# informs, SEPARATOR, heading(label) to start a group under a small title, or (label, [entries])
+# for a submenu.
 SEPARATOR = ("", None, "separator")
+
+
+def heading(text: str) -> tuple:
+    return (text, None, "heading")
+
+
+def is_heading(entry) -> bool:
+    return len(entry) == 3 and entry[2] == "heading"
 
 
 def quit_sidelit():
@@ -1083,35 +1108,33 @@ class SidebarLogic:
         return items
 
     def app_menu(self, tab: dict, app: dict) -> list:
-        """An app's icon: that app alone, headed by its name, and the workspaces it can move
-        to ("Move to Pricing", "Move to new workspace"). None where there is nothing to do with
-        it (a missing one, a desktop that cannot move windows): the card's menu, then."""
-        moves = self.move_menu(tab, app.get("window"), tab.get("cwd") or "", verb="Move to ")
+        """An app's icon: that app alone, headed by its name (and its window's title, where the
+        card has more than one of it), then where it can go under "Move to". None where there is
+        nothing to do with it (a missing one, a desktop that cannot move windows): the card's
+        menu, then."""
+        moves = self.move_menu(tab, app.get("window"), tab.get("cwd") or "")
         if not moves:
             return []
         name = app["name"][:1].upper() + app["name"][1:]
-        title = app["title"] if len(app["title"]) <= 48 else app["title"][:47] + "…"
-        return [(f"{name} — {title}" if title and title.lower() != app["name"].lower() else name, None),
-                SEPARATOR] + moves
+        if sum(a["app"] == app["app"] for a in tab_info(tab)["apps"]) > 1:
+            name = f"{name} — {short(app['title'], 40)}"
+        return [(name, None), heading("Move to")] + moves
 
-    def move_menu(self, tab: dict, window: str | None, cwd: str, verb: str = "") -> list:
-        """Where a window of `tab` can go: every other open workspace, by the name its card
-        shows (and its shortcut), then a new one right after this, each label after `verb`.
-        None for a window that is not open, or a desktop that does not let Sidelit move windows."""
+    def move_menu(self, tab: dict, window: str | None, cwd: str) -> list:
+        """Where a window of `tab` can go: every other open workspace (move_label), then a new
+        one right after this. None for a window that is not open, or a desktop that does not
+        let Sidelit move windows."""
         if not window or tab.get("space") is None or not self.state.get("move_windows"):
             return []
         items = []
         for t in self.state.get("tabs") or []:
             if t.get("space") is None or t.get("space") == tab.get("space"):
                 continue
-            label = tab_info(t)["title"]
-            if t.get("shortcut"):
-                label = f"{label}  ({t['shortcut']})"
             where = {"ws": t["ws"]} if t.get("ws") else {"space": t["space"]}
-            items.append((verb + label, lambda w=where: self.send("move_window", window=window, **w)))
+            items.append((move_label(t), lambda w=where: self.send("move_window", window=window, **w)))
         if items:
             items.append(SEPARATOR)
-        items.append((f"{verb}new workspace" if verb else "New workspace", lambda: self.send("move_window", window=window, new=True,
+        items.append(("New workspace", lambda: self.send("move_window", window=window, new=True,
                                                          after=tab.get("ws"), cwd=cwd)))
         return items
 
