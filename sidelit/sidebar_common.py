@@ -348,7 +348,7 @@ def box_info(c: dict) -> dict:
             "title": c.get("title") or "New session", "glyph": agent.mark(cls == "working"),
             "sub": " · ".join(filter(None, (c.get("model"), note(c)))) or " ", "state": state, "cls": cls,
             "agents": n, "subagents": subagent_groups(c.get("models") or [], n),
-            "calls": bool(c.get("calls")), "cwd": c.get("cwd") or ""}
+            "calls": bool(c.get("calls")), "cwd": c.get("cwd") or "", "window": c.get("window")}
 
 
 def subagent_groups(models: list, n: int) -> tuple:
@@ -1038,9 +1038,10 @@ class SidebarLogic:
     def can_reorder(self) -> bool:
         return "move" in (self.state.get("caps") or [])  # a desktop that cannot reorder: no drop indicator
 
-    def tab_menu(self, tab: dict, box: dict | None = None) -> list:
+    def tab_menu(self, tab: dict, box: dict | None = None, app: dict | None = None) -> list:
         """A card's menu, headed by its folder; on one of its Claudes' boxes, a new session
-        starts in that Claude's folder."""
+        starts in that Claude's folder. On a box or an app's icon, its window can move to
+        another workspace (move_menu)."""
         info = tab_info(tab)
         where = self._where(tab)
         cwd = (box or {}).get("cwd") or tab.get("cwd") or next(
@@ -1060,6 +1061,9 @@ class SidebarLogic:
                     items.append((f"Open {app.get('name') or app['url']} here",
                                   lambda u=app["url"]: self.send("webapp", url=u, **where)))
             items.append(("Open web app here…", lambda: self.web_app_dialog(tab)))
+        moves = self.move_menu(tab, (box or app or {}).get("window"), cwd)
+        if moves:
+            items.append(("Move window to", moves))
         items.append(("Rename…", lambda: self.rename_dialog(tab)))
         if info["boxes"] or info["apps"]:
             items.append(("Save as template…", lambda: self.template_dialog(tab)))
@@ -1076,6 +1080,27 @@ class SidebarLogic:
         if missing:
             items.append(SEPARATOR)
             items.extend((f"missing: {m['what']}", None) for m in missing[:8])
+        return items
+
+    def move_menu(self, tab: dict, window: str | None, cwd: str) -> list:
+        """Where a window of `tab` can go: every other open workspace, by the name its card
+        shows (and its shortcut), then a new one right after this. None for a window that is
+        not open, or a desktop that does not let Sidelit move windows."""
+        if not window or tab.get("space") is None or not self.state.get("move_windows"):
+            return []
+        items = []
+        for t in self.state.get("tabs") or []:
+            if t.get("space") is None or t.get("space") == tab.get("space"):
+                continue
+            label = tab_info(t)["title"]
+            if t.get("shortcut"):
+                label = f"{label}  ({t['shortcut']})"
+            where = {"ws": t["ws"]} if t.get("ws") else {"space": t["space"]}
+            items.append((label, lambda w=where: self.send("move_window", window=window, **w)))
+        if items:
+            items.append(SEPARATOR)
+        items.append(("New workspace", lambda: self.send("move_window", window=window, new=True,
+                                                         after=tab.get("ws"), cwd=cwd)))
         return items
 
     def put_back(self):

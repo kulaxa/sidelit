@@ -310,6 +310,39 @@ class CommonTest(unittest.TestCase):
         new[1]()
         self.assertEqual(ui.sent[-1][0], "new")
         self.assertEqual(ui.sent[-1][1]["cwd"], "/v")
+        # no "Move window to" on the card itself, nor where the desktop cannot move windows
+        self.assertNotIn("Move window to", [e[0] for e in ui.tab_menu(two) if e is not sidebar_common.SEPARATOR])
+        self.assertNotIn("Move window to", [e[0] for e in ui.tab_menu(two, box) if e is not sidebar_common.SEPARATOR])
+
+    def test_a_window_moves_to_another_workspace(self):
+        class Fake(sidebar_common.SidebarLogic):
+            def __init__(self):
+                self.cfg, self.sent = {"web_apps": []}, []
+
+            def send(self, method, **params):
+                self.sent.append((method, params))
+
+        here = {"space": 1, "ws": "w1", "cwd": "/w", "claudes": [{"title": "T", "session": "s1", "window": "t1"}],
+                "windows": [{"id": "t1", "app": "terminator"}, {"id": "c1", "app": "google-chrome", "title": "Docs"}]}
+        there = {"space": 2, "ws": "w2", "name": "Pricing", "shortcut": "Super+2"}
+        loose = {"space": 3, "ws": None}  # a workspace Sidelit does not keep (yet)
+        closed = {"space": None, "ws": "w9", "name": "Old"}
+        ui = Fake()
+        ui.state = {"recent": [], "move_windows": True, "tabs": [here, there, loose, closed]}
+        info = sidebar_common.tab_info(here)
+        sep = sidebar_common.SEPARATOR
+        for hit in ({"box": info["boxes"][0]}, {"app": info["apps"][0]}):
+            moves = dict(e for e in ui.tab_menu(here, **hit) if e is not sep)["Move window to"]
+            self.assertEqual([e[0] if e is not sep else "-" for e in moves],
+                             ["Pricing  (Super+2)", "Workspace 3", "-", "New workspace"])
+            dict(e for e in moves if e is not sep)["Pricing  (Super+2)"]()
+            self.assertEqual(ui.sent[-1], ("move_window", {"window": hit.get("box", hit.get("app"))["window"], "ws": "w2"}))
+        dict(e for e in moves if e is not sep)["Workspace 3"]()
+        self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "space": 3}))
+        dict(e for e in moves if e is not sep)["New workspace"]()
+        self.assertEqual(ui.sent[-1], ("move_window", {"window": "c1", "new": True, "after": "w1", "cwd": "/w"}))
+        ui.state["move_windows"] = False
+        self.assertNotIn("Move window to", [e[0] for e in ui.tab_menu(here, info["boxes"][0]) if e is not sep])
 
     def test_a_step_is_a_kind_and_one_setting(self):
         """The editor's view of a template's steps, and back (make_step)."""

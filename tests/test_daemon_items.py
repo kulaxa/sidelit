@@ -589,5 +589,45 @@ class TerminatorConfig(unittest.TestCase):
         self.assertEqual(t.with_plugin("[profiles]\n", False), "[profiles]\n")
 
 
+@unittest.skipIf(daemon is None, "needs GLib")
+class MoveWindow(unittest.TestCase):
+    """A card's "Move window to": the window goes to the workspace named, or a new one after its own."""
+
+    def setUp(self):
+        d = object.__new__(daemon.Daemon)
+        d._tl = {"w1": "terminal-1"}
+        d.ws = mock.Mock(can_move_windows=True)
+        d.engine = mock.Mock()
+        d._lw_for = mock.Mock(return_value=(object(), 4))
+        d.move = mock.Mock(return_value=True)
+        self.d = d
+
+    def test_to_a_workspace_that_is_kept_from_then_on(self):
+        self.assertEqual(self.d.cmd_move_window({"window": "w1", "ws": "wB"}), 4)
+        self.d._lw_for.assert_called_once_with({"window": "w1", "ws": "wB"}, register=True)
+        self.d.move.assert_called_once_with("w1", 4, None)
+
+    def test_to_a_new_workspace_after_its_own(self):
+        self.d.engine.create_workspace.return_value = mock.Mock(id="wN")
+        self.d.engine.primary = {"wN": mock.Mock(index=7)}
+        self.assertEqual(self.d.cmd_move_window({"window": "w1", "new": True, "after": "wA", "cwd": "/src"}), 7)
+        self.assertEqual(self.d.engine.create_workspace.call_args.kwargs, {"cwd": "/src", "after": "wA"})
+        self.d.move.assert_called_once_with("w1", 7, None)
+
+    def test_says_why_it_could_not(self):
+        with self.assertRaisesRegex(RuntimeError, "gone"):
+            self.d.cmd_move_window({"window": "w9", "space": 2})
+        self.d._lw_for.return_value = (None, None)
+        with self.assertRaisesRegex(RuntimeError, "not open"):
+            self.d.cmd_move_window({"window": "w1", "ws": "wGone"})
+        self.d._lw_for.return_value = (object(), 4)
+        self.d.move.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "did not move"):
+            self.d.cmd_move_window({"window": "w1", "space": 4})
+        self.d.ws.can_move_windows = False
+        with self.assertRaisesRegex(RuntimeError, "does not let"):
+            self.d.cmd_move_window({"window": "w1", "space": 4})
+
+
 if __name__ == "__main__":
     unittest.main()
