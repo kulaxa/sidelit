@@ -103,7 +103,8 @@
   desktop names; a session in tmux counts as in the terminals attached to it, so it follows
   when you detach it and attach from another one; one in a Terminator pane is in the window
   Sidelit's Terminator plugin says has that pane, so it follows a pane you drag to another
-  window), else
+  window; one in a kitty pane is in the window kitty says has it, when kitty's remote control is
+  on: `allow_remote_control socket-only` and `listen_on unix:@kitty` in kitty.conf), else
   by which window had the keyboard when you submitted a prompt (until its first prompt, when you
   started it: a new tab or pane gets its box at once); and which pane, where the terminal says
   (Terminator, tmux, WezTerm, kitty). A box is called by its session's own name, "New session"

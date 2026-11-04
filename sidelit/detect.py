@@ -22,7 +22,7 @@ LIVE_STATE = {"busy": "busy", "waiting": "waiting"}
 # ---- which window shows which session ----------------------------------------------------
 # Evidence, strongest first. A mapping holds until stronger evidence (or equally strong,
 # newer evidence) says otherwise, or its window or session goes.
-BY_PANE = 4     # the terminal says which of its windows has the session's pane (Terminator's plugin)
+BY_PANE = 4     # the terminal says which of its windows has the session's pane (Terminator's plugin, kitty)
 BY_LAUNCH = 3   # the session's process ancestry contains the terminal we started for that window
 BY_PID = 3      # ...or the window's own pid (compositors that report it)
 BY_FOCUS = 2    # you submitted a prompt while that terminal had the keyboard
@@ -120,19 +120,25 @@ class Detector:
     Terminator keeps all its windows in one process, so neither process nor launch says which
     of them a pane is in, and a pane dragged to another window kept only the keyboard's word for
     the window it left. Sidelit's Terminator plugin says which terminals each window has
-    (BY_PANE, _through_terminator), so such a pane follows to its new window.
+    (BY_PANE, _through_terminator), so such a pane follows to its new window. kitty, with remote
+    control on, says the same over its socket (_through_kitty): there a split or a tab of a window
+    you opened yourself was placed only by the keyboard, and only while the window's title, its
+    active pane's, was that session's.
 
     `agents`: the adapters (agents.every()); `started(pid)` when a process started, which
     orders the sessions of a window; `tmux` asks tmux for its clients (tmux_clients);
-    `terminator` lists Terminator's windows (terminator.windows()). The window mapping is kept
-    in `windows`, so a daemon restart keeps it."""
+    `terminator` lists Terminator's windows (terminator.windows()); `kitty(sockets)` the windows
+    of the kittys listening on those (kitty.Windows). The window mapping is kept in `windows`, so
+    a daemon restart keeps it."""
 
     def __init__(self, agents=None, ttl: float = 1.0, started=process_started, windows: Path | None = None,
-                 tmux=tmux_clients, terminator=None):
+                 tmux=tmux_clients, terminator=None, kitty=None):
         from sidelit import config
+        from sidelit import kitty as kitty_mod
         from sidelit import terminator as terminator_mod
         self.tmux_clients = tmux
         self.terminator_windows = terminator or terminator_mod.windows
+        self.kitty_windows = kitty or kitty_mod.Windows()
         self.agents = list(agents if agents is not None else agents_mod.every())
         self.by_name = {a.name: a for a in self.agents}
         self.comms = {a.comm for a in self.agents}
@@ -365,6 +371,7 @@ class Detector:
                         and sess.get("sessionId") not in self.hooked and not self._windowless(sess):
                     self._offer(sess["sessionId"], (BY_TITLE, 0.0, wids[0]))
         self._through_terminator(windows)
+        self._through_kitty(windows)
         # each window shows the sessions with the strongest kind of evidence for it; a title
         # alone names only one, the newest
         claims: dict[str, list[tuple]] = {}
@@ -382,25 +389,47 @@ class Detector:
             self._save_windows()
 
     def _through_terminator(self, windows: dict):
-        """Each session in a Terminator pane, in the window Terminator says has that pane. Its
-        windows are matched to ours by title, else by the window the other sessions in it are
-        known to be in, one not already taken."""
-        uuid_of = {}
+        """Each session in a Terminator pane, in the window Terminator says has that pane."""
+        uuid_of = self._panes(lambda pane: str(pane.get("TERMINATOR_UUID") or ""))
+        if uuid_of:
+            self._place_panes(windows, uuid_of, [{**tw, "app": "terminator", "titles": [tw["title"]]}
+                                                 for tw in self.terminator_windows()])
+
+    def _through_kitty(self, windows: dict):
+        """Each session in a kitty pane, in the window that kitty says has that pane."""
+        from sidelit.kitty import pane_key
+        key_of = self._panes(lambda pane: pane_key(pane["KITTY_LISTEN_ON"], pane["KITTY_WINDOW_ID"])
+                             if pane.get("KITTY_LISTEN_ON") and pane.get("KITTY_WINDOW_ID") else "")
+        if key_of:
+            listens = {str(self.hooked[sid]["pane"]["KITTY_LISTEN_ON"]) for sid in key_of}
+            self._place_panes(windows, key_of, self.kitty_windows(listens))
+
+    def _panes(self, key) -> dict[str, str]:
+        """session -> its pane, as `key(pane)` names it, of the sessions with a terminal that are
+        not in tmux (one in tmux goes by tmux's clients)."""
+        out = {}
         for sid, rec in self.hooked.items():
             pane = rec.get("pane") if isinstance(rec.get("pane"), dict) else {}
-            if pane.get("TERMINATOR_UUID") and not pane.get("TMUX_PANE") and not rec["windowless"]:
-                uuid_of[sid] = str(pane["TERMINATOR_UUID"])
-        if not uuid_of:
-            return
-        ours = {wid: w for wid, w in windows.items() if w.app == "terminator"}
+            if pane and not pane.get("TMUX_PANE") and not rec["windowless"]:
+                k = key(pane)
+                if k:
+                    out[sid] = k
+        return out
+
+    def _place_panes(self, windows: dict, pane_of: dict[str, str], terminal_windows: list[dict]):
+        """Each session in the window its terminal says has its pane. `terminal_windows`: the
+        terminal's own windows, {"app", "titles", "terminals", "since"}, matched to ours by
+        title, else by the window the other sessions in it are known to be in, one not already
+        taken."""
         todo = []
-        for tw in self.terminator_windows():  # (one with no session in it still takes its window)
-            members = [sid for sid, uuid in uuid_of.items() if uuid in tw["terminals"]]
-            titled = [wid for wid, w in ours.items() if w.title and w.title == tw["title"]]
+        for tw in terminal_windows:  # (one with no session in it still takes its window)
+            ours = {wid: w for wid, w in windows.items() if w.app == tw["app"]}
+            members = [sid for sid, pane in pane_of.items() if pane in tw["terminals"]]
+            titled = [wid for wid, w in ours.items() if w.title and w.title in tw["titles"]]
             known = {self.window_of[s][0] for s in members if s in self.window_of and self.window_of[s][0] in ours}
             todo.append((members, tw["since"], titled, known))
-        # (one whose title says nothing goes by its sessions' windows, unless another of
-        # Terminator's windows has a session that window was known for: one of them moved)
+        # (one whose title says nothing goes by its sessions' windows, unless another of the
+        # terminal's windows has a session that window was known for: one of them moved)
         taken: set[str] = set()
         while todo:
             placed = []
