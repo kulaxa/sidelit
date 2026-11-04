@@ -25,6 +25,10 @@ def term(wid, title, pid=0, focused=False):
     return Win(id=wid, app="terminator", title=title, space=1, output="eDP-1", pid=pid, focused=focused)
 
 
+def kitty_win(wid, title, pid=0, focused=False):
+    return Win(id=wid, app="kitty", title=title, space=1, output="eDP-1", pid=pid, focused=focused)
+
+
 class TrackerTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -42,13 +46,19 @@ class TrackerTest(unittest.TestCase):
         detect.in_terminal = lambda pid: pid not in self.headless
         self.tmux: dict[tuple[str, str], list[int]] = {}  # (socket, pane) -> the clients showing it
         self.terminator: list[dict] = []  # what Sidelit's Terminator plugin says of its windows
+        self.kitty: list[dict] = []  # what kitty says of its windows, over its socket
+        self.kitty_asked: list[set] = []
         self.d = self.detector()
 
     def detector(self, poll=None, started=lambda pid: None):
         poll = poll or (lambda now: (list(self.live.values()), now))
         return detect.Detector(agents=[claude.ClaudeCode(hook_dir=self.hook_dir, poll=poll)], started=started,
                                tmux=lambda panes: {k: v for k, v in self.tmux.items() if k in panes},
-                               terminator=lambda: self.terminator)
+                               terminator=lambda: self.terminator, kitty=self.ask_kitty)
+
+    def ask_kitty(self, listens):
+        self.kitty_asked.append(set(listens))
+        return self.kitty
 
     def tearDown(self):
         claude.PROJECTS = self._saved
@@ -567,6 +577,141 @@ class TrackerTest(unittest.TestCase):
         self.terminator = [{"title": "✳ Resumed", "terminals": ["urn:uuid:s2"], "since": 50.0}]
         seen = self.look_all({"A": term("A", "✳ Resumed")}, 102.0, launched={"A": TERM_PID})
         self.assertEqual(sorted(self.sessions(seen, "A")), ["s1", "s2"])
+
+    # ---- kitty's splits and tabs, from its remote-control socket
+    def kpane(self, sid, pid, t, started, wid, listen="unix:@kitty-300", **extra):
+        """A Claude in pane `wid` of the kitty listening on `listen` (its process TERM_PID)."""
+        self.table.update({pid: (pid - 1, "claude"), pid - 1: (TERM_PID, "zsh"), TERM_PID: (1, "kitty")})
+        self.hook(sid, extra.pop("state", "done"), t, pid=pid, started=started, ancestors=[pid, pid - 1, TERM_PID, 1],
+                  pane={"KITTY_LISTEN_ON": listen, "KITTY_WINDOW_ID": str(wid)}, **extra)
+
+    def kitty_split(self):
+        """A kitty you opened yourself, one window split in two, a Claude in each. You typed into
+        both, the right one last: the window's title is the right pane's."""
+        self.transcript("s1", {"type": "ai-title", "aiTitle": "SSE"})
+        self.transcript("s2", {"type": "ai-title", "aiTitle": "Users API"})
+        self.d.note_focus(99.0, "A")
+        self.kpane("s1", 602, 100.0, started=90.0, wid=1, prompt_t=100.0)
+        self.kpane("s2", 702, 105.0, started=95.0, wid=3, prompt_t=105.0)
+        return kitty_win("A", "✳ Users API")
+
+    def test_both_panes_of_a_kitty_split_get_a_box(self):
+        a = self.kitty_split()
+        seen = self.look_all({"A": a}, 106.0)
+        self.assertEqual(self.sessions(seen, "A"), ["s2"])  # the window's title is only s2's
+        self.kitty = [{"app": "kitty", "titles": ["✳ Users API"], "since": 50.0,
+                       "terminals": ["unix:@kitty-300#1", "unix:@kitty-300#3"]}]
+        seen = self.look_all({"A": a}, 107.0)
+        self.assertEqual(self.sessions(seen, "A"), ["s1", "s2"])
+        self.assertEqual([c["how"] for c in seen["A"]], ["pane", "pane"])
+        self.assertEqual(self.kitty_asked[-1], {"unix:@kitty-300"})
+
+    def test_a_kitty_tab_in_the_background_is_in_its_window(self):
+        """Matched by the title of the tab in front, though no session of it is known there."""
+        self.kpane("s1", 602, 100.0, started=90.0, wid=2)
+        self.kitty = [{"app": "kitty", "titles": ["mario@pop-os: ~"], "since": 50.0,
+                       "terminals": ["unix:@kitty-300#1", "unix:@kitty-300#2"]},
+                      {"app": "kitty", "titles": ["✳ Other"], "since": 50.0, "terminals": ["unix:@kitty-500#1"]}]
+        seen = self.look_all({"A": kitty_win("A", "mario@pop-os: ~"), "B": kitty_win("B", "✳ Other")}, 101.0)
+        self.assertEqual((self.sessions(seen, "A"), seen["B"]), (["s1"], []))
+
+    def test_a_kitty_window_whose_title_moved_on_goes_by_its_sessions(self):
+        """(kitty's title a moment ahead of the compositor's: a spinner turned)"""
+        a = self.kitty_split()
+        self.kitty = [{"app": "kitty", "titles": ["✻ Users API"], "since": 50.0,
+                       "terminals": ["unix:@kitty-300#1", "unix:@kitty-300#3"]}]
+        self.assertEqual(self.sessions(self.look_all({"A": a}, 106.0), "A"), ["s1", "s2"])
+
+    def test_a_claude_in_tmux_in_kitty_is_left_to_tmux(self):
+        self.kpane("s1", 602, 100.0, started=90.0, wid=1)
+        rec = json.loads((self.hook_dir / "s1.json").read_text())
+        rec["pane"]["TMUX_PANE"] = "%3"
+        (self.hook_dir / "s1.json").write_text(json.dumps(rec))
+        self.look_all({"A": kitty_win("A", "x")}, 101.0)
+        self.assertEqual(self.kitty_asked, [])
+
+    def test_kittys_windows_from_its_ls(self):
+        from sidelit import kitty
+        data = [{"id": 1, "wm_class": "kitty", "tabs": [
+                    {"id": 1, "is_active": False, "title": "~",
+                     "windows": [{"id": 4, "is_active": True, "title": "~"}]},
+                    {"id": 2, "is_active": True, "title": "✳ Users API", "windows": [
+                        {"id": 1, "is_active": False, "title": "✳ SSE"},
+                        {"id": 3, "is_active": True, "title": "✳ Users API"}]}]},
+                {"id": 2, "wm_class": "mykitty", "tabs": []}]
+        self.assertEqual(kitty.windows_of("unix:@k", data), [
+            {"id": ("unix:@k", 1), "app": "kitty", "titles": ["✳ Users API"],
+             "terminals": ["unix:@k#4", "unix:@k#1", "unix:@k#3"]},
+            {"id": ("unix:@k", 2), "app": "mykitty", "titles": [], "terminals": []}])
+        self.assertEqual([kitty.address(x) for x in ("unix:@kitty-1", "unix:/run/k.sock", "tcp:localhost:5", "unix:")],
+                         ["\0kitty-1", "/run/k.sock", None, None])
+
+    def test_kitty_is_asked_again_only_when_its_answer_is_old(self):
+        from sidelit import kitty
+        now = [100.0]
+        asked = []
+        answers = {"unix:@a": [{"id": 1, "tabs": [{"is_active": True, "title": "t", "windows": [{"id": 1}]}]}],
+                   "unix:@b": None}  # no remote control there
+
+        def ask(listen):
+            asked.append(listen)
+            return answers[listen]
+        wins = kitty.Windows(ask=ask, clock=lambda: now[0], background=False)
+        first = wins({"unix:@a", "unix:@b"})
+        self.assertEqual(first, [{"app": "kitty", "titles": ["t"], "terminals": ["unix:@a#1"], "since": 100.0}])
+        now[0] = 101.0
+        wins({"unix:@a", "unix:@b"})
+        self.assertEqual(asked, ["unix:@a", "unix:@b"])
+        now[0] = 100.0 + kitty.FRESH_S
+        answers["unix:@a"][0]["tabs"][0]["windows"].append({"id": 2})
+        again = wins({"unix:@a", "unix:@b"})
+        self.assertEqual(asked, ["unix:@a", "unix:@b", "unix:@a"])  # the silent one waits longer
+        self.assertEqual(again[0]["since"], now[0])  # it has another pane now
+        now[0] = 100.0 + kitty.SILENT_S
+        wins({"unix:@a", "unix:@b"})
+        self.assertIn("unix:@b", asked[3:])
+
+    def test_kitty_is_asked_without_holding_up_the_daemon(self):
+        """The first look has nothing yet; the answer is there for the next one."""
+        from sidelit import kitty
+        release = threading.Event()
+
+        def ask(listen):
+            release.wait(2)
+            return [{"id": 1, "tabs": [{"is_active": True, "title": "t", "windows": [{"id": 1}]}]}]
+        wins = kitty.Windows(ask=ask)
+        self.assertEqual(wins({"unix:@a"}), [])
+        release.set()
+        wins._thread.join(2)
+        self.assertEqual([w["terminals"] for w in wins({"unix:@a"})], [["unix:@a#1"]])
+
+    def test_kittys_ls_over_its_socket(self):
+        import socket
+        from sidelit import kitty
+        name = f"sidelit-test-kitty-{os.getpid()}"
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind("\0" + name)
+        srv.listen(1)
+        got = []
+
+        def serve():
+            conn, _ = srv.accept()
+            with conn:
+                buf = b""
+                while not buf.endswith(kitty.SUFFIX):
+                    buf += conn.recv(4096)
+                got.append(json.loads(buf[len(kitty.PREFIX):-len(kitty.SUFFIX)]))
+                reply = {"ok": True, "data": json.dumps([{"id": 1, "tabs": []}])}
+                conn.sendall(kitty.PREFIX + json.dumps(reply).encode() + kitty.SUFFIX)
+        th = threading.Thread(target=serve)
+        th.start()
+        try:
+            self.assertEqual(kitty.ls("unix:@" + name), [{"id": 1, "tabs": []}])
+        finally:
+            th.join(2)
+            srv.close()
+        self.assertEqual(got[0]["cmd"], "ls")
+        self.assertIsNone(kitty.ls("unix:@" + name + "-nobody"))
 
     def test_terminators_windows_are_read_from_its_plugins_files(self):
         from sidelit import terminator
