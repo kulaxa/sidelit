@@ -4,6 +4,18 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.12.3] - 2026-11-04
+
+- Right-click an app's icon to move its window to another workspace, or to a new one right after
+  this one; on a Claude's box, **Move this terminal to**. You stay where you are.
+- A Claude in a kitty split or tab gets its own box, also in a kitty you opened yourself, when
+  kitty's remote control is on (`allow_remote_control socket-only`, `listen_on unix:@kitty`).
+  Before, only the pane in front showed.
+- A pane dragged to another Terminator window keeps its box. Before, it had none until you typed
+  into it again.
+- Claude Code's own helpers no longer count as subagents at work: a box no longer shows twice its
+  subagents, some of them "Model not known yet", or stays busy after the session finished.
+
 ## [0.12.2] - 2026-10-22
 
 - Closing a workspace you are not on keeps its question up: the click on × also switched to that
