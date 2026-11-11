@@ -4,6 +4,14 @@ Entries are a line or two: what changed and what to expect from it. These are
 what a release page shows, so write them for whoever is deciding whether to
 update. The reasoning belongs in the commit message.
 
+## [0.12.4] - 2026-11-11
+
+- Closing a workspace asks just **Close workspace?** in a popover that points at its card, styled
+  like the rest of the sidebar. The card's icons already show what will close.
+- `sidelit new` starts a workspace from a script or a coding agent, and `sidelit terminal` opens a
+  terminal on an existing one; `--no-focus` leaves you where you are. A command after `--` runs in
+  your login shell.
+
 ## [0.12.3] - 2026-11-04
 
 - Right-click an app's icon to move its window to another workspace, or to a new one right after
