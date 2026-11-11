@@ -36,6 +36,13 @@
   its own menu: **Move to** another workspace, or to a new one right after this (on a Claude's
   box, **Move this terminal to**). You stay where you are, and Sidelit keeps the window where
   you put it.
+- **From a script, or from an agent.** `sidelit new --name fix-ci --cwd ~/src -- claude "look
+  into the red pipeline"` does what `+` does, with the terminal running that command in your
+  login shell (your aliases; the shell stays open after it). `sidelit terminal WS -- COMMAND`
+  opens one on a workspace that is already there (`WS`: its id from `sidelit state`, or its
+  number). `--no-focus` keeps you on the workspace you are on: the window opens there and moves
+  over. So a coding agent can hand a side task to a session of its own, on its own card, instead
+  of a subagent.
 - **×** closes the whole workspace: every window on it gets a normal close request (after a
   confirmation listing what will close), the workspace is unpinned and disappears once empty (on
   KDE, the desktop is removed once its windows have closed). A session that was there stays in
@@ -214,6 +221,8 @@ sidelit reapply        # put every window back on its workspace and screen
 sidelit show           # bring a hidden sidebar back (also: hide, toggle)
 sidelit state|layout   # what the daemon sees / keeps, as JSON
 sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N [OUTPUT]
+sidelit new [--name N] [--cwd DIR] [--agent A] [--no-focus] [-- COMMAND]   # a new workspace, as + does; prints its id
+sidelit terminal WS [--cwd DIR] [--no-focus] [-- COMMAND]                    # a terminal on workspace WS
 sidelit open URL       # open a link on the current workspace (above)
 sidelit hooks install|uninstall|status   # Sidelit's plugin, in Claude Code, Codex and OpenCode
 sidelit chrome install|uninstall|status  # the Chrome extension's bridge; which profiles are connected

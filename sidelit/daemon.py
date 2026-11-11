@@ -1066,9 +1066,13 @@ class Daemon:
             self.journal("landed", space=active, title=box["title"], why="you switched to a workspace where a Claude needs you")
             self._go_to(ws, box, sliding=True)
 
-    def _start_on(self, lw, index: int, spec: dict, accepts, what: str, state: dict | None = None):
+    def _start_on(self, lw, index: int, spec: dict, accepts, what: str, state: dict | None = None,
+                  focus: bool = True):
+        """Launch `spec` for workspace lw. With focus, switch there first; without, it opens where
+        you are and expect_window moves it over (you stay put)."""
         now = time.time()
-        self.activate(index)
+        if focus:
+            self.activate(index)
         pid = launch.run(spec, self.cfg)
         if pid is None:
             raise RuntimeError(f"could not start {what}")
@@ -1086,7 +1090,7 @@ class Daemon:
         cwd = params.get("cwd") or lw.cwd or str(Path.home())
         command = params.get("command")
         self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": command}, self._terminal_accepts,
-                       "terminal")
+                       "terminal", focus=params.get("focus") is not False)
         return True
 
     def cmd_webapp(self, params):
@@ -1099,8 +1103,10 @@ class Daemon:
         return True
 
     def cmd_new(self, params):
-        """A new workspace from a template ('+'), or with a given command (resume)."""
+        """A new workspace from a template ('+'), or with a given command (resume). focus: false
+        keeps you on the workspace you are on (a workspace started for later, from a script)."""
         now = time.time()
+        focus = params.get("focus") is not False
         e = self.engine
         tpls = config.templates(self.cfg)
         tpl = next((t for t in tpls if t.get("name") == params.get("template")), tpls[0])
@@ -1113,12 +1119,13 @@ class Daemon:
         if lw is None:
             raise RuntimeError("could not create a pinned workspace (the compositor gave no id)")
         index = e.primary[lw.id].index
-        self._switch(self._space(index))
+        if focus:
+            self._switch(self._space(index))
         if params.get("agent") and params.get("command") is None:  # a new session of that agent
             params = {**params, "command": agents.get(params["agent"]).new_command()}
         if params.get("command") is not None:
             self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": params["command"]},
-                           self._terminal_accepts, "terminal")
+                           self._terminal_accepts, "terminal", focus=focus)
             return lw.id
         steps = tpl.get("steps") or [{"type": "claude"}]
         # the first agent's step ("claude", "codex"), else terminal step, is the workspace's terminal
@@ -1128,14 +1135,14 @@ class Daemon:
         failed = []
         for step in ([first] if first else []) + [s for s in steps if s is not first]:
             try:
-                self._start_step(lw, index, step, cwd, names)
+                self._start_step(lw, index, step, cwd, names, focus=focus)
             except (RuntimeError, ValueError, KeyError) as err:  # (the others still start)
                 failed.append(str(err))
         if failed:
             raise RuntimeError(f"template {tpl.get('name')!r}: " + "; ".join(failed))
         return lw.id
 
-    def _start_step(self, lw, index: int, step: dict, cwd: str, names: set):
+    def _start_step(self, lw, index: int, step: dict, cwd: str, names: set, focus: bool = True):
         """One step of a template (config.DEFAULT_TEMPLATES says which there are)."""
         kind = step.get("type", "app")
         if kind in names or kind == "terminal":
@@ -1145,21 +1152,24 @@ class Daemon:
                 run = agents.get(kind).command
             command = shell_command(run) if run else None
             self._start_on(lw, index, {"type": "terminal", "cwd": cwd, "command": command},
-                           self._terminal_accepts, "terminal")
+                           self._terminal_accepts, "terminal", focus=focus)
         elif kind == "webapp" and step.get("url"):
             self._start_on(lw, index, {"type": "webapp", "url": str(step["url"]), "profile": None},
-                           lambda w: titles.chrome_app_url(w.app) is not None, f"web app {step['url']}")
+                           lambda w: titles.chrome_app_url(w.app) is not None, f"web app {step['url']}",
+                           focus=focus)
         elif kind == "browser":
             urls = [str(u) for u in step.get("urls") or [] if str(u).startswith(("http://", "https://"))]
             argv = shlex.split(launch.browser_new_window()) + urls
-            self._start_on(lw, index, {"type": "exec", "argv": argv, "cwd": cwd}, lambda w: True, "browser window")
+            self._start_on(lw, index, {"type": "exec", "argv": argv, "cwd": cwd}, lambda w: True, "browser window",
+                           focus=focus)
         elif step.get("exec"):
             argv = shlex.split(str(step["exec"]).format(cwd=cwd, browser=launch.browser_new_window()))
             if argv:
-                self._start_on(lw, index, {"type": "exec", "argv": argv, "cwd": cwd}, lambda w: True, argv[0])
+                self._start_on(lw, index, {"type": "exec", "argv": argv, "cwd": cwd}, lambda w: True, argv[0],
+                               focus=focus)
         elif step.get("app"):
             app = str(step["app"])
-            self._start_on(lw, index, {"type": "app", "app": app}, lambda w: w.app == app, app)
+            self._start_on(lw, index, {"type": "app", "app": app}, lambda w: w.app == app, app, focus=focus)
 
     def _template_steps(self, lw) -> list[dict]:
         """What a workspace has open, as a template's steps: a session of each agent there (a new
