@@ -79,10 +79,12 @@ def _start(cmd: str, args: list[str]) -> int:
     """`new` and `terminal`: what the sidebar's '+' and a card's terminal do, from a script (or a
     coding agent starting a session of its own). --no-focus leaves you on the workspace you are on."""
     import argparse
+    import pwd
     import shlex
     from sidelit import ipc
-    import pwd
-    p = argparse.ArgumentParser(prog=f"sidelit {cmd}")
+    p = argparse.ArgumentParser(prog=f"sidelit {cmd}", usage=f"sidelit {cmd} "
+                                + ("WS" if cmd == "terminal" else "[--name N] [--agent A] [--template T]")
+                                + " [--cwd DIR] [--no-focus] [-- COMMAND]")
     if cmd == "terminal":
         p.add_argument("ws", help="the workspace: its id (sidelit state) or its number")
     else:
@@ -91,9 +93,10 @@ def _start(cmd: str, args: list[str]) -> int:
         p.add_argument("--template", help="this template instead of the default one")
     p.add_argument("--cwd", default="")
     p.add_argument("--no-focus", action="store_true", help="stay on the workspace you are on")
-    p.add_argument("command", nargs=argparse.REMAINDER, help="a shell command (after --)")
-    a = p.parse_args(args)
-    words = a.command[1:] if a.command[:1] == ["--"] else a.command
+    # COMMAND is everything after --, split off by hand: argparse's REMAINDER after a positional
+    # (terminal's WS) would take the options as part of the command
+    cut = args.index("--") if "--" in args else len(args)
+    a, words = p.parse_args(args[:cut]), args[cut + 1:]
     params: dict = {"focus": not a.no_focus}
     if a.cwd:
         # (bin/sidelit runs us from its own folder: a relative --cwd is the caller's)
