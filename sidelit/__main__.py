@@ -22,6 +22,11 @@ USAGE = """usage: sidelit <command>
   hooks install|uninstall|status   Sidelit's plugin in each coding agent (Claude Code, Codex, OpenCode), which
                                    reports each session's status, and in Terminator, which shows its tab or split
   chrome install|uninstall|status  the bridge to the Chrome extension (windows and their tabs)
+  new [--name N] [--cwd DIR] [--agent A] [--no-focus] [-- COMMAND]
+                           a new workspace: the default template, a new session of agent A, or a
+                           terminal running COMMAND (its shell stays open after); prints its id
+  terminal WS [--cwd DIR] [--no-focus] [-- COMMAND]
+                           a terminal on workspace WS (an id from `state`, or a number), same COMMAND
   ws ...                   talk to the compositor directly (list, toplevels, activate N, ...)
   open [--app] URL         open a link on the workspace you are looking at
   moveover                 take over from an install under this project's old name (`start` does it once)
@@ -66,6 +71,47 @@ def _ctl(cmd: str, args: list[str]) -> int:
     elif isinstance(result, (dict, list)):
         print(json.dumps(result, indent=2, ensure_ascii=False))
     elif result is not None:
+        print(result)
+    return 0
+
+
+def _start(cmd: str, args: list[str]) -> int:
+    """`new` and `terminal`: what the sidebar's '+' and a card's terminal do, from a script (or a
+    coding agent starting a session of its own). --no-focus leaves you on the workspace you are on."""
+    import argparse
+    import shlex
+    from sidelit import ipc
+    import pwd
+    p = argparse.ArgumentParser(prog=f"sidelit {cmd}")
+    if cmd == "terminal":
+        p.add_argument("ws", help="the workspace: its id (sidelit state) or its number")
+    else:
+        p.add_argument("--name", default="")
+        p.add_argument("--agent", help="a new session of this agent (claude, codex, opencode)")
+        p.add_argument("--template", help="this template instead of the default one")
+    p.add_argument("--cwd", default="")
+    p.add_argument("--no-focus", action="store_true", help="stay on the workspace you are on")
+    p.add_argument("command", nargs=argparse.REMAINDER, help="a shell command (after --)")
+    a = p.parse_args(args)
+    words = a.command[1:] if a.command[:1] == ["--"] else a.command
+    params: dict = {"focus": not a.no_focus}
+    if a.cwd:
+        # (bin/sidelit runs us from its own folder: a relative --cwd is the caller's)
+        params["cwd"] = os.path.join(os.environ.get("SIDELIT_CALLER_CWD") or os.getcwd(), os.path.expanduser(a.cwd))
+        params["cwd"] = os.path.normpath(params["cwd"])
+    if words:  # in your interactive shell (your aliases), which stays open when it ends
+        # (your login shell, not $SHELL: a coding agent's tool shell sets that to its own)
+        shell = pwd.getpwuid(os.getuid()).pw_shell or "/bin/sh"
+        params["command"] = f"{shell} -i -c {shlex.quote(' '.join(words) + f'; exec {shell} -i')}"
+    if cmd == "terminal":
+        params["space" if a.ws.isdigit() else "ws"] = int(a.ws) if a.ws.isdigit() else a.ws
+    else:
+        params.update({k: v for k, v in (("name", a.name), ("agent", a.agent), ("template", a.template)) if v})
+    try:
+        result = ipc.call(cmd, **params)
+    except (ConnectionError, RuntimeError) as e:
+        sys.exit(f"sidelit {cmd}: {e}")
+    if cmd == "new":
         print(result)
     return 0
 
@@ -153,6 +199,8 @@ def main(argv=None):
         return fork_here(argv[1] if len(argv) > 1 else "")
     if cmd in ("show", "hide", "toggle"):
         return _show(cmd)
+    if cmd in ("new", "terminal"):
+        return _start(cmd, argv[1:])
     if cmd in ("state", "layout", "why", "restore", "reapply", "reload", "ping"):
         return _ctl(cmd, argv[1:])
     sys.exit(USAGE)

@@ -125,7 +125,7 @@ class Templates(unittest.TestCase):
     def test_each_step_starts_its_window(self):
         d = object.__new__(daemon.Daemon)
         started = []
-        d._start_on = lambda lw, index, spec, accepts, what, state=None: started.append(spec)
+        d._start_on = lambda lw, index, spec, accepts, what, state=None, focus=True: started.append(spec)
         with mock.patch.object(daemon.launch, "browser_new_window", return_value="chrome --new-window"):
             for step in ({"type": "browser", "urls": ["https://a.example", "javascript:alert(1)"]},
                          {"type": "webapp", "url": "https://discord.com/app"},
@@ -587,6 +587,47 @@ class TerminatorConfig(unittest.TestCase):
         self.assertEqual(t.enabled_plugins(t.with_plugin("", True)), t.DEFAULT_PLUGINS + ["SidelitTerminator"])
         self.assertIsNone(t.enabled_plugins("[profiles]\n  enabled_plugins = X\n"))  # (another section's)
         self.assertEqual(t.with_plugin("[profiles]\n", False), "[profiles]\n")
+
+
+@unittest.skipIf(daemon is None, "needs GLib")
+class StartFromAScript(unittest.TestCase):
+    """`sidelit new` / `terminal` with --no-focus (a coding agent starting a session of its own):
+    the workspace and its terminal are made, and you stay on the workspace you are on."""
+
+    def setUp(self):
+        d = object.__new__(daemon.Daemon)
+        d.cfg = {}
+        d.engine = mock.Mock()
+        d.engine.create_workspace.return_value = mock.Mock(id="wN", cwd="/src")
+        d.engine.primary = {"wN": mock.Mock(index=7)}
+        d._space = mock.Mock(return_value="space-7")
+        d._switch = mock.Mock()
+        d.activate = mock.Mock()
+        d._lw_for = mock.Mock(return_value=(mock.Mock(cwd="/src"), 3))
+        self.d = d
+
+    def _launch(self, params, method="cmd_new"):
+        with mock.patch.object(daemon.launch, "run", return_value=123) as run:
+            result = getattr(self.d, method)(params)
+        return result, run.call_args.args[0]
+
+    def test_a_new_workspace_with_a_command_switches_there_by_default(self):
+        result, spec = self._launch({"name": "fix", "cwd": "/src", "command": "zsh -i -c 'claude'"})
+        self.assertEqual((result, spec["command"], spec["cwd"]), ("wN", "zsh -i -c 'claude'", "/src"))
+        self.d._switch.assert_called_once_with("space-7")
+        self.d.activate.assert_called_once_with(7)
+        self.d.engine.expect_window.assert_called_once()
+
+    def test_without_focus_you_stay_and_the_window_is_still_expected_there(self):
+        self._launch({"name": "fix", "cwd": "/src", "command": "claude", "focus": False})
+        self.d._switch.assert_not_called()
+        self.d.activate.assert_not_called()
+        self.assertEqual(self.d.engine.expect_window.call_args.args[0], "wN")
+
+    def test_a_terminal_on_a_workspace_without_focus(self):
+        result, spec = self._launch({"ws": "wA", "command": "claude", "focus": False}, "cmd_terminal")
+        self.assertEqual((result, spec["cwd"]), (True, "/src"))
+        self.d.activate.assert_not_called()
 
 
 @unittest.skipIf(daemon is None, "needs GLib")

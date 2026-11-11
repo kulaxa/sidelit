@@ -19,6 +19,10 @@
 #   sidelit chrome install|uninstall|status  the bridge to the Chrome extension
 #   sidelit daemon|sidebar   run one in the foreground (the units do this)
 #   sidelit ws list|toplevels|activate N|new NAME|pin N|unpin N|move A before|after B|movewin TITLE N
+#   sidelit new [--name N] [--cwd DIR] [--agent A] [--no-focus] [-- COMMAND]
+#                            a new workspace (the default template, a session of agent A, or COMMAND
+#                            in a terminal); prints its id. --no-focus: you stay where you are
+#   sidelit terminal WS [--cwd DIR] [--no-focus] [-- COMMAND]   a terminal on workspace WS
 #   sidelit open URL         open a link in the browser window on the current workspace
 #                            (or a new window there); also installed as sidelit-open
 #   sidelit moveover         take over from this project's old install (start does it once)
@@ -56,6 +60,9 @@ case ":${PYTHONPATH-}:" in
     *) PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}" ;;
 esac
 export PYTHONPATH
+# (where you ran us from, for a relative --cwd of `new` and `terminal`)
+SIDELIT_CALLER_CWD=$PWD
+export SIDELIT_CALLER_CWD
 # Work from $root: `python3 -m` imports from the current directory first, so started inside
 # another checkout of Sidelit, that checkout's package would run instead (set -e stops us if
 # the cd fails).
@@ -232,7 +239,7 @@ case ${1-start} in
     --foreground|-F)
         exec python3 -m sidelit sidebar
         ;;
-    ws|open|state|layout|why|restore|reapply|reload|ping|hooks|chrome|moveover|show|hide|toggle)
+    ws|open|state|layout|why|restore|reapply|reload|ping|hooks|chrome|moveover|show|hide|toggle|new|terminal)
         exec python3 -m sidelit "$@"
         ;;
     --version|version)
