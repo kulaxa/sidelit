@@ -1808,7 +1808,7 @@ class Sidebar(Gtk.Window, SidebarLogic):
         question = close_question(tab)
         if question:
             d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
-                                  buttons=Gtk.ButtonsType.OK_CANCEL, text=question[0], secondary_text=question[1])
+                                  buttons=Gtk.ButtonsType.OK_CANCEL, text=question)
             resp = d.run()
             d.destroy()
             if resp != Gtk.ResponseType.OK:

@@ -257,15 +257,7 @@ class CommonTest(unittest.TestCase):
 
     def test_closing_asks_only_when_there_are_windows(self):
         self.assertIsNone(sidebar_common.close_question({"windows": []}))
-        q, detail = sidebar_common.close_question({"claudes": [{"title": "Fix"}],
-                                                   "windows": [{"app": "google-chrome"}, {"app": "x.Terminator"}]})
-        self.assertEqual(q, "Close workspace – Fix?")
-        self.assertIn("2 windows (Terminator, chrome)", detail)
-        self.assertIn("A Claude Code session stays", detail)
-        q, detail = sidebar_common.close_question({"cwd": "/src/pricing", "claudes": [{"title": "A"}, {"title": "B"}],
-                                                   "windows": [{"app": "terminator"}, {"app": "terminator"}]})
-        self.assertEqual(q, "Close workspace – pricing?")
-        self.assertIn("Its Claude Code sessions stay", detail)
+        self.assertEqual(sidebar_common.close_question({"windows": [{"app": "kitty"}]}), "Close workspace?")
 
     def test_history_lines_and_search(self):
         title, sub, needle, _ = sidebar_common.history_lines(
