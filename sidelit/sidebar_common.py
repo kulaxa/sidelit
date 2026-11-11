@@ -610,21 +610,10 @@ def move_label(tab: dict) -> str:
     return f"{tab['space']}   {short(what, 40)}"
 
 
-def close_question(tab: dict) -> tuple[str, str] | None:
-    """Closing a workspace with windows asks first: (question, what it closes); None closes
-    straight away."""
-    windows = tab.get("windows") or []
-    if not windows:
-        return None
-    claudes = [c for c in tab.get("claudes") or [] if c.get("title")]
-    name = tab.get("name") or (claudes[0]["title"] if len(claudes) == 1 else folder_name(tab.get("cwd")))
-    apps = sorted({(w.get("app") or "?").rsplit(".", 1)[-1].replace("google-", "") for w in windows})
-    labels = {agents.get(c.get("agent")).label for c in tab.get("claudes") or []} or {agents.get(None).label}
-    kind = f"{labels.pop()} session" if len(labels) == 1 else "session"
-    kept = f"Its {kind}s stay" if len(tab.get("claudes") or []) > 1 else f"A {kind} stays"
-    return (f"Close workspace{' – ' + name if name else ''}?",
-            f"Closes {len(windows)} window{'s' if len(windows) != 1 else ''} ({', '.join(apps)}). {kept}"
-            f" in Recent sessions (right-click the header).")
+def close_question(tab: dict) -> str | None:
+    """Closing a workspace with windows asks first; None closes straight away. The question
+    hangs off the card, whose icons already say what closes, so it says no more."""
+    return "Close workspace?" if tab.get("windows") else None
 
 
 # A menu, for either toolkit: entries are (label, callback), (label, None) for a line that only
